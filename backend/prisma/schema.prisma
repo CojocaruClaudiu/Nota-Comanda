@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id                    String   @id @default(uuid())
+  name                  String
+  location              String
+  contact               String
+  registrulComertului   String?  @unique
+  cif                   String?  @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Employee {
+  id             String   @id @default(uuid())
+  name           String
+  qualifications String[] // multiple qualifications (Postgres text[])
+  hiredAt        DateTime
+  birthDate      DateTime?   // 👈 NEW (optional)
+  leaves   Leave[]
+  cars       Car[]           // 👈 employee can drive multiple cars (optional)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Leave {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  startDate  DateTime
+  endDate    DateTime?
+  days       Int       // number of paid leave days for this request
+  note       String?
+
+  createdAt DateTime @default(now())
+}
+
+enum FuelType {
+  MOTORINA
+  BENZINA
+  BENZINA_GPL
+  HIBRID_MOTORINA
+  HIBRID_BENZINA
+  ELECTRIC
+  ALT        // fallback if needed
+}
+
+model Car {
+  id            String   @id @default(uuid())
+
+  // Identity
+  vin           String   @unique
+  marca         String
+  model         String
+  an            Int
+  culoare       String?
+  placute       String   @unique       // license plate (unique per car)
+
+  // Driver (optional link to Employee) + free-text note
+  driverId      String?
+  driver        Employee? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  driverNote    String?                  // e.g. “RCA cu decontare directă”
+
+  // Specs
+  combustibil   FuelType?
+
+  // Expirations (stored as dates; “days left” is computed in app)
+  expItp        DateTime?
+  expRca        DateTime?
+  expRovi       DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Helpful indexes for sorting/filtering by upcoming expirations
+  @@index([expItp])
+  @@index([expRca])
+  @@index([expRovi])
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  roles        UserRole[]
+}
+
+model Role {
+  id    Int        @id @default(autoincrement())
+  name  RoleName   @unique
+  users UserRole[]
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+enum RoleName {
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}

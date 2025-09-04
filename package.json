@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "notistack": "^3.0.2",
+    "xlsx": "^0.18.5"
+  }
+}
