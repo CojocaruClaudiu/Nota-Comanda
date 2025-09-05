@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,79 +8,58 @@ datasource db {
 }
 
 model Client {
-  id                    String   @id @default(uuid())
-  name                  String
-  location              String
-  contact               String
-  registrulComertului   String?  @unique
-  cif                   String?  @unique
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  name                String
+  location            String
+  contact             String
+  registrulComertului String?  @unique
+  cif                 String?  @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model Employee {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   name           String
-  qualifications String[] // multiple qualifications (Postgres text[])
+  cnp            String?  @unique // Cod Numeric Personal
+  qualifications String[]
   hiredAt        DateTime
-  birthDate      DateTime?   // 👈 NEW (optional)
-  leaves   Leave[]
-  cars       Car[]           // 👈 employee can drive multiple cars (optional)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  birthDate      DateTime?
+  cars           Car[]
+  leaves         Leave[]
 }
 
 model Leave {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
   startDate  DateTime
   endDate    DateTime?
-  days       Int       // number of paid leave days for this request
+  days       Int
   note       String?
-
-  createdAt DateTime @default(now())
-}
-
-enum FuelType {
-  MOTORINA
-  BENZINA
-  BENZINA_GPL
-  HIBRID_MOTORINA
-  HIBRID_BENZINA
-  ELECTRIC
-  ALT        // fallback if needed
+  createdAt  DateTime  @default(now())
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 }
 
 model Car {
-  id            String   @id @default(uuid())
+  id          String    @id @default(uuid())
+  vin         String    @unique
+  marca       String
+  model       String
+  an          Int
+  culoare     String?
+  placute     String    @unique
+  driverId    String?
+  driverNote  String?
+  combustibil FuelType?
+  expItp      DateTime?
+  expRca      DateTime?
+  expRovi     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  driver      Employee? @relation(fields: [driverId], references: [id])
 
-  // Identity
-  vin           String   @unique
-  marca         String
-  model         String
-  an            Int
-  culoare       String?
-  placute       String   @unique       // license plate (unique per car)
-
-  // Driver (optional link to Employee) + free-text note
-  driverId      String?
-  driver        Employee? @relation(fields: [driverId], references: [id], onDelete: SetNull)
-  driverNote    String?                  // e.g. “RCA cu decontare directă”
-
-  // Specs
-  combustibil   FuelType?
-
-  // Expirations (stored as dates; “days left” is computed in app)
-  expItp        DateTime?
-  expRca        DateTime?
-  expRovi       DateTime?
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Helpful indexes for sorting/filtering by upcoming expirations
   @@index([expItp])
   @@index([expRca])
   @@index([expRovi])
@@ -111,10 +84,20 @@ model Role {
 model UserRole {
   userId Int
   roleId Int
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+}
+
+enum FuelType {
+  MOTORINA
+  BENZINA
+  BENZINA_GPL
+  HIBRID_MOTORINA
+  HIBRID_BENZINA
+  ELECTRIC
+  ALT
 }
 
 enum RoleName {

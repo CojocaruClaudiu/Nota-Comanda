@@ -20,6 +20,7 @@ export type EmployeeWithStats = Employee & {
 
 export type EmployeePayload = {
   name: string;
+  cnp: string;
   qualifications?: string[];
   hiredAt: string;             // ISO
   birthDate?: string | null;   // 👈 NEW

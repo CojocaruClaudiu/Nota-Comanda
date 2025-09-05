@@ -1,0 +1,217 @@
+// src/App.tsx
+import * as React from "react";
+import { SnackbarProvider } from "notistack";
+import { RouterProvider, createBrowserRouter, Outlet, ScrollRestoration } from "react-router-dom";
+import { Box } from "@mui/material";
+
+import { AuthProvider } from "./modules/auth/AuthContext";
+import LoginPage from "./modules/auth/LoginPage";
+import { RequireAuth } from "./modules/auth/RequireAuth";
+import { RequireRole } from "./modules/auth/RequireRole";
+
+import { LandingPage } from "./modules/LandingPage";
+import { ClientsTable } from "./modules/clients/ClientsTable";
+import TeamPage from "./modules/team/teamPage";
+import HolidayCalendarPage from "./modules/team/HolidayCalendarPage";
+import FlotaPage from "./modules/auto/carPage";
+import CarCalendarPage from "./modules/auto/carCalendarPage";
+import OfferPage from "./modules/offer/OfferPage";
+import NotFound from "./modules/NotFound";
+
+function AppLayout() {
+  return (
+    <Box sx={{ height: "100vh", width: "100vw" }}>
+      <ScrollRestoration />
+      <Outlet />
+    </Box>
+  );
+}
+
+const router = createBrowserRouter([
+  {
+    element: <AppLayout />,
+    errorElement: <NotFound />,
+    children: [
+      { path: "/login", element: <LoginPage /> },
+      {
+        index: true,
+        element: (
+          <RequireAuth>
+            <LandingPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "clients",
+        element: (
+          <RequireAuth>
+            <ClientsTable />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "echipa",
+        element: (
+          <RequireAuth>
+            <TeamPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "calendar",
+        element: (
+          <RequireAuth>
+            <HolidayCalendarPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "flota-auto",
+        element: (
+          <RequireAuth>
+            <FlotaPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "calendar-auto",
+        element: (
+          <RequireAuth>
+            <CarCalendarPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "ofertare",
+        element: (
+          <RequireAuth>
+            <RequireRole roles={["ADMIN", "MANAGER"]}>
+              <OfferPage />
+            </RequireRole>
+          </RequireAuth>
+        ),
+      },
+    ],
+  },
+]);
+
+export default function App() {
+  return (
+    <SnackbarProvider maxSnack={3} autoHideDuration={3000} preventDuplicate anchorOrigin={{ vertical: "bottom", horizontal: "right" }}>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </SnackbarProvider>
+  );
+}
+
+
+
+
+
+
+
+
+
+app.tsx -------------------------
+
+
+import * as React from "react";
+import { SnackbarProvider } from "notistack";
+import { OrdersProvider } from "./modules/orders/OrderContext";
+import { LandingPage } from "./modules/LandingPage";
+import { ClientsTable } from "./modules/clients/ClientsTable";
+import TeamPage from "./modules/team/teamPage";
+import HolidayCalendarPage from "./modules/team/HolidayCalendarPage";
+import FlotaPage from "./modules/auto/carPage";
+import CarCalendarPage from "./modules/auto/carCalendarPage";
+import OfferPage from "./modules/offer/OfferPage";
+import { ErrorBoundary } from "./modules/ErrorBoundary";
+
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Outlet,
+  ScrollRestoration,
+} from "react-router-dom";
+
+import { Box } from "@mui/material";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import NotFound from "./modules/NotFound";
+
+// Optional: a tiny app layout wrapper
+function AppLayout() {
+  return (
+    <Box sx={{ height: "100vh", width: "100vw" }}>
+      <ScrollRestoration />
+      <Outlet />
+    </Box>
+  );
+}
+
+const router = createBrowserRouter(
+  [
+    {
+      element: <AppLayout />,
+      errorElement: <NotFound />, // catches 404s & route errors
+      children: [
+        { index: true, element: <LandingPage /> },
+        { path: "clients", element: <ClientsTable /> },
+        { path: "echipa", element: <TeamPage /> },
+        { path: "calendar", element: <HolidayCalendarPage /> },
+        { path: "flota-auto", element: <FlotaPage /> },
+        { path: "calendar-auto", element: <CarCalendarPage /> },
+        { path: "ofertare", element: <OfferPage /> },
+        // you can add nested routes like "clients/*" later without extra 404 wiring
+      ],
+    },
+  ],
+  {
+    // if the app lives under a subpath, set basename here:
+    // basename: import.meta.env.BASE_URL
+  }
+);
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <SnackbarProvider
+        maxSnack={3}
+        autoHideDuration={3000}
+        preventDuplicate
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+      >
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <OrdersProvider>
+            <RouterProvider router={router} />
+          </OrdersProvider>
+        </LocalizationProvider>
+      </SnackbarProvider>
+    </ErrorBoundary>
+  );
+}
+
+-------------------------------- .env 
+
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/nota?schema=public"
+PORT=4000
+
+--------------------------docker yml
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nota
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+
+
+ce ii spuneam eu ca trebuie  i've created the drump  i changed my app.tsx Failed to load resource: the server responded with a status of 401 (Unauthorized) 

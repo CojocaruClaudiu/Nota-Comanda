@@ -1,6 +1,14 @@
-import * as React from "react";
+// App.tsx
 import { SnackbarProvider } from "notistack";
-import { OrdersProvider } from "./modules/orders/OrderContext";
+import { RouterProvider, createBrowserRouter, Outlet, ScrollRestoration } from "react-router-dom";
+import { Box } from "@mui/material";
+import TopBar from "./modules/topBar/TopBar";
+
+import { AuthProvider } from "./auth/AuthContext";
+import LoginPage from "./auth/LoginPage";
+import { RequireAuth } from "./auth/RequireAuth";
+import { RequireRole } from "./auth/RequireRole";
+
 import { LandingPage } from "./modules/LandingPage";
 import { ClientsTable } from "./modules/clients/ClientsTable";
 import TeamPage from "./modules/team/teamPage";
@@ -8,68 +16,110 @@ import HolidayCalendarPage from "./modules/team/HolidayCalendarPage";
 import FlotaPage from "./modules/auto/carPage";
 import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
-import { ErrorBoundary } from "./modules/ErrorBoundary";
-
-import {
-  createBrowserRouter,
-  RouterProvider,
-  Outlet,
-  ScrollRestoration,
-} from "react-router-dom";
-
-import { Box } from "@mui/material";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import NotFound from "./modules/NotFound";
 
-// Optional: a tiny app layout wrapper
 function AppLayout() {
   return (
-    <Box sx={{ height: "100vh", width: "100vw" }}>
-      <ScrollRestoration />
-      <Outlet />
+    <Box
+      sx={{
+        height: "100dvh",
+        width: "100vw",
+        display: "grid",
+        gridTemplateRows: "auto 1fr",  // TopBar + content
+        overflow: "hidden",
+      }}
+    >
+      <TopBar />
+      <Box sx={{ minHeight: 0, overflow: "hidden" }}>
+        <ScrollRestoration />
+        <Outlet />
+      </Box>
     </Box>
   );
 }
 
-const router = createBrowserRouter(
-  [
-    {
-      element: <AppLayout />,
-      errorElement: <NotFound />, // catches 404s & route errors
-      children: [
-        { index: true, element: <LandingPage /> },
-        { path: "clients", element: <ClientsTable /> },
-        { path: "echipa", element: <TeamPage /> },
-        { path: "calendar", element: <HolidayCalendarPage /> },
-        { path: "flota-auto", element: <FlotaPage /> },
-        { path: "calendar-auto", element: <CarCalendarPage /> },
-        { path: "ofertare", element: <OfferPage /> },
-        // you can add nested routes like "clients/*" later without extra 404 wiring
-      ],
-    },
-  ],
+
+const router = createBrowserRouter([
+  // --- LOGIN route is OUTSIDE the AppLayout
+  { path: "/login", element: <LoginPage /> },
+
   {
-    // if the app lives under a subpath, set basename here:
-    // basename: import.meta.env.BASE_URL
-  }
-);
+    element: <AppLayout />,
+    errorElement: <NotFound />,
+    children: [
+      {
+        index: true,
+        element: (
+          <RequireAuth>
+            <LandingPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "clients",
+        element: (
+          <RequireAuth>
+            <ClientsTable />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "echipa",
+        element: (
+          <RequireAuth>
+            <TeamPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "calendar",
+        element: (
+          <RequireAuth>
+            <HolidayCalendarPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "flota-auto",
+        element: (
+          <RequireAuth>
+            <FlotaPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "calendar-auto",
+        element: (
+          <RequireAuth>
+            <CarCalendarPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "ofertare",
+        element: (
+          <RequireAuth>
+            <RequireRole roles={["ADMIN", "MANAGER"]}>
+              <OfferPage />
+            </RequireRole>
+          </RequireAuth>
+        ),
+      },
+    ],
+  },
+]);
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <SnackbarProvider
-        maxSnack={3}
-        autoHideDuration={3000}
-        preventDuplicate
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-      >
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <OrdersProvider>
-            <RouterProvider router={router} />
-          </OrdersProvider>
-        </LocalizationProvider>
-      </SnackbarProvider>
-    </ErrorBoundary>
+    <SnackbarProvider
+      maxSnack={3}
+      autoHideDuration={3000}
+      preventDuplicate
+      anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+    >
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </SnackbarProvider>
   );
 }

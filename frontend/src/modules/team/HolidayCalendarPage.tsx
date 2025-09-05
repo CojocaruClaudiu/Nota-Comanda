@@ -15,7 +15,53 @@ import 'dayjs/locale/ro';
 import { getEmployees, getLeaves, type EmployeeWithStats, type Leave } from '../../api/employees';
 import useNotistack from '../orders/hooks/useNotistack';
 
-const addDays = (iso: string, n: number) => dayjs(iso).add(n, 'day').format('YYYY-MM-DD');
+dayjs.locale('ro');
+
+/* ---------- helpers ---------- */
+
+// format YYYY-MM-DD
+const iso = (d: dayjs.Dayjs) => d.format('YYYY-MM-DD');
+const addDays = (isoStr: string, n: number) => dayjs(isoStr).add(n, 'day').format('YYYY-MM-DD');
+
+const isWeekend = (d: dayjs.Dayjs) => {
+  const dow = d.day(); // 0=Sun … 6=Sat
+  return dow === 0 || dow === 6;
+};
+
+/**
+ * Split a (start, businessDays) interval into weekday-only segments,
+ * each segment not crossing a weekend. Returns [{start, endExclusive}, ...].
+ */
+const splitIntoWeekdaySegments = (startISO: string, businessDays: number) => {
+  const segments: Array<{ start: string; end: string }> = [];
+  if (!businessDays || businessDays <= 0) return segments;
+
+  let cursor = dayjs(startISO).startOf('day');
+
+  // skip if start on weekend
+  while (isWeekend(cursor)) cursor = cursor.add(1, 'day');
+
+  while (businessDays > 0) {
+    // number of weekdays remaining in current week (Fri included)
+    const dow = cursor.day(); // 1..5 are Mon..Fri
+    const weekdaysLeftInWeek = Math.max(1, 5 - (dow === 0 ? 7 : dow) + 1); // for Mon=1 ->5, Fri=5 ->1
+
+    const take = Math.min(businessDays, weekdaysLeftInWeek);
+
+    const segStart = cursor;
+    const segEndExclusive = cursor.add(take, 'day'); // FullCalendar uses exclusive end
+    segments.push({ start: iso(segStart), end: iso(segEndExclusive) });
+
+    businessDays -= take;
+    cursor = segEndExclusive;
+
+    // jump over weekend to Monday
+    if (cursor.day() === 6) cursor = cursor.add(2, 'day'); // landed on Sat -> to Mon
+    if (cursor.day() === 0) cursor = cursor.add(1, 'day'); // landed on Sun -> to Mon
+  }
+
+  return segments;
+};
 
 // deterministic vibrant color per employee
 const colorFromString = (s: string) => {
@@ -33,10 +79,12 @@ const stripDiacritics = (s: string) =>
 
 const LS_KEY = 'holidayCalendar.selectedEmployeeIds';
 
+/* ---------- component ---------- */
+
 export default function HolidayCalendarPage() {
   const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
   const [allEvents, setAllEvents] = useState<EventInput[]>([]);
-  const [selected, setSelected] = useState<string[]>([]); // employee IDs
+  const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,9 +138,7 @@ export default function HolidayCalendarPage() {
   }, [filteredEvents, viewStart, viewEnd]);
 
   const toggleEmployee = (id: string, only = false) =>
-    setSelected(prev =>
-      only ? [id] : (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-    );
+    setSelected(prev => (only ? [id] : (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])));
 
   const selectAll = () => setSelected(employees.map(e => e.id));
   const clearAll = () => setSelected([]);
@@ -119,22 +165,32 @@ export default function HolidayCalendarPage() {
         firstLoadRef.current = false;
       }
 
-      // leaves in parallel
+      // Build events: split each leave into weekday-only segments
       const leavesPerEmp = await Promise.all(
         emps.map(async e => {
           const leaves: Leave[] = await getLeaves(e.id);
           const color = colorFromString(e.id);
-          return leaves.map(lv => ({
-            id: lv.id,
-            title: e.name,
-            start: lv.startDate,
-            end: addDays(lv.startDate, lv.days), // FullCalendar end is exclusive
-            display: 'block',
-            backgroundColor: color,
-            borderColor: color,
-            classNames: ['vacation-pill'],
-            extendedProps: { note: lv.note, employee: e.name, employeeId: e.id },
-          }) as EventInput);
+
+          const eventsForEmp: EventInput[] = [];
+          for (const lv of leaves) {
+            // If your backend ever stores endDate, you could use it to double-check,
+            // but we trust (startDate, days) and split by weekdays here:
+            const segments = splitIntoWeekdaySegments(lv.startDate, lv.days || 0);
+            for (const seg of segments) {
+              eventsForEmp.push({
+                id: `${lv.id}__${seg.start}`,
+                title: e.name,
+                start: seg.start,
+                end: seg.end, // exclusive
+                display: 'block',
+                backgroundColor: color,
+                borderColor: color,
+                classNames: ['vacation-pill'],
+                extendedProps: { note: lv.note, employee: e.name, employeeId: e.id },
+              } as EventInput);
+            }
+          }
+          return eventsForEmp;
         })
       );
 
@@ -164,12 +220,7 @@ export default function HolidayCalendarPage() {
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
           <Typography variant="h5">Calendar concedii</Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-            <DatePicker
-              label="Sari la dată"
-              format="DD/MM/YYYY"
-              onChange={gotoDate}
-              slotProps={{ textField: { size: 'small' } }}
-            />
+            <DatePicker label="Sari la dată" format="DD/MM/YYYY" onChange={gotoDate} slotProps={{ textField: { size: 'small' } }} />
             <Button size="small" variant="outlined" onClick={() => changeView('dayGridMonth')}>Lună</Button>
             <Button size="small" variant="outlined" onClick={() => changeView('dayGridWeek')}>Săptămână</Button>
             <Button size="small" variant="contained" onClick={gotoToday}>Astăzi</Button>
@@ -256,14 +307,13 @@ export default function HolidayCalendarPage() {
             height="100%"
             locale={roLocale}
             firstDay={1}
-            headerToolbar={{ left: 'prev,next', center: 'title', right: '' }} // we control view via our buttons
+            headerToolbar={{ left: 'prev,next', center: 'title', right: '' }} // custom buttons above
             events={visibleEvents}
             dayMaxEvents={3}
             eventOverlap
-            eventOrder="title,start" // stable ordering
+            eventOrder="title,start"
             datesSet={onDatesSet}
             eventContent={(arg) => {
-              // custom pill: "Name • (note dot)"
               const note = arg.event.extendedProps['note'] as string | undefined;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -281,7 +331,7 @@ export default function HolidayCalendarPage() {
               const note = info.event.extendedProps['note'];
               const name = info.event.extendedProps['employee'] || info.event.title;
               const start = dayjs(info.event.start!).format('DD/MM/YYYY');
-              const end = dayjs(info.event.end!).subtract(1, 'day').format('DD/MM/YYYY');
+              const end = dayjs(info.event.end!).subtract(1, 'day').format('DD/MM/YYYY'); // exclusive -> inclusive
               const tooltip = `${name}: ${start} – ${end}${note ? `\n${note}` : ''}`;
               info.el.setAttribute('title', tooltip);
             }}

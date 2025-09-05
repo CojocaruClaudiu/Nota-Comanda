@@ -20,16 +20,25 @@ import { alpha } from "@mui/material/styles";
 import { useNavigate } from "react-router-dom";
 import useNotistack from "./orders/hooks/useNotistack";
 
-// Icons
+// Icons (refined set)
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
-import HandymanRoundedIcon from "@mui/icons-material/HandymanRounded";
-import BuildCircleRoundedIcon from "@mui/icons-material/BuildCircleRounded";
-import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
-import LocationOnRoundedIcon from "@mui/icons-material/LocationOnRounded";
-import WorkOutlineRoundedIcon from "@mui/icons-material/WorkOutlineRounded";
+import ConstructionRoundedIcon from "@mui/icons-material/ConstructionRounded";
+import CategoryRoundedIcon from "@mui/icons-material/CategoryRounded";
+import StoreRoundedIcon from "@mui/icons-material/StoreRounded";
+import FactoryRoundedIcon from "@mui/icons-material/FactoryRounded";
+import Groups2RoundedIcon from "@mui/icons-material/Groups2Rounded";
+import PlaceRoundedIcon from "@mui/icons-material/PlaceRounded";
+import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import EngineeringRoundedIcon from "@mui/icons-material/EngineeringRounded";
+import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
+import WorkspacePremiumRoundedIcon from "@mui/icons-material/WorkspacePremiumRounded";
+import ListAltRoundedIcon from "@mui/icons-material/ListAltRounded";
+import DirectionsCarFilledRoundedIcon from "@mui/icons-material/DirectionsCarFilledRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
+import RequestQuoteRoundedIcon from "@mui/icons-material/RequestQuoteRounded";
+import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
-import DirectionsCarFilledRoundedIcon from "@mui/icons-material/DirectionsCarFilledRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 
 // ---------- Types
@@ -37,15 +46,19 @@ type ActionItem = {
   label: string;
   icon?: React.ReactNode;
   variant?: "contained" | "outlined" | "text";
-  to?: string;             // route to navigate to
-  soonLabel?: string;      // if present, triggers "în curând"
+  to?: string;
+  soonLabel?: string;
   minWidth?: number;
-  keywords?: string[];     // for command search
+  keywords?: string[];
+  tooltip?: string;
 };
+
+type BadgeColor = "primary" | "secondary" | "success" | "warning" | "info" | "error";
 
 type SectionConfig = {
   id: string;
-  icon: React.ReactNode;
+  icon: React.ReactElement;          // raw icon (we’ll badge it)
+  badgeColor?: BadgeColor;           // visual cue per category
   title: string;
   subheader: string;
   actions: ActionItem[];
@@ -73,6 +86,33 @@ const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </Box>
 );
 
+// Consistent section “badge”
+const IconBadge: React.FC<{
+  children: React.ReactElement;
+  color?: BadgeColor;
+  size?: number;
+}> = ({ children, color = "primary", size = 40 }) => (
+  <Box
+    aria-hidden
+    sx={(t) => ({
+      width: size,
+      height: size,
+      borderRadius: "50%",
+      display: "grid",
+      placeItems: "center",
+      bgcolor: alpha((t.palette as any)[color].main, 0.12),
+      color: (t.palette as any)[color].main,
+      boxShadow: `inset 0 0 0 1px ${alpha((t.palette as any)[color].main, 0.18)}`,
+    })}
+  >
+    {React.cloneElement(children, { sx: { fontSize: 22 } })}
+  </Box>
+);
+
+// Normalize icon size in buttons
+const withIconSize = (node: React.ReactNode, px = 20) =>
+  React.isValidElement(node) ? React.cloneElement(node as any, { sx: { fontSize: px } }) : node;
+
 // ---------- Component
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -88,19 +128,21 @@ export const LandingPage: React.FC = () => {
   const quickActions: ActionItem[] = [
     {
       label: "Deschide Clienți",
-      icon: <PeopleAltRoundedIcon />,
+      icon: <Groups2RoundedIcon />,
       variant: "contained",
       to: "/clients",
       minWidth: 200,
       keywords: ["clienti", "clients", "customer", "proiecte"],
+      tooltip: "C",
     },
     {
       label: "Echipă",
-      icon: <HandymanRoundedIcon />,
+      icon: <EngineeringRoundedIcon />,
       variant: "outlined",
       to: "/echipa",
       minWidth: 160,
       keywords: ["echipa", "team", "angajati", "hr", "manopera"],
+      tooltip: "E",
     },
     {
       label: "Flotă auto",
@@ -109,6 +151,7 @@ export const LandingPage: React.FC = () => {
       to: "/flota-auto",
       minWidth: 160,
       keywords: ["auto", "flota", "masini", "vehicule"],
+      tooltip: "F",
     },
     {
       label: "Adăugare rapidă",
@@ -117,20 +160,47 @@ export const LandingPage: React.FC = () => {
       soonLabel: "Adăugare rapidă proiect",
       minWidth: 180,
       keywords: ["adauga", "quick add", "proiect"],
+      tooltip: "A",
     },
   ];
 
-  // Sections (scalable, single source of truth)
+  // Sections (single source of truth)
   const sections: SectionConfig[] = [
     {
+      id: "aprovizionare",
+      icon: <StoreRoundedIcon />,
+      badgeColor: "info",
+      title: "Aprovizionare",
+      subheader: "Gestionați furnizori și producători.",
+      actions: [
+        {
+          label: "Furnizori",
+          icon: <StoreRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Furnizori",
+          minWidth: 160,
+          keywords: ["furnizori", "suppliers"],
+        },
+        {
+          label: "Producători",
+        icon: <FactoryRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Producători",
+          minWidth: 160,
+          keywords: ["producatori", "manufacturers"],
+        },
+      ],
+    },
+    {
       id: "proiecte",
-      icon: <WorkOutlineRoundedIcon color="primary" />,
+      icon: <FolderOpenRoundedIcon />,
+      badgeColor: "primary",
       title: "Proiecte",
       subheader: "Datele de bază ale proiectelor, clienți și locații.",
       actions: [
         {
           label: "Clienți",
-          icon: <PeopleAltRoundedIcon />,
+          icon: <Groups2RoundedIcon />,
           variant: "contained",
           to: "/clients",
           minWidth: 160,
@@ -138,7 +208,7 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Locații Clienți",
-          icon: <LocationOnRoundedIcon />,
+          icon: <PlaceRoundedIcon />,
           variant: "outlined",
           soonLabel: "Locații Clienți",
           minWidth: 160,
@@ -146,7 +216,7 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Proiecte",
-          icon: <WorkOutlineRoundedIcon />,
+          icon: <FolderOpenRoundedIcon />,
           variant: "outlined",
           soonLabel: "Proiecte",
           minWidth: 160,
@@ -156,7 +226,8 @@ export const LandingPage: React.FC = () => {
     },
     {
       id: "inventar",
-      icon: <Inventory2RoundedIcon color="primary" />,
+      icon: <Inventory2RoundedIcon />,
+      badgeColor: "warning",
       title: "Materiale & Consumabile & Scule/Echipamente",
       subheader: "Gestionați stocuri, mișcări și consumuri.",
       actions: [
@@ -170,7 +241,7 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Consumabile",
-          icon: <BuildCircleRoundedIcon />,
+          icon: <CategoryRoundedIcon />,
           variant: "outlined",
           soonLabel: "Consumabile",
           minWidth: 160,
@@ -178,7 +249,7 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Scule & Echipamente",
-          icon: <HandymanRoundedIcon />,
+          icon: <ConstructionRoundedIcon />,
           variant: "outlined",
           soonLabel: "Scule & Echipamente",
           minWidth: 220,
@@ -193,19 +264,49 @@ export const LandingPage: React.FC = () => {
     },
     {
       id: "manopera",
-      icon: <HandymanRoundedIcon color="primary" />,
+      icon: <EngineeringRoundedIcon />,
+      badgeColor: "success",
       title: "Manoperă",
       subheader: "Echipe, calificări și linii de manoperă.",
       actions: [
-        { label: "Echipă", variant: "contained", to: "/echipa", minWidth: 140, keywords: ["echipa", "team", "hr"] },
-        { label: "Calendar concedii", variant: "contained", to: "/calendar", minWidth: 200, keywords: ["calendar", "concedii"] },
-        { label: "Calificări", variant: "outlined", soonLabel: "Calificări", minWidth: 160, keywords: ["calificari", "certificari"] },
-        { label: "Linii Manoperă", variant: "outlined", soonLabel: "Linii Manoperă", minWidth: 180, keywords: ["manopera", "linii"] },
+        {
+          label: "Echipă",
+          icon: <EngineeringRoundedIcon />,
+          variant: "contained",
+          to: "/echipa",
+          minWidth: 140,
+          keywords: ["echipa", "team", "hr"],
+        },
+        {
+          label: "Calendar concedii",
+          icon: <CalendarMonthRoundedIcon />,
+          variant: "contained",
+          to: "/calendar",
+          minWidth: 200,
+          keywords: ["calendar", "concedii"],
+        },
+        {
+          label: "Calificări",
+          icon: <WorkspacePremiumRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Calificări",
+          minWidth: 160,
+          keywords: ["calificari", "certificari"],
+        },
+        {
+          label: "Linii Manoperă",
+          icon: <ListAltRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Linii Manoperă",
+          minWidth: 180,
+          keywords: ["manopera", "linii"],
+        },
       ],
     },
     {
       id: "auto",
-      icon: <DirectionsCarFilledRoundedIcon color="primary" />,
+      icon: <DirectionsCarFilledRoundedIcon />,
+      badgeColor: "info",
       title: "Auto",
       subheader: "Gestionați flota auto, status și operațiuni.",
       actions: [
@@ -217,11 +318,25 @@ export const LandingPage: React.FC = () => {
           minWidth: 160,
           keywords: ["auto", "flota", "masini"],
         },
-        { label: "Adaugă mașină", variant: "outlined", soonLabel: "Adaugă mașină", minWidth: 160, keywords: ["adauga", "masina"] },
-        { label: "Status mașini", variant: "outlined", soonLabel: "Status mașini", minWidth: 160, keywords: ["status", "revizii"] },
+        {
+          label: "Adaugă mașină",
+          icon: <AddCircleOutlineRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Adaugă mașină",
+          minWidth: 160,
+          keywords: ["adauga", "masina"],
+        },
+        {
+          label: "Status mașini",
+          icon: <SpeedRoundedIcon />,
+          variant: "outlined",
+          soonLabel: "Status mașini",
+          minWidth: 160,
+          keywords: ["status", "revizii"],
+        },
         {
           label: "Calendar expirări auto",
-          icon: <DirectionsCarFilledRoundedIcon />,
+          icon: <CalendarMonthRoundedIcon />,
           variant: "contained",
           to: "/calendar-auto",
           minWidth: 200,
@@ -231,13 +346,14 @@ export const LandingPage: React.FC = () => {
     },
     {
       id: "ofertare",
-      icon: <WorkOutlineRoundedIcon color="primary" />,
+      icon: <RequestQuoteRoundedIcon />,
+      badgeColor: "secondary",
       title: "Ofertare",
       subheader: "Creează și trimite oferte către clienți.",
       actions: [
         {
           label: "Ofertare",
-          icon: <WorkOutlineRoundedIcon />,
+          icon: <RequestQuoteRoundedIcon />,
           variant: "contained",
           to: "/ofertare",
           minWidth: 180,
@@ -245,7 +361,7 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Trimite ofertă",
-          icon: <AddCircleOutlineRoundedIcon />,
+          icon: <SendRoundedIcon />,
           variant: "outlined",
           soonLabel: "Trimite ofertă către client",
           minWidth: 180,
@@ -259,17 +375,7 @@ export const LandingPage: React.FC = () => {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const allActions = useMemo(() => {
-    const arr: (ActionItem & { sectionId: string })[] = [];
-    sections.forEach((s) =>
-      s.actions.forEach((a) => arr.push({ ...a, sectionId: s.id }))
-    );
-    quickActions.forEach((a) => arr.push({ ...a, sectionId: "quick" }));
-    return arr;
-  }, [sections, quickActions]);
-
-  const normalized = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const normalized = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
   const filteredSections = useMemo(() => {
     if (!query.trim()) return sections;
@@ -288,9 +394,7 @@ export const LandingPage: React.FC = () => {
   const filteredQuick = useMemo(() => {
     if (!query.trim()) return quickActions;
     const nq = normalized(query);
-    return quickActions.filter((a) =>
-      normalized([a.label, ...(a.keywords ?? [])].join(" ")).includes(nq)
-    );
+    return quickActions.filter((a) => normalized([a.label, ...(a.keywords ?? [])].join(" ")).includes(nq));
   }, [quickActions, query]);
 
   // ---------- Keyboard shortcuts
@@ -325,10 +429,12 @@ export const LandingPage: React.FC = () => {
   return (
     <Box
       sx={{
-        minHeight: "100vh",
+        height: "100%",                 // fill Outlet area below TopBar
+        display: "grid",
+        gridTemplateRows: "auto 1fr",   // Hero + Content
         bgcolor: "background.default",
         position: "relative",
-        overflow: "hidden",
+        overflow: "hidden",             // page itself doesn't scroll
       }}
     >
       {/* Soft background */}
@@ -339,40 +445,35 @@ export const LandingPage: React.FC = () => {
           inset: 0,
           background: `
             radial-gradient(1100px 520px at -10% -10%, ${alpha(theme.palette.primary.main, 0.12)}, transparent 60%),
-            radial-gradient(900px 480px at 110% 10%, ${alpha(theme.palette.secondary.main, 0.10)}, transparent 60%)
+            radial-gradient(900px 480px at 110% 10%, ${alpha(theme.palette.secondary.main, 0.1)}, transparent 60%)
           `,
           filter: "blur(2px)",
           pointerEvents: "none",
         })}
       />
 
-      {/* HERO */}
+      {/* HERO (compact) */}
       <Box
         sx={(theme) => ({
-          py: { xs: 5, md: 8 },
+          py: { xs: 3, md: 4 },
           background: `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.7)}, transparent)`,
           borderBottom: `1px solid ${theme.palette.divider}`,
         })}
       >
-        <Container maxWidth="lg">
-          <Stack spacing={2} alignItems="center" textAlign="center">
-            <Chip label="Topaz • Admin" variant="outlined" sx={{ fontWeight: 600, borderRadius: 2 }} />
-            <Typography variant="h3" fontWeight={800} lineHeight={1.1}>
-              Bine ați venit 👋
-            </Typography>
-            <Typography variant="subtitle1" color="text.secondary">
-              Gestionați rapid operațiunile companiei dintr-un singur loc.
-            </Typography>
+        <Container maxWidth="xl">
+          <Stack spacing={1.5} alignItems="center" textAlign="center">
+          
 
             {/* Command Bar */}
-            <Box sx={{ width: "100%", maxWidth: 720, mt: 1.5 }}>
+            <Box sx={{ width: "100%", maxWidth: 720 }}>
               <TextField
                 inputRef={inputRef}
                 fullWidth
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Caută acțiuni, ex: „clienți”, „auto”, „calendar”…"
+                placeholder='Caută acțiuni, ex: „clienți”, „auto”, „calendar”…'
                 aria-label="Căutare acțiuni"
+                size="small"
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -392,41 +493,41 @@ export const LandingPage: React.FC = () => {
             </Box>
 
             {/* Quick Actions */}
-            <Grid container spacing={1.5} sx={{ pt: 1, maxWidth: 920 }}>
+            <Grid container spacing={1.25} sx={{ pt: 0.5, maxWidth: 960, justifyContent: "center" }}>
               {filteredQuick.map((a) => (
-                <Grid key={a.label} item xs={12} sm="auto">
-                  <Button
-                    aria-label={a.label}
-                    variant={a.variant ?? "contained"}
-                    size="large"
-                    onClick={go(a.to, a.soonLabel)}
-                    startIcon={a.icon}
-                    endIcon={!a.icon ? <ChevronRightRoundedIcon /> : undefined}
-                    sx={(theme) => ({
-                      minWidth: a.minWidth ?? 160,
-                      ...(a.variant === "contained"
-                        ? {
-                            background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                            color: "white",
-                            boxShadow: 2,
-                            "&:hover": { boxShadow: 4 },
-                          }
-                        : a.variant === "outlined"
-                        ? {
-                            borderColor: theme.palette.secondary.main,
-                            color: theme.palette.secondary.main,
-                            "&:hover": { borderColor: theme.palette.primary.main },
-                          }
-                        : { color: theme.palette.primary.main }),
-                      textTransform: "none",
-                      fontWeight: 700,
-                      borderRadius: 2,
-                      transition: "transform 0.2s",
-                      "&:hover": { transform: "translateY(-1px)" },
-                    })}
-                  >
-                    {a.label}
-                  </Button>
+                <Grid key={a.label} item xs="auto">
+                  <Tooltip title={a.tooltip ?? ""} arrow placement="top">
+                    <Button
+                      aria-label={a.label}
+                      variant={a.variant ?? "contained"}
+                      size="medium"
+                      onClick={go(a.to, a.soonLabel)}
+                      startIcon={withIconSize(a.icon)}
+                      endIcon={!a.icon ? <ChevronRightRoundedIcon /> : undefined}
+                      sx={(theme) => ({
+                        minWidth: a.minWidth ?? 160,
+                        ...(a.variant === "contained"
+                          ? {
+                              background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                              color: "white",
+                              boxShadow: 2,
+                              "&:hover": { boxShadow: 4 },
+                            }
+                          : a.variant === "outlined"
+                          ? {
+                              borderColor: theme.palette.secondary.main,
+                              color: theme.palette.secondary.main,
+                              "&:hover": { borderColor: theme.palette.primary.main },
+                            }
+                          : { color: theme.palette.primary.main }),
+                        textTransform: "none",
+                        fontWeight: 700,
+                        borderRadius: 2,
+                      })}
+                    >
+                      {a.label}
+                    </Button>
+                  </Tooltip>
                 </Grid>
               ))}
             </Grid>
@@ -434,109 +535,140 @@ export const LandingPage: React.FC = () => {
         </Container>
       </Box>
 
-      {/* CONTENT */}
-      <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-        {query.trim() && filteredSections.length === 0 && filteredQuick.length === 0 ? (
-          <Box
-            role="status"
-            sx={{
-              textAlign: "center",
-              color: "text.secondary",
-              py: 6,
-              border: (t) => `1px dashed ${t.palette.divider}`,
-              borderRadius: 3,
-            }}
-          >
-            Nicio potrivire pentru „{query}”.
-          </Box>
-        ) : (
-          // --- Multi-column layout for sections
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                md: "repeat(2, minmax(0, 1fr))",
-                xl: "repeat(3, minmax(0, 1fr))",
-              },
-              gap: { xs: 2, md: 3 },
-            }}
-          >
-            {filteredSections.map((sec) => (
-              <Card
-                key={sec.id}
-                component="section"
-                role="region"
-                aria-labelledby={`section-title-${sec.id}`}
-                elevation={1}
-                sx={{
-                  borderRadius: 3,
-                  transition: "box-shadow 0.2s, transform 0.12s",
-                  "&:hover": { boxShadow: 6 },
-                }}
-              >
-                <CardHeader
-                  avatar={sec.icon}
-                  titleTypographyProps={{ id: `section-title-${sec.id}`, variant: "h6", fontWeight: 700 }}
-                  title={sec.title}
-                  subheader={sec.subheader}
-                  sx={{ py: 1.25, px: 2.25 }}
-                />
-                <Divider />
-                <CardContent sx={{ pt: 2, pb: 2.25 }}>
-                  <Grid container spacing={1.5}>
-                    {sec.actions.map((btn) => (
-                      <Grid item xs={12} sm={6} md={6} lg={6} key={btn.label}>
-                        <Button
-                          fullWidth
-                          variant={btn.variant ?? "outlined"}
-                          startIcon={btn.icon}
-                          onClick={go(btn.to, btn.soonLabel)}
-                          aria-label={btn.label}
-                          sx={(theme) => ({
-                            minWidth: btn.minWidth ?? 140,
-                            justifyContent: "flex-start",
-                            px: 2,
-                            py: 1.1,
-                            textTransform: "none",
-                            fontWeight: 600,
-                            borderRadius: 2,
-                            "&:focus-visible": {
-                              outline: `2px solid ${alpha(theme.palette.primary.main, 0.5)}`,
-                              outlineOffset: 2,
-                            },
-                          })}
-                        >
-                          {btn.label}
-                        </Button>
-                      </Grid>
-                    ))}
-                  </Grid>
-
-                  {sec.chips && sec.chips.length > 0 && (
-                    <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap">
-                      {sec.chips.map((c) => (
-                        <Tooltip key={c.label} title={c.tooltip}>
-                          <Chip
-                            label={c.label}
-                            size="small"
-                            variant="outlined"
-                            onClick={() => soon(c.soonLabel)}
-                            sx={{ cursor: "pointer", mr: 0.5, mb: 0.5 }}
-                          />
-                        </Tooltip>
+      {/* CONTENT (flex column with internal scroll + sticky footer) */}
+      <Container
+        maxWidth="xl"
+        sx={{
+          height: "100%",
+          minHeight: 0,                 // IMPORTANT inside CSS grid
+          py: { xs: 2, md: 3 },
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        {/* Scroll area */}
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",          // only this area scrolls if needed
+            pr: { md: 0.5 },            // tiny gutter so scrollbar doesn't cover content
+          }}
+        >
+          {query.trim() && filteredSections.length === 0 && filteredQuick.length === 0 ? (
+            <Box
+              role="status"
+              sx={{
+                textAlign: "center",
+                color: "text.secondary",
+                py: 4,
+                border: (t) => `1px dashed ${t.palette.divider}`,
+                borderRadius: 3,
+              }}
+            >
+              Nicio potrivire pentru „{query}”.
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  md: "repeat(3, minmax(0, 1fr))",
+                  lg: "repeat(4, minmax(0, 1fr))",
+                  xl: "repeat(5, minmax(0, 1fr))", // all tiles in one row @ xl
+                },
+                gap: { xs: 2, md: 3 },
+                alignItems: "start",
+              }}
+            >
+              {filteredSections.map((sec) => (
+                <Card
+                  key={sec.id}
+                  component="section"
+                  role="region"
+                  aria-labelledby={`section-title-${sec.id}`}
+                  elevation={1}
+                  sx={{
+                    height: "100%",
+                    borderRadius: 3,
+                    transition: "box-shadow 0.2s, transform 0.12s",
+                    "&:hover": { boxShadow: 6 },
+                  }}
+                >
+                  <CardHeader
+                    avatar={<IconBadge color={sec.badgeColor}>{sec.icon}</IconBadge>}
+                    titleTypographyProps={{ id: `section-title-${sec.id}`, variant: "subtitle1", fontWeight: 800 }}
+                    title={sec.title}
+                    subheader={sec.subheader}
+                    sx={{ py: 1.25, px: 2 }}
+                  />
+                  <Divider />
+                  <CardContent sx={{ pt: 1.5, pb: 1.75 }}>
+                    <Grid container spacing={1.25}>
+                      {sec.actions.map((btn) => (
+                        <Grid item xs={12} key={btn.label}>
+                          <Button
+                            fullWidth
+                            variant={btn.variant ?? "outlined"}
+                            startIcon={withIconSize(btn.icon)}
+                            onClick={go(btn.to, btn.soonLabel)}
+                            aria-label={btn.label}
+                            sx={(theme) => ({
+                              justifyContent: "flex-start",
+                              px: 2,
+                              py: 1.05,
+                              textTransform: "none",
+                              fontWeight: 600,
+                              borderRadius: 2,
+                              minWidth: btn.minWidth ?? 140,
+                              "&:focus-visible": {
+                                outline: `2px solid ${alpha(theme.palette.primary.main, 0.5)}`,
+                                outlineOffset: 2,
+                              },
+                            })}
+                          >
+                            {btn.label}
+                          </Button>
+                        </Grid>
                       ))}
-                    </Stack>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        )}
+                    </Grid>
 
-        {/* Footer */}
-        <Box sx={{ height: 24 }} />
-        <Box sx={{ textAlign: "center", color: "text.secondary", py: 2, fontSize: 13 }}>
+                    {sec.chips && sec.chips.length > 0 && (
+                      <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
+                        {sec.chips.map((c) => (
+                          <Tooltip key={c.label} title={c.tooltip}>
+                            <Chip
+                              label={c.label}
+                              size="small"
+                              variant="outlined"
+                              onClick={() => soon(c.soonLabel)}
+                              sx={{ cursor: "pointer", mr: 0.5, mb: 0.5 }}
+                            />
+                          </Tooltip>
+                        ))}
+                      </Stack>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+        </Box>
+
+        {/* Footer (always visible) */}
+        <Box
+          sx={{
+            textAlign: "center",
+            color: "text.secondary",
+            py: 1,
+            fontSize: 12,
+            borderTop: (t) => `1px solid ${t.palette.divider}`,
+            mt: 1,
+            backgroundColor: "background.default",
+          }}
+        >
           © {new Date().getFullYear()} Topaz Admin. Toate drepturile rezervate.
         </Box>
       </Container>
