@@ -177,7 +177,7 @@ export const LandingPage: React.FC = () => {
           label: "Furnizori",
           icon: <StoreRoundedIcon />,
           variant: "outlined",
-          soonLabel: "Furnizori",
+          to: "/suppliers",
           minWidth: 160,
           keywords: ["furnizori", "suppliers"],
         },

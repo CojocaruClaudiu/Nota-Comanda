@@ -22,6 +22,14 @@ model Employee {
   id             String    @id @default(uuid())
   name           String
   cnp            String?  @unique // Cod Numeric Personal
+  idSeries       String? // "PX"
+  idNumber       String? // "821461"
+  idIssuer       String? // "SPCLEP Băicoi"
+  idIssueDateISO DateTime? // "2021-09-29"
+  county         String? // ex: "Prahova"
+  locality       String? // ex: "sat Novăcești (com. Florești)" or "Băicoi"
+  address        String? // ex: "nr. 295" or full street
+  phone          String? // ex: "+40 721 123 456"
   qualifications String[]
   hiredAt        DateTime
   createdAt      DateTime  @default(now())
@@ -105,4 +113,30 @@ enum RoleName {
   MANAGER
   STAFF
   VIEWER
+}
+
+model Furnizor {
+  id            String   @id @default(uuid())
+  denumire      String   @unique
+  cui_cif       String   @unique
+  nrRegCom      String?
+  tip           String
+  tva           Boolean
+  tvaData       DateTime?
+  adresa        String
+  oras          String
+  judet         String
+  tara          String
+  contactNume   String
+  email         String
+  telefon       String
+  site          String?
+  metodaPlata   String
+  termenPlata   Int      // zile
+  contBancar    String
+  banca         String
+  status        String   // activ/inactiv
+  notite        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

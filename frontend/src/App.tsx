@@ -17,6 +17,7 @@ import FlotaPage from "./modules/auto/carPage";
 import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
 import NotFound from "./modules/NotFound";
+import SuppliersPage from "./modules/suppliers/SuppliersPage";
 
 function AppLayout() {
   return (
@@ -102,6 +103,14 @@ const router = createBrowserRouter([
             <RequireRole roles={["ADMIN", "MANAGER"]}>
               <OfferPage />
             </RequireRole>
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "suppliers",
+        element: (
+          <RequireAuth>
+            <SuppliersPage />
           </RequireAuth>
         ),
       },

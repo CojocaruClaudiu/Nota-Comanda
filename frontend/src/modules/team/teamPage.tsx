@@ -1,18 +1,17 @@
 // src/pages/team/EchipaPage.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { MaterialReactTable, MRT_ColumnDef } from 'material-react-table';
+import { MaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import {
   Box, Paper, Stack, Typography, Button, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, IconButton, Tooltip,
   CircularProgress, Chip, Divider, List, ListItem, ListItemText, Alert,
-  Table, TableBody, TableCell, TableHead, TableRow
+  Grid, Collapse
 } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import HistoryIcon from '@mui/icons-material/History';
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/ro';
@@ -24,12 +23,13 @@ import {
   type EmployeeWithStats, type EmployeePayload, type Leave, type LeavePayload
 } from '../../api/employees';
 
-// ⬇️ business-day helpers (weekend-aware)
+// business-day helpers (weekend-aware)
 import {
   businessEndDate,
   businessDatesForLeave,
   sumBusinessDaysForYear,
 } from '../../utils/businessDays';
+import { generateLeaveDocx, openPrintPreview } from '../../utils/leaveDocs';
 
 dayjs.locale('ro');
 
@@ -37,9 +37,6 @@ dayjs.locale('ro');
 const BASE_ANNUAL = 21;              // base days / year
 const BONUS_EVERY_YEARS = 5;         // +1 day every 5 full years
 const BONUS_PER_EVERY = 1;           // the bonus per step
-const CARRYOVER_CAP = 10;            // max days you allow to carry from last year
-const CARRYOVER_EXPIRES_MONTH = 3;   // 1-12 (Mar)
-const CARRYOVER_EXPIRES_DAY = 31;    // day in that month
 const PRO_RATA_ROUND = Math.floor;   // conservative rounding
 
 /** ───────────────── Small helpers ───────────────── **/
@@ -102,9 +99,7 @@ const proRataForYear = (hiredAt?: string | null, year?: number) => {
   const totalDaysInYear = yEnd.diff(yStart, 'day') + 1;
 
   // hired before the year starts ⇒ full entitlement for that year
-  if (hire.isBefore(yStart, 'day')) {
-    return annualEntitlementAtYearEnd(hiredAt, y);
-  }
+  if (hire.isBefore(yStart, 'day')) return annualEntitlementAtYearEnd(hiredAt, y);
 
   // hired during the year ⇒ pro-rata from hire → year end
   const daysEmployedThisYear = yEnd.diff(hire, 'day') + 1;
@@ -130,23 +125,6 @@ const accruedToToday = (hiredAt?: string | null) => {
   const daysSoFar = now.diff(from, 'day') + 1;
   const yearEnt = proRataForYear(hiredAt, y);
   return PRO_RATA_ROUND((yearEnt * daysSoFar) / denom);
-};
-
-/** ───────────────── Carry-over from last year ───────────────── **/
-const carryoverExpiry = (year: number) =>
-  dayjs(`${year}-${String(CARRYOVER_EXPIRES_MONTH).padStart(2, '0')}-${String(CARRYOVER_EXPIRES_DAY).padStart(2, '0')}`).endOf('day');
-
-type CarryRow = {
-  id: string;
-  name: string;
-  hiredAt?: string | null;
-  entitlementLY: number;
-  takenLY: number;
-  leftoverRaw: number;
-  carryoverCapped: number;
-  expiresOn: string;     // ISO
-  expired: boolean;
-  daysUntilExpiry: number; // negative if expired
 };
 
 /** sum of leave days in a given year (weekend-aware) */
@@ -210,6 +188,8 @@ const mkColumns = (currentYear: number): MRT_ColumnDef<EmployeeWithStats>[] => [
 
 /** ───────────────── Component ───────────────── **/
 export default function EchipaPage() {
+  const { successNotistack, errorNotistack } = useNotistack();
+
   const [rows, setRows] = useState<EmployeeWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,8 +201,24 @@ export default function EchipaPage() {
   const [openHistory, setOpenHistory] = useState<EmployeeWithStats | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // forms
-  const [form, setForm] = useState<EmployeePayload>({ name: '', qualifications: [], hiredAt: '', birthDate: null });
+  // --- forms
+  const emptyForm: EmployeePayload = {
+    name: '',
+    qualifications: [],
+    hiredAt: '',
+    birthDate: null,
+    cnp: '',
+    idSeries: '',
+    idNumber: '',
+    idIssuer: '',
+    idIssueDateISO: '',
+    county: '',
+    locality: '',
+    address: '',
+    phone: '',
+  } as EmployeePayload;
+
+  const [form, setForm] = useState<EmployeePayload>(emptyForm);
   const [leaveForm, setLeaveForm] = useState<LeavePayload>({ startDate: '', days: 1, note: '' });
   const [history, setHistory] = useState<Leave[]>([]);
   const [saving, setSaving] = useState(false);
@@ -230,17 +226,10 @@ export default function EchipaPage() {
   // History year filter
   const [historyYear, setHistoryYear] = useState<number | 'all'>(dayjs().year());
 
-  // Carry-over audit
-  const [auditOpen, setAuditOpen] = useState(false);
-  const [auditRunning, setAuditRunning] = useState(false);
-  const [auditRows, setAuditRows] = useState<CarryRow[]>([]);
-
   // Leave UI help
   const [startMsg, setStartMsg] = useState<string>('');
 
-  const { successNotistack, errorNotistack } = useNotistack();
   const currentYear = dayjs().year();
-  const lastYear = currentYear - 1;
 
   const load = useCallback(async () => {
     try {
@@ -268,7 +257,7 @@ export default function EchipaPage() {
       setSaving(true);
       await createEmployee(form);
       setOpenAdd(false);
-      setForm({ name: '', qualifications: [], hiredAt: '', birthDate: null });
+      setForm(emptyForm);
       await load();
       successNotistack('Angajat adăugat');
     } catch (e: any) {
@@ -304,19 +293,47 @@ export default function EchipaPage() {
     try {
       setSaving(true);
 
-      // Safety: if somehow weekend selected, bump to next business day
-      let startISO = leaveForm.startDate;
-      const d = dayjs(startISO);
-      if (d.isValid() && isWeekend(d)) {
-        startISO = nextBusinessDay(d).format('YYYY-MM-DD');
-      }
+      await addLeave(openLeave.id, leaveForm);
 
-      await addLeave(openLeave.id, { ...leaveForm, startDate: startISO });
+      // generate: .docx + print preview
+      await generateLeaveDocx({
+        employeeName: openLeave.name,
+        cnp: (openLeave as any).cnp,
+        county: (openLeave as any).county,
+        locality: (openLeave as any).locality,
+        address: (openLeave as any).address,
+        idSeries: (openLeave as any).idSeries,
+        idNumber: (openLeave as any).idNumber,
+        idIssuer: (openLeave as any).idIssuer,
+        idIssueDateISO: (openLeave as any).idIssueDateISO,
+        startISO: leaveForm.startDate,
+        days: leaveForm.days,
+        note: leaveForm.note,
+        companyName: 'S.C. TOPAZ CONSTRUCT S.R.L.',
+        companyCity: 'Băicoi',
+      });
+
+      openPrintPreview({
+        employeeName: openLeave.name,
+        cnp: (openLeave as any).cnp,
+        county: (openLeave as any).county,
+        locality: (openLeave as any).locality,
+        address: (openLeave as any).address,
+        idSeries: (openLeave as any).idSeries,
+        idNumber: (openLeave as any).idNumber,
+        idIssuer: (openLeave as any).idIssuer,
+        idIssueDateISO: (openLeave as any).idIssueDateISO,
+        startISO: leaveForm.startDate,
+        days: leaveForm.days,
+        note: leaveForm.note,
+        companyName: 'S.C. TOPAZ CONSTRUCT S.R.L.',
+        companyCity: 'Băicoi',
+      });
+
       setOpenLeave(null);
       setLeaveForm({ startDate: '', days: 1, note: '' });
-      setStartMsg('');
       await load();
-      successNotistack('Concediu înregistrat');
+      successNotistack('Concediu înregistrat. Am generat cererea și fereastra de print.');
     } catch (e: any) {
       errorNotistack(e?.message || 'Nu am putut înregistra concediul');
     } finally { setSaving(false); }
@@ -347,10 +364,7 @@ export default function EchipaPage() {
 
   // Weekend-aware yearly total
   const totalDays = useMemo(() => {
-    if (historyYear === 'all') {
-      // sum raw "days" across all entries; if your API stores business days, this is fine
-      return history.reduce((acc, h) => acc + (h.days || 0), 0);
-    }
+    if (historyYear === 'all') return history.reduce((acc, h) => acc + (h.days || 0), 0);
     return sumBusinessDaysForYear(history as any, historyYear);
   }, [history, historyYear]);
 
@@ -361,63 +375,47 @@ export default function EchipaPage() {
     return proRataForYear(openHistory.hiredAt, y);
   }, [openHistory, historyYear, currentYear]);
 
-  // ───────── Carry-over audit (last year) ─────────
-  const runCarryoverAudit = async () => {
-    try {
-      setAuditRunning(true);
-      const results: CarryRow[] = [];
-
-      for (const emp of rows) {
-        try {
-          const empLeaves = await getLeaves(emp.id);
-          const entitlementLY = proRataForYear(emp.hiredAt, lastYear);
-          const takenLY = sumTakenForYear(empLeaves, lastYear);
-          const leftoverRaw = Math.max(0, entitlementLY - takenLY);
-          const carryoverCapped = Math.min(leftoverRaw, CARRYOVER_CAP);
-
-          const exp = carryoverExpiry(currentYear);
-          const expired = dayjs().isAfter(exp);
-          const daysUntilExpiry = exp.diff(dayjs(), 'day');
-
-          if (carryoverCapped > 0) {
-            results.push({
-              id: emp.id,
-              name: emp.name,
-              hiredAt: emp.hiredAt,
-              entitlementLY,
-              takenLY,
-              leftoverRaw,
-              carryoverCapped,
-              expiresOn: exp.toISOString(),
-              expired,
-              daysUntilExpiry,
-            });
-          }
-        } catch {
-          // ignore per-employee failure
-        }
-      }
-
-      results.sort((a, b) => {
-        if (a.expired !== b.expired) return Number(a.expired) - Number(b.expired);
-        return b.carryoverCapped - a.carryoverCapped;
-      });
-
-      setAuditRows(results);
-      setAuditOpen(true);
-    } catch (e: any) {
-      errorNotistack(e?.message || 'Nu am putut rula auditul de restanțe');
-    } finally {
-      setAuditRunning(false);
-    }
-  };
-
   // Live preview end date for Add Leave (weekend-aware)
   const previewEnd = useMemo(() => {
     return leaveForm.startDate && leaveForm.days
       ? businessEndDate(leaveForm.startDate, leaveForm.days)
       : null;
   }, [leaveForm.startDate, leaveForm.days]);
+
+  /** ---------- Add Employee dialog helpers (validation + UX) ---------- */
+  const isDigits = (s?: string, len?: number) => (s ?? '').match(len ? new RegExp(`^\\d{${len}}$`) : /^\d+$/);
+  const ageFromBirth = (iso?: string | null) => {
+    if (!iso) return null;
+    const d = dayjs(iso);
+    if (!d.isValid()) return null;
+    return dayjs().diff(d, 'year');
+  };
+  const validateEmployee = (f: EmployeePayload) => {
+    const errs: Record<string, string | undefined> = {};
+    if (!f.name?.trim()) errs.name = 'Numele este obligatoriu';
+    if (!f.hiredAt) errs.hiredAt = 'Data angajării este obligatorie';
+    if (f.cnp && !isDigits(f.cnp, 13)) errs.cnp = 'CNP-ul trebuie să aibă 13 cifre';
+    if (f.phone && !/^\+?\d{6,15}$/.test(f.phone)) errs.phone = 'Număr de telefon invalid';
+    if (f.idSeries && !/^[A-Z]{1,3}$/.test(f.idSeries)) errs.idSeries = 'Serie 1–3 litere';
+    if (f.idNumber && !isDigits(f.idNumber)) errs.idNumber = 'Doar cifre';
+    if (f.idIssueDateISO && dayjs(f.idIssueDateISO).isAfter(dayjs(), 'day'))
+      errs.idIssueDateISO = 'Nu poate fi în viitor';
+    if (f.birthDate && dayjs(f.birthDate).isAfter(dayjs(), 'day'))
+      errs.birthDate = 'Nu poate fi în viitor';
+    return { errs, valid: Object.values(errs).every(v => !v) };
+  };
+  const { errs, valid } = useMemo(() => validateEmployee(form), [form]);
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const setDigits = (key: keyof EmployeePayload, len?: number) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      let v = e.target.value.replace(/\D+/g, '');
+      if (len) v = v.slice(0, len);
+      setForm(f => ({ ...f, [key]: v }));
+    };
+  const setUpper = (key: keyof EmployeePayload) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm(f => ({ ...f, [key]: e.target.value.toUpperCase() }));
 
   return (
     <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default' }}>
@@ -426,9 +424,6 @@ export default function EchipaPage() {
           <Typography variant="h5">Echipă</Typography>
           <Stack direction="row" spacing={1}>
             <Button variant="outlined" onClick={() => setOpenAdd(true)}>Adaugă angajat</Button>
-            <Button variant="outlined" onClick={runCarryoverAudit} disabled={auditRunning}>
-              {auditRunning ? <CircularProgress size={18} /> : 'Audit restanțe anul trecut'}
-            </Button>
             <Button variant="contained" onClick={load} disabled={loading}>
               {loading ? <CircularProgress size={18} /> : 'Reîncarcă'}
             </Button>
@@ -482,7 +477,16 @@ export default function EchipaPage() {
                         birthDate: row.original.birthDate
                           ? dayjs(row.original.birthDate).format('YYYY-MM-DD')
                           : null,
-                      });
+                        cnp: (row.original as any).cnp || '',
+                        idSeries: (row.original as any).idSeries || '',
+                        idNumber: (row.original as any).idNumber || '',
+                        idIssuer: (row.original as any).idIssuer || '',
+                        idIssueDateISO: (row.original as any).idIssueDateISO || '',
+                        county: (row.original as any).county || '',
+                        locality: (row.original as any).locality || '',
+                        address: (row.original as any).address || '',
+                        phone: (row.original as any).phone || '',
+                      } as EmployeePayload);
                     }}
                   >
                     <EditOutlinedIcon fontSize="small" />
@@ -528,7 +532,7 @@ export default function EchipaPage() {
                   <Chip variant="outlined" label={`Rămase pe an: ${remainYear}`} />
                 </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  * Zilele rămase se calculează pro-rata. Restanțele din anul trecut (dacă există) sunt plafonate la {CARRYOVER_CAP} și expiră pe {String(CARRYOVER_EXPIRES_DAY).padStart(2,'0')}.{String(CARRYOVER_EXPIRES_MONTH).padStart(2,'0')}.{currentYear}.
+                  * Zilele rămase se calculează pro-rata.
                 </Typography>
               </Box>
             );
@@ -538,47 +542,172 @@ export default function EchipaPage() {
         />
       </Paper>
 
-      {/* Add Employee */}
-      <Dialog open={openAdd} onClose={() => setOpenAdd(false)} fullWidth maxWidth="sm">
+      {/* ---------------- Add Employee (redesigned) ---------------- */}
+      <Dialog open={openAdd} onClose={() => setOpenAdd(false)} fullWidth maxWidth="md">
         <DialogTitle>Adaugă angajat</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Stack spacing={2}>
-            <TextField label="Nume" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
-            <TextField
-              label="Calificări (separate prin virgulă)"
-              value={(form.qualifications || []).join(', ')}
-              onChange={e => setForm(f => ({ ...f, qualifications: parseQuals(e.target.value) }))} />
-            <DatePicker
-              label="Data angajării"
-              format="DD/MM/YYYY"
-              value={form.hiredAt ? dayjs(form.hiredAt) : null}
-              onChange={(d) => setForm(f => ({ ...f, hiredAt: toIsoDate(d) }))}
-              slotProps={{ textField: { required: true, fullWidth: true } }}
-            />
-            <DatePicker
-              label="Data nașterii (opțional)"
-              format="DD/MM/YYYY"
-              value={form.birthDate ? dayjs(form.birthDate) : null}
-              onChange={(d) => setForm(f => ({ ...f, birthDate: toIsoDate(d) || null }))}
-              slotProps={{ textField: { fullWidth: true } }}
-            />
-            <TextField label="CNP" value={form.cnp || ''} onChange={e => setForm(f => ({ ...f, cnp: e.target.value }))} required />
+            {/* Primary info */}
+            <Typography variant="subtitle2" color="text.secondary">Informații de bază</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={8}>
+                <TextField
+                  label="Nume"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  required fullWidth error={!!errs.name} helperText={errs.name}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <DatePicker
+                  label="Data angajării"
+                  format="DD/MM/YYYY"
+                  value={form.hiredAt ? dayjs(form.hiredAt) : null}
+                  onChange={(d) => setForm(f => ({ ...f, hiredAt: toIsoDate(d) }))}
+                  slotProps={{ textField: { required: true, fullWidth: true, error: !!errs.hiredAt, helperText: errs.hiredAt } }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="CNP"
+                  value={form.cnp || ''}
+                  onChange={setDigits('cnp', 13)}
+                  inputProps={{ inputMode: 'numeric', maxLength: 13 }}
+                  fullWidth error={!!errs.cnp} helperText={errs.cnp || '13 cifre'}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Data nașterii (opțional)"
+                  format="DD/MM/YYYY"
+                  value={form.birthDate ? dayjs(form.birthDate) : null}
+                  onChange={(d) => setForm(f => ({ ...f, birthDate: toIsoDate(d) || null }))}
+                  slotProps={{ textField: { fullWidth: true, error: !!errs.birthDate, helperText: errs.birthDate } }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Telefon"
+                  value={form.phone || ''}
+                  onChange={e => setForm(f => ({ ...f, phone: e.target.value.trim() }))}
+                  fullWidth error={!!errs.phone} helperText={errs.phone || 'ex: 07xxxxxxxx sau +407xxxxxxxx'}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Calificări (separate prin virgulă)"
+                  value={(form.qualifications || []).join(', ')}
+                  onChange={e => setForm(f => ({ ...f, qualifications: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
+                  fullWidth
+                />
+              </Grid>
+            </Grid>
+
+            {/* Live preview chips */}
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              <Chip size="small" label={`Vârsta: ${ageFromBirth(form.birthDate) ?? '—'}`} />
+              <Chip size="small" label={`Vechime: ${formatTenureRo(tenureParts(form.hiredAt))}`} />
+            </Stack>
+
+            <Divider />
+
+            {/* Advanced section toggle */}
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Button
+                size="small"
+                startIcon={<ExpandMoreIcon sx={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />}
+                onClick={() => setShowAdvanced(s => !s)}
+              >
+                {showAdvanced ? 'Ascunde detalii' : 'Detalii CI & adresă'}
+              </Button>
+              <Typography variant="caption" color="text.secondary">(opțional)</Typography>
+            </Stack>
+
+            <Collapse in={showAdvanced} unmountOnExit>
+              <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                {/* CI */}
+                <Grid item xs={12}><Typography variant="subtitle2" color="text.secondary">Carte de identitate</Typography></Grid>
+                <Grid item xs={6} sm={3}>
+                  <TextField
+                    label="Serie CI"
+                    value={form.idSeries || ''}
+                    onChange={setUpper('idSeries')}
+                    inputProps={{ maxLength: 3 }}
+                    fullWidth error={!!errs.idSeries} helperText={errs.idSeries}
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <TextField
+                    label="Număr CI"
+                    value={form.idNumber || ''}
+                    onChange={setDigits('idNumber')}
+                    inputProps={{ inputMode: 'numeric' }}
+                    fullWidth error={!!errs.idNumber} helperText={errs.idNumber}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Emitent CI"
+                    value={form.idIssuer || ''}
+                    onChange={e => setForm(f => ({ ...f, idIssuer: e.target.value }))}
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <DatePicker
+                    label="Data eliberării CI"
+                    format="DD/MM/YYYY"
+                    value={form.idIssueDateISO ? dayjs(form.idIssueDateISO) : null}
+                    onChange={d => setForm(f => ({ ...f, idIssueDateISO: toIsoDate(d) }))}
+                    slotProps={{ textField: { fullWidth: true, error: !!errs.idIssueDateISO, helperText: errs.idIssueDateISO } }}
+                  />
+                </Grid>
+
+                {/* Address */}
+                <Grid item xs={12}><Typography variant="subtitle2" color="text.secondary">Adresă</Typography></Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField label="Județ" value={form.county || ''} onChange={e => setForm(f => ({ ...f, county: e.target.value }))} fullWidth />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField label="Localitate" value={form.locality || ''} onChange={e => setForm(f => ({ ...f, locality: e.target.value }))} fullWidth />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField label="Adresă" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} fullWidth />
+                </Grid>
+              </Grid>
+            </Collapse>
           </Stack>
         </DialogContent>
-        <DialogActions>
+
+        <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setOpenAdd(false)}>Anulează</Button>
-          <Button variant="contained" onClick={doCreate} disabled={saving || !form.name || !form.hiredAt}>
+          <Button
+            variant="contained"
+            onClick={doCreate}
+            disabled={saving || !valid || !form.name || !form.hiredAt}
+          >
             {saving ? <CircularProgress size={18} /> : 'Salvează'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Edit Employee */}
+      {/* ---------------- Edit Employee (kept simple) ---------------- */}
       <Dialog open={!!openEdit} onClose={() => setOpenEdit(null)} fullWidth maxWidth="sm">
         <DialogTitle>Editează angajat</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Stack spacing={2}>
             <TextField label="Nume" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+            <TextField label="CNP" value={form.cnp || ''} onChange={e => setForm(f => ({ ...f, cnp: e.target.value }))} />
+            <TextField label="Telefon" value={form.phone || ''} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            <TextField label="Serie CI" value={form.idSeries || ''} onChange={e => setForm(f => ({ ...f, idSeries: e.target.value }))} />
+            <TextField label="Număr CI" value={form.idNumber || ''} onChange={e => setForm(f => ({ ...f, idNumber: e.target.value }))} />
+            <TextField label="Emitent CI" value={form.idIssuer || ''} onChange={e => setForm(f => ({ ...f, idIssuer: e.target.value }))} />
+            <DatePicker label="Data eliberării CI" format="DD/MM/YYYY" value={form.idIssueDateISO ? dayjs(form.idIssueDateISO) : null} onChange={d => setForm(f => ({ ...f, idIssueDateISO: toIsoDate(d) }))} slotProps={{ textField: { fullWidth: true } }} />
+            <TextField label="Județ" value={form.county || ''} onChange={e => setForm(f => ({ ...f, county: e.target.value }))} />
+            <TextField label="Localitate" value={form.locality || ''} onChange={e => setForm(f => ({ ...f, locality: e.target.value }))} />
+            <TextField label="Adresă" value={form.address || ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
             <TextField
               label="Calificări (separate prin virgulă)"
               value={(form.qualifications || []).join(', ')}
@@ -597,7 +726,6 @@ export default function EchipaPage() {
               onChange={(d) => setForm(f => ({ ...f, birthDate: toIsoDate(d) || null }))}
               slotProps={{ textField: { fullWidth: true } }}
             />
-            <TextField label="CNP" value={form.cnp || ''} onChange={e => setForm(f => ({ ...f, cnp: e.target.value }))} required />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -608,7 +736,7 @@ export default function EchipaPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Add Leave (weekend-aware) */}
+      {/* ---------------- Add Leave (weekend-aware) ---------------- */}
       <Dialog open={!!openLeave} onClose={() => setOpenLeave(null)} fullWidth maxWidth="sm">
         <DialogTitle>Concediu plătit</DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
@@ -674,7 +802,7 @@ export default function EchipaPage() {
           </Stack>
 
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            * Zilele din weekend nu se contorizează. Se acumulează zilnic, pro-rata. Restanțele din anul trecut sunt limitate la {CARRYOVER_CAP} și expiră pe {String(CARRYOVER_EXPIRES_DAY).padStart(2,'0')}.{String(CARRYOVER_EXPIRES_MONTH).padStart(2,'0')}.{currentYear}.
+            * Zilele din weekend nu se contorizează. Se acumulează zilnic, pro-rata.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -685,7 +813,7 @@ export default function EchipaPage() {
         </DialogActions>
       </Dialog>
 
-      {/* History (year filter + entitlement for selected year) */}
+      {/* ---------------- History (year filter) ---------------- */}
       <Dialog open={!!openHistory} onClose={() => setOpenHistory(null)} fullWidth maxWidth="sm">
         <DialogTitle>Istoric concedii — {openHistory?.name}</DialogTitle>
         <DialogContent>
@@ -716,6 +844,7 @@ export default function EchipaPage() {
               <Chip label={`Drept ${historyYear}: ${proRataForYear(openHistory?.hiredAt, historyYear as number)}`} />
               <Chip color="warning" label={`Folosite ${historyYear}: ${sumTakenForYear(history, historyYear as number)}`} />
               <Chip color="success" label={`Rămase ${historyYear}: ${Math.max(0, proRataForYear(openHistory?.hiredAt, historyYear as number) - sumTakenForYear(history, historyYear as number))}`} />
+              <Chip variant="outlined" label={`Total în listă: ${totalDays}`} />
             </Stack>
           )}
 
@@ -762,66 +891,7 @@ export default function EchipaPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Carry-over Audit dialog */}
-      <Dialog open={auditOpen} onClose={() => setAuditOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Restanțe din anul {lastYear}</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 1.5 }}>
-            Reguli: bază {BASE_ANNUAL} zile/an + 1 zi / {BONUS_EVERY_YEARS} ani vechime. Restanțele sunt plafonate la {CARRYOVER_CAP} zile și
-            expiră pe {String(CARRYOVER_EXPIRES_DAY).padStart(2,'0')}.{String(CARRYOVER_EXPIRES_MONTH).padStart(2,'0')}.{currentYear}. Se consumă întâi restanțele, apoi dreptul curent.
-          </Typography>
-
-          {auditRows.length === 0 ? (
-            <Alert severity="info">Toată lumea este la zi — nimeni nu are restanțe pentru {lastYear}.</Alert>
-          ) : (
-            <Table size="small" sx={{ mt: 1 }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Angajat</TableCell>
-                  <TableCell>Angajat din</TableCell>
-                  <TableCell align="right">Drept {lastYear}</TableCell>
-                  <TableCell align="right">Folosite {lastYear}</TableCell>
-                  <TableCell align="right">Restanță</TableCell>
-                  <TableCell align="right">Carry-over (cap)</TableCell>
-                  <TableCell>Expiră</TableCell>
-                  <TableCell>Status</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {auditRows.map(r => {
-                  const exp = dayjs(r.expiresOn);
-                  const soon = !r.expired && r.daysUntilExpiry <= 30;
-                  return (
-                    <TableRow key={r.id} hover>
-                      <TableCell>{r.name}</TableCell>
-                      <TableCell>{dmy(r.hiredAt)}</TableCell>
-                      <TableCell align="right">{r.entitlementLY}</TableCell>
-                      <TableCell align="right">{r.takenLY}</TableCell>
-                      <TableCell align="right">{r.leftoverRaw}</TableCell>
-                      <TableCell align="right"><strong>{r.carryoverCapped}</strong></TableCell>
-                      <TableCell>{exp.format('DD/MM/YYYY')}</TableCell>
-                      <TableCell>
-                        {r.expired ? (
-                          <Chip size="small" color="warning" icon={<WarningAmberRoundedIcon />} label="Expirat" />
-                        ) : soon ? (
-                          <Chip size="small" color="warning" icon={<WarningAmberRoundedIcon />} label={`Expiră în ${r.daysUntilExpiry} zile`} />
-                        ) : (
-                          <Chip size="small" color="success" icon={<CheckCircleRoundedIcon />} label="Valabil" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAuditOpen(false)}>Închide</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Confirm Delete */}
+      {/* ---------------- Confirm Delete ---------------- */}
       <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)}>
         <DialogTitle>Confirmare ștergere</DialogTitle>
         <DialogContent>

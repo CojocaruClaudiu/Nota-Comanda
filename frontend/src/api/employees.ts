@@ -77,3 +77,5 @@ export const addLeave = (employeeId: string, data: LeavePayload) =>
   });
 export const getLeaves = (employeeId: string) => request<Leave[]>(`/employees/${employeeId}/leaves`);
 export const deleteLeave = (leaveId: string) => request<void>(`/leaves/${leaveId}`, { method: 'DELETE' });
+
+

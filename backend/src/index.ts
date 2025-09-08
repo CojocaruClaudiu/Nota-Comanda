@@ -449,6 +449,165 @@ app.delete('/cars/:id', async (req, res) => {
   }
 });
 
+/* ===================== FURNIZORI (Suppliers) ===================== */
+
+type SupplierPayload = {
+  denumire: string;
+  cui_cif: string;
+  nrRegCom?: string | null;
+  tip: string;
+  tva: boolean;
+  tvaData?: string | null; // ISO
+  adresa: string;
+  oras: string;
+  judet: string;
+  tara: string;
+  contactNume: string;
+  email: string;
+  telefon: string;
+  site?: string | null;
+  metodaPlata: string;
+  termenPlata: number; // zile
+  contBancar: string;
+  banca: string;
+  status: "activ" | "inactiv";
+  notite?: string | null;
+};
+
+const toBool = (v: unknown) => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return ["true", "1", "yes", "da"].includes(v.toLowerCase());
+  return Boolean(v);
+};
+const toInt = (v: unknown) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+};
+const optDate2 = (v: unknown): Date | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+/** GET /furnizori */
+app.get("/furnizori", async (_req, res) => {
+  try {
+    const list = await prisma.furnizor.findMany({ orderBy: { createdAt: "desc" } });
+    res.json(list);
+  } catch (e) {
+    console.error("GET /furnizori error:", e);
+    res.status(500).json({ error: "Nu am putut încărca furnizorii" });
+  }
+});
+
+/** POST /furnizori */
+app.post("/furnizori", async (req, res) => {
+  const p = req.body as SupplierPayload;
+  const required: (keyof SupplierPayload)[] = [
+    "denumire","cui_cif","tip","adresa","oras","judet","tara",
+    "contactNume","email","telefon","metodaPlata","termenPlata",
+    "contBancar","banca","status",
+  ];
+  for (const k of required) {
+    if (!(p as any)[k]) return res.status(400).json({ error: `Câmpul '${k}' este obligatoriu` });
+  }
+
+  try {
+    const created = await prisma.furnizor.create({
+      data: {
+        denumire: cleanRequired(p.denumire),
+        cui_cif: cleanRequired(p.cui_cif),
+        nrRegCom: cleanOptional(p.nrRegCom),
+        tip: cleanRequired(p.tip),
+        tva: toBool(p.tva),
+        tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
+        adresa: cleanRequired(p.adresa),
+        oras: cleanRequired(p.oras),
+        judet: cleanRequired(p.judet),
+        tara: cleanRequired(p.tara),
+        contactNume: cleanRequired(p.contactNume),
+        email: cleanRequired(p.email),
+        telefon: cleanRequired(p.telefon),
+        site: cleanOptional(p.site),
+        metodaPlata: cleanRequired(p.metodaPlata),
+        termenPlata: toInt(p.termenPlata),
+        contBancar: cleanRequired(p.contBancar),
+        banca: cleanRequired(p.banca),
+        status: cleanRequired(p.status),
+        notite: cleanOptional(p.notite),
+      },
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "Denumire sau CUI/CIF deja existent" });
+    }
+    console.error("POST /furnizori error:", e);
+    res.status(500).json({ error: "Nu am putut crea furnizorul" });
+  }
+});
+
+/** PUT /furnizori/:id */
+app.put("/furnizori/:id", async (req, res) => {
+  const { id } = req.params;
+  const p = req.body as SupplierPayload;
+
+  try {
+    const exists = await prisma.furnizor.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Furnizorul nu a fost găsit" });
+
+    const updated = await prisma.furnizor.update({
+      where: { id },
+      data: {
+        denumire: cleanRequired(p.denumire),
+        cui_cif: cleanRequired(p.cui_cif),
+        nrRegCom: cleanOptional(p.nrRegCom),
+        tip: cleanRequired(p.tip),
+        tva: toBool(p.tva),
+        tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
+        adresa: cleanRequired(p.adresa),
+        oras: cleanRequired(p.oras),
+        judet: cleanRequired(p.judet),
+        tara: cleanRequired(p.tara),
+        contactNume: cleanRequired(p.contactNume),
+        email: cleanRequired(p.email),
+        telefon: cleanRequired(p.telefon),
+        site: cleanOptional(p.site),
+        metodaPlata: cleanRequired(p.metodaPlata),
+        termenPlata: toInt(p.termenPlata),
+        contBancar: cleanRequired(p.contBancar),
+        banca: cleanRequired(p.banca),
+        status: cleanRequired(p.status),
+        notite: cleanOptional(p.notite),
+      },
+    });
+    res.json(updated);
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "Denumire sau CUI/CIF deja existent" });
+    }
+    console.error("PUT /furnizori/:id error:", e);
+    res.status(500).json({ error: "Nu am putut actualiza furnizorul" });
+  }
+});
+
+/** DELETE /furnizori/:id */
+app.delete("/furnizori/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await prisma.furnizor.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Furnizorul nu a fost găsit" });
+
+    await prisma.furnizor.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /furnizori/:id error:", e);
+    res.status(500).json({ error: "Nu am putut șterge furnizorul" });
+  }
+});
+
+
 
 /* ===================== BOOT ===================== */
 
