@@ -276,17 +276,171 @@ export default function SuppliersPage() {
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         {/* Table */}
-        <MaterialReactTable
-          columns={cols}
-          data={rows}
-          state={{ isLoading: loading }}
-          enableRowActions
-          positionActionsColumn="last"
-          initialState={{
-            density: "compact",
-            pagination: { pageIndex: 0, pageSize: 10 },
-            sorting: [{ id: "denumire", desc: false }],
-          }}
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <MaterialReactTable
+            columns={cols}
+            data={rows}
+            state={{ isLoading: loading }}
+            enableRowActions
+            positionActionsColumn="last"
+            enablePagination
+            enableBottomToolbar
+            enableTopToolbar
+            enableRowSelection
+            enableMultiRowSelection
+            enableGlobalFilter
+            enableColumnFilters
+            enableSorting
+            enableDensityToggle
+            enableFullScreenToggle
+            enableColumnResizing
+            enableColumnOrdering
+            enableHiding
+            muiTableContainerProps={{
+              sx: {
+                height: "calc(100vh - 260px)",
+                minHeight: "400px",
+                overflow: "auto",
+                flex: 1,
+              },
+            }}
+            muiTableBodyProps={{
+              sx: {
+                // Zebra striping - alternating row colors (more specific selectors)
+                '& tr:nth-of-type(even) td': {
+                  backgroundColor: '#f8f9fa !important',
+                },
+                '& tr:nth-of-type(odd) td': {
+                  backgroundColor: '#ffffff !important',
+                },
+                // Hover states
+                '& .MuiTableRow-root:hover td': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                },
+                // Selected states
+                '& .MuiTableRow-root.Mui-selected td': {
+                  backgroundColor: 'rgba(25, 118, 210, 0.08) !important',
+                },
+                '& .MuiTableRow-root.Mui-selected:hover td': {
+                  backgroundColor: 'rgba(25, 118, 210, 0.12) !important',
+                },
+              },
+            }}
+            muiTableHeadProps={{
+              sx: {
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+                backgroundColor: 'background.paper',
+                '& .MuiTableCell-head': {
+                  backgroundColor: 'grey.50',
+                  fontWeight: 600,
+                },
+              },
+            }}
+            muiBottomToolbarProps={{
+              sx: {
+                position: 'sticky',
+                bottom: 0,
+                backgroundColor: 'background.paper',
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                zIndex: 2,
+                minHeight: 64,
+              },
+            }}
+            muiTopToolbarProps={{
+              sx: {
+                backgroundColor: 'background.paper',
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+              },
+            }}
+            muiPaginationProps={{
+              rowsPerPageOptions: [10, 25, 50, 100],
+              showFirstButton: true,
+              showLastButton: true,
+              color: 'primary',
+            }}
+            localization={{
+              rowsPerPage: 'Rânduri pe pagină:',
+              of: 'din',
+              search: 'Caută furnizori...',
+              noRecordsToDisplay: 'Nu există furnizori de afișat',
+              sortedByColumnAsc: 'Sortat ascendent după {column}',
+              sortedByColumnDesc: 'Sortat descendent după {column}',
+              showHideColumns: 'Afișează/Ascunde coloane',
+              showHideFilters: 'Afișează/Ascunde filtre',
+              showHideSearch: 'Afișează/Ascunde căutare',
+              clearSearch: 'Șterge căutarea',
+              clearSort: 'Șterge sortarea',
+              clearFilter: 'Șterge filtrul',
+              columnActions: 'Acțiuni coloană',
+              edit: 'Editează',
+              save: 'Salvează',
+              cancel: 'Anulează',
+              actions: 'Acțiuni',
+              filterByColumn: 'Filtrează după {column}',
+              filterContains: 'Conține',
+              filterEmpty: 'Gol',
+              filterEndsWith: 'Se termină cu',
+              filterEquals: 'Egal cu',
+              filterGreaterThan: 'Mai mare ca',
+              filterGreaterThanOrEqualTo: 'Mai mare sau egal cu',
+              filterLessThan: 'Mai mic ca',
+              filterLessThanOrEqualTo: 'Mai mic sau egal cu',
+              filterNotEmpty: 'Nu este gol',
+              filterNotEquals: 'Nu este egal cu',
+              filterStartsWith: 'Începe cu',
+              goToFirstPage: 'Prima pagină',
+              goToLastPage: 'Ultima pagină',
+              goToNextPage: 'Pagina următoare',
+              goToPreviousPage: 'Pagina anterioară',
+              hideColumn: 'Ascunde coloana {column}',
+              showAllColumns: 'Afișează toate coloanele',
+              sortByColumnAsc: 'Sortează ascendent după {column}',
+              sortByColumnDesc: 'Sortează descendent după {column}',
+              toggleDensity: 'Comută densitatea',
+              toggleFullScreen: 'Comută ecran complet',
+              toggleSelectAll: 'Selectează toate',
+              toggleSelectRow: 'Selectează rândul',
+            }}
+            muiSearchTextFieldProps={{
+              placeholder: 'Caută furnizori...',
+              sx: { minWidth: '300px' },
+              variant: 'outlined',
+              size: 'small',
+            }}
+            displayColumnDefOptions={{
+              'mrt-row-actions': {
+                muiTableHeadCellProps: {
+                  align: 'center',
+                },
+                size: 120,
+              },
+              'mrt-row-select': {
+                size: 50,
+              },
+            }}
+            initialState={{
+              density: "comfortable",
+              pagination: { pageIndex: 0, pageSize: 25 },
+              sorting: [{ id: "denumire", desc: false }],
+              showGlobalFilter: true,
+              showColumnFilters: false,
+            }}
+            enableRowVirtualization={rows.length > 100}
+            muiTableBodyRowProps={({ row }) => ({
+              sx: {
+                cursor: 'pointer',
+              },
+              onClick: () => {
+                // Optional: Add row click behavior
+                console.log('Row clicked:', row.original);
+              },
+            })}
+            positionGlobalFilter="left"
+            positionToolbarAlertBanner="bottom"
           renderRowActions={({ row }) => (
             <Stack direction="row" spacing={1}>
               {row.original.site ? (
@@ -326,6 +480,7 @@ export default function SuppliersPage() {
             </Stack>
           )}
         />
+        </Box>
       </Paper>
 
       {/* Add / Edit dialog */}

@@ -3,9 +3,10 @@ export type Client = {
   id: string;
   name: string;
   location: string;
-  contact: string;
+  phone: string;
+  email?: string | null;               // optional
   registrulComertului?: string | null; // optional
-  cif?: string | null;                 // optional
+  cui?: string | null;                 // optional
   createdAt?: string;
   updatedAt?: string;
 };
@@ -14,9 +15,10 @@ export type Client = {
 export type ClientPayload = {
   name: string;
   location: string;
-  contact: string;
+  phone: string;
+  email?: string | null;
   registrulComertului?: string | null;
-  cif?: string | null;
+  cui?: string | null;
 };
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -97,9 +99,10 @@ function sanitizePayload(p: ClientPayload): ClientPayload {
   return {
     name: trim(p.name),
     location: trim(p.location),
-    contact: trim(p.contact),
+    phone: trim(p.phone),
+    email: toNullIfEmpty(p.email ?? null),
     registrulComertului: toNullIfEmpty(p.registrulComertului ?? null),
-    cif: toNullIfEmpty(p.cif ?? null),
+    cui: toNullIfEmpty(p.cui ?? null),
   };
 }
 

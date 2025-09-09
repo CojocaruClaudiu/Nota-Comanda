@@ -20,7 +20,7 @@ const getInitials = (name?: string, email?: string) => {
 };
 
 const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick }) => {
-  const { user, logout } = useAuth() as { user?: { name?: string; email: string }, logout: () => void } | any;
+  const { user, logout, loading } = useAuth() as { user?: { name?: string; email: string }, logout: () => void, loading: boolean } | any;
   const navigate = useNavigate();
   const { successNotistack } = useNotistack();
 
@@ -163,7 +163,11 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
               </div>
             ) : (
               <div className="topbar__user">
-                <span className="topbar__userText">Neautentificat</span>
+                {loading ? (
+                  <span className="topbar__userText">Se încarcă...</span>
+                ) : (
+                  <span className="topbar__userText">Neautentificat</span>
+                )}
               </div>
             )}
           </div>

@@ -11,9 +11,10 @@ model Client {
   id                  String   @id @default(uuid())
   name                String
   location            String
-  contact             String
+  phone               String
+  email               String?
   registrulComertului String?  @unique
-  cif                 String?  @unique
+  cui                 String?  @unique
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
@@ -117,6 +118,7 @@ enum RoleName {
 
 model Furnizor {
   id            String   @id @default(uuid())
+  id_tert       String?
   denumire      String   @unique
   cui_cif       String   @unique
   nrRegCom      String?

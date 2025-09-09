@@ -4,9 +4,10 @@ export type Client = {
   id: string;
   name: string;
   location: string;
-  contact: string;
-  registrulComertului: string;
-  cif: string;
+  phone: string;
+  email?: string | null;
+  registrulComertului?: string | null;
+  cui?: string | null;
 };
 
 export function useClients() {

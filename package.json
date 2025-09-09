@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "csv-parse": "^6.1.0",
     "notistack": "^3.0.2",
     "xlsx": "^0.18.5"
   }

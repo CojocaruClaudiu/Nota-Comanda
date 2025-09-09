@@ -54,24 +54,25 @@ app.get('/clients', async (_req, res) => {
   }
 });
 
-/** Create client (registrulComertului & cif OPTIONAL) */
+/** Create client (registrulComertului & cui OPTIONAL) */
 app.post('/clients', async (req, res) => {
   try {
-    const { name, location, contact, registrulComertului, cif } = req.body || {};
+    const { name, location, phone, email, registrulComertului, cui } = req.body || {};
 
-    if (!name || !location || !contact) {
+    if (!name || !location || !phone) {
       return res
         .status(400)
-        .json({ error: 'Nume, Locație și Contact sunt obligatorii' });
+        .json({ error: 'Nume, Locație și Telefon sunt obligatorii' });
     }
 
     const client = await prisma.client.create({
       data: {
         name: cleanRequired(name),
         location: cleanRequired(location),
-        contact: cleanRequired(contact),
+        phone: cleanRequired(phone),
+        email: cleanOptional(email),
         registrulComertului: cleanOptional(registrulComertului),
-        cif: cleanOptional(cif),
+        cui: cleanOptional(cui),
       },
     });
     res.status(201).json(client);
@@ -79,7 +80,7 @@ app.post('/clients', async (req, res) => {
     if (e?.code === 'P2002') {
       return res
         .status(409)
-        .json({ error: 'CIF sau Registrul Comerțului este deja folosit.' });
+        .json({ error: 'CUI sau Registrul Comerțului este deja folosit.' });
     }
     console.error('POST /clients error:', e);
     res.status(500).json({ error: e?.message || 'Failed to create client' });
