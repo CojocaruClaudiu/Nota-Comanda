@@ -37,8 +37,8 @@ const validationSchema = Yup.object({
     .max(200, 'Locația nu poate avea mai mult de 200 caractere')
     .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ0-9\s\-\.\,]+$/, 'Locația poate conține doar litere, cifre, spații și semne de punctuație'),
   phone: Yup.string()
-    .required('Telefonul este obligatoriu')
-    .matches(/^(\+4|0)?(7[0-9]{8}|2[0-9]{8}|3[0-9]{8})$/, 'Numărul de telefon trebuie să fie valid (ex: 0722123456, +40722123456)'),
+    .matches(/^(\+4|0)?(7[0-9]{8}|2[0-9]{8}|3[0-9]{8})?$/, 'Numărul de telefon trebuie să fie valid (ex: 0722123456, +40722123456)')
+    .nullable(),
   email: Yup.string()
     .email('Adresa de email nu este validă')
     .nullable(),
@@ -47,7 +47,7 @@ const validationSchema = Yup.object({
     .matches(/^[a-zA-Z0-9\/\-\s]*$/, 'Registrul comerțului poate conține doar litere, cifre, cratime și bare oblice')
     .nullable(),
   cui: Yup.string()
-    .matches(/^[0-9]{2,10}$/, 'CUI-ul trebuie să conțină între 2 și 10 cifre')
+    .matches(/^(ro|RO)?[0-9]{2,10}$/, 'CUI-ul trebuie să fie valid (ex: 12345678 sau RO12345678)')
     .nullable(),
 });
 
@@ -226,7 +226,6 @@ export const AddClientModal: React.FC<AddClientModalProps> = ({
                             {...field}
                             label="Telefon"
                             placeholder="Ex: 0722123456, +40722123456"
-                            required
                             fullWidth
                             variant="outlined"
                             error={touched.phone && !!errors.phone}

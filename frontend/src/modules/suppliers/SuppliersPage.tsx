@@ -1,6 +1,6 @@
-
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { MaterialReactTable, type MRT_ColumnDef } from "material-react-table";
+// src/pages/suppliers/SuppliersPage.tsx
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from "material-react-table";
 import {
   Box,
   Paper,
@@ -40,6 +40,7 @@ import {
   type Supplier,
   type SupplierPayload,
 } from "../../api/suppliers";
+import { tableLocalization } from "../../localization/tableLocalization";
 
 dayjs.locale("ro");
 
@@ -55,20 +56,48 @@ const TIP_OPTIONS = ["SRL", "SA", "PFA", "II", "IF", "ONG", "Altul"];
 const PLATA_OPTIONS = ["OP", "Numerar", "Card"];
 const STATUS_OPTIONS = ["activ", "inactiv"] as const;
 
-// ---------- columns
+// ---------- columns (aligned with ClientsTable: filters, global search, fallback "—")
 const mkColumns = (): MRT_ColumnDef<Supplier>[] => [
-  { accessorKey: "denumire", header: "Denumire", size: 280 },
-  { accessorKey: "cui_cif", header: "CUI / CIF", size: 130 },
+  {
+    accessorKey: "denumire",
+    header: "Denumire",
+    size: 280,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
+  },
+  {
+    accessorKey: "cui_cif",
+    header: "CUI / CIF",
+    size: 130,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (row) => row.cui_cif || "",
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
+  },
+  {
+    accessorKey: "nrRegCom",
+    header: "Nr. Reg. Com.",
+    size: 150,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (row) => row.nrRegCom || "",
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
+  },
   {
     accessorKey: "tip",
     header: "Tip",
     size: 90,
-    Cell: ({ cell }) => <Chip size="small" label={cell.getValue<string>()} />,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    Cell: ({ cell }) => <Chip size="small" label={cell.getValue<string>() || "—"} />,
   },
   {
     accessorKey: "tva",
     header: "TVA",
     size: 80,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
     Cell: ({ row }) =>
       row.original.tva ? (
         <Chip size="small" color="success" label="Plătitor" />
@@ -80,20 +109,30 @@ const mkColumns = (): MRT_ColumnDef<Supplier>[] => [
     accessorKey: "tvaData",
     header: "TVA din",
     size: 110,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (row) => row.tvaData || "",
     Cell: ({ cell }) => dmy(cell.getValue<string>()),
   },
   {
     id: "loc",
     header: "Locație",
     size: 220,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
     accessorFn: (r) => [r.oras, r.judet, r.tara].filter(Boolean).join(", "),
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
   },
-  { accessorKey: "contactNume", header: "Contact", size: 180 },
-  { accessorKey: "telefon", header: "Telefon", size: 130 },
+  { accessorKey: "adresa", header: "Adresă", size: 260, enableColumnFilter: true, enableGlobalFilter: true, Cell: ({ renderedCellValue }) => renderedCellValue || "—" },
+  { accessorKey: "contactNume", header: "Contact", size: 180, enableColumnFilter: true, enableGlobalFilter: true, accessorFn: (r) => r.contactNume || "", Cell: ({ renderedCellValue }) => renderedCellValue || "—" },
+  { accessorKey: "telefon", header: "Telefon", size: 130, enableColumnFilter: true, enableGlobalFilter: true, accessorFn: (r) => r.telefon || "", Cell: ({ renderedCellValue }) => renderedCellValue || "—" },
   {
     accessorKey: "email",
     header: "Email",
     size: 220,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (r) => r.email || "",
     Cell: ({ cell }) => {
       const v = cell.getValue<string>();
       return v ? (
@@ -106,15 +145,36 @@ const mkColumns = (): MRT_ColumnDef<Supplier>[] => [
     },
   },
   {
+    accessorKey: "site",
+    header: "Site",
+    size: 220,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (r) => r.site || "",
+    Cell: ({ cell }) => {
+      const v = (cell.getValue<string>() || "").trim();
+      if (!v) return "—";
+      const href = v.startsWith("http") ? v : `https://${v}`;
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+          {v}
+        </a>
+      );
+    },
+  },
+  {
     accessorKey: "status",
     header: "Status",
     size: 100,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (r) => r.status || "",
     Cell: ({ cell }) => {
       const v = cell.getValue<string>();
       return (
         <Chip
           size="small"
-          label={v}
+          label={v || "—"}
           color={v === "activ" ? "success" : "default"}
           variant={v === "activ" ? "filled" : "outlined"}
         />
@@ -185,11 +245,11 @@ export default function SuppliersPage() {
 
   // ---------- validation
   const validate = (f: SupplierPayload) => {
-  const errs: Record<string, string | undefined> = {};
-  if (!f.denumire?.trim()) errs.denumire = "Denumirea este obligatorie";
-  if (!f.cui_cif?.trim()) errs.cui_cif = "CUI/CIF este obligatoriu";
-  const valid = Object.values(errs).every((v) => !v);
-  return { errs, valid };
+    const errs: Record<string, string | undefined> = {};
+    if (!f.denumire?.trim()) errs.denumire = "Denumirea este obligatorie";
+    if (!f.cui_cif?.trim()) errs.cui_cif = "CUI/CIF este obligatoriu";
+    const valid = Object.values(errs).every((v) => !v);
+    return { errs, valid };
   };
   const { errs, valid } = useMemo(() => validate(form), [form]);
 
@@ -257,6 +317,94 @@ export default function SuppliersPage() {
     }
   };
 
+  // ---------- table (mirrors ClientsTable settings/styling)
+  const table = useMaterialReactTable({
+    columns: cols,
+    data: rows,
+    localization: tableLocalization,
+    state: { isLoading: loading, showAlertBanner: !!error },
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 10 },
+      density: "comfortable",
+      showGlobalFilter: true,
+    },
+    enableGlobalFilter: true,
+    enableFacetedValues: true,
+    enableColumnFilters: true,
+    enableColumnFilterModes: true,
+    enableSorting: true,
+    enableMultiSort: true,
+    enableRowSelection: false, // same as ClientsTable
+    enableRowActions: true,
+    enableDensityToggle: true,
+    enableFullScreenToggle: true,
+    enableColumnOrdering: true,
+    enableColumnPinning: true,
+    enableHiding: true,
+
+    globalFilterFn: "includesString",
+    paginationDisplayMode: "pages",
+
+    positionActionsColumn: "last",
+    positionGlobalFilter: "right",
+    positionToolbarAlertBanner: "bottom",
+
+    muiTableBodyRowProps: ({ row, table }) => {
+      const visibleRows = table.getRowModel().rows;
+      const displayIndex = visibleRows.findIndex((r) => r.id === row.id);
+      return {
+        sx: {
+          backgroundColor: displayIndex % 2 === 0 ? "action.hover" : "inherit",
+          cursor: "pointer",
+        },
+        onClick: () => {
+          // optional click
+          // console.log('Row clicked:', row.original);
+        },
+      };
+    },
+
+    muiSearchTextFieldProps: {
+      placeholder: "Caută furnizori...",
+      sx: { minWidth: "300px" },
+      variant: "outlined",
+    },
+
+    renderRowActions: ({ row }) => (
+      <Stack direction="row" gap={1}>
+        {row.original.site ? (
+          <Tooltip title="Deschide site" arrow>
+            <span>
+              <IconButton
+                size="small"
+                component="a"
+                href={row.original.site.startsWith("http") ? row.original.site : `https://${row.original.site}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <OpenInNewRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        ) : null}
+        <Tooltip title="Editează">
+          <span>
+            <IconButton size="small" onClick={() => startEdit(row.original)}>
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Șterge">
+          <span>
+            <IconButton color="error" size="small" onClick={() => setConfirmDelete(row.original)} disabled={saving}>
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+    ),
+  });
+
   return (
     <Box sx={{ width: "100vw", height: "100vh", p: 0, m: 0, bgcolor: "background.default" }}>
       <Paper elevation={2} sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column" }}>
@@ -276,210 +424,8 @@ export default function SuppliersPage() {
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         {/* Table */}
-        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <MaterialReactTable
-            columns={cols}
-            data={rows}
-            state={{ isLoading: loading }}
-            enableRowActions
-            positionActionsColumn="last"
-            enablePagination
-            enableBottomToolbar
-            enableTopToolbar
-            enableRowSelection
-            enableMultiRowSelection
-            enableGlobalFilter
-            enableColumnFilters
-            enableSorting
-            enableDensityToggle
-            enableFullScreenToggle
-            enableColumnResizing
-            enableColumnOrdering
-            enableHiding
-            muiTableContainerProps={{
-              sx: {
-                height: "calc(100vh - 260px)",
-                minHeight: "400px",
-                overflow: "auto",
-                flex: 1,
-              },
-            }}
-            muiTableBodyProps={{
-              sx: {
-                // Zebra striping - alternating row colors (more specific selectors)
-                '& tr:nth-of-type(even) td': {
-                  backgroundColor: '#f8f9fa !important',
-                },
-                '& tr:nth-of-type(odd) td': {
-                  backgroundColor: '#ffffff !important',
-                },
-                // Hover states
-                '& .MuiTableRow-root:hover td': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
-                },
-                // Selected states
-                '& .MuiTableRow-root.Mui-selected td': {
-                  backgroundColor: 'rgba(25, 118, 210, 0.08) !important',
-                },
-                '& .MuiTableRow-root.Mui-selected:hover td': {
-                  backgroundColor: 'rgba(25, 118, 210, 0.12) !important',
-                },
-              },
-            }}
-            muiTableHeadProps={{
-              sx: {
-                position: 'sticky',
-                top: 0,
-                zIndex: 2,
-                backgroundColor: 'background.paper',
-                '& .MuiTableCell-head': {
-                  backgroundColor: 'grey.50',
-                  fontWeight: 600,
-                },
-              },
-            }}
-            muiBottomToolbarProps={{
-              sx: {
-                position: 'sticky',
-                bottom: 0,
-                backgroundColor: 'background.paper',
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                zIndex: 2,
-                minHeight: 64,
-              },
-            }}
-            muiTopToolbarProps={{
-              sx: {
-                backgroundColor: 'background.paper',
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-              },
-            }}
-            muiPaginationProps={{
-              rowsPerPageOptions: [10, 25, 50, 100],
-              showFirstButton: true,
-              showLastButton: true,
-              color: 'primary',
-            }}
-            localization={{
-              rowsPerPage: 'Rânduri pe pagină:',
-              of: 'din',
-              search: 'Caută furnizori...',
-              noRecordsToDisplay: 'Nu există furnizori de afișat',
-              sortedByColumnAsc: 'Sortat ascendent după {column}',
-              sortedByColumnDesc: 'Sortat descendent după {column}',
-              showHideColumns: 'Afișează/Ascunde coloane',
-              showHideFilters: 'Afișează/Ascunde filtre',
-              showHideSearch: 'Afișează/Ascunde căutare',
-              clearSearch: 'Șterge căutarea',
-              clearSort: 'Șterge sortarea',
-              clearFilter: 'Șterge filtrul',
-              columnActions: 'Acțiuni coloană',
-              edit: 'Editează',
-              save: 'Salvează',
-              cancel: 'Anulează',
-              actions: 'Acțiuni',
-              filterByColumn: 'Filtrează după {column}',
-              filterContains: 'Conține',
-              filterEmpty: 'Gol',
-              filterEndsWith: 'Se termină cu',
-              filterEquals: 'Egal cu',
-              filterGreaterThan: 'Mai mare ca',
-              filterGreaterThanOrEqualTo: 'Mai mare sau egal cu',
-              filterLessThan: 'Mai mic ca',
-              filterLessThanOrEqualTo: 'Mai mic sau egal cu',
-              filterNotEmpty: 'Nu este gol',
-              filterNotEquals: 'Nu este egal cu',
-              filterStartsWith: 'Începe cu',
-              goToFirstPage: 'Prima pagină',
-              goToLastPage: 'Ultima pagină',
-              goToNextPage: 'Pagina următoare',
-              goToPreviousPage: 'Pagina anterioară',
-              hideColumn: 'Ascunde coloana {column}',
-              showAllColumns: 'Afișează toate coloanele',
-              sortByColumnAsc: 'Sortează ascendent după {column}',
-              sortByColumnDesc: 'Sortează descendent după {column}',
-              toggleDensity: 'Comută densitatea',
-              toggleFullScreen: 'Comută ecran complet',
-              toggleSelectAll: 'Selectează toate',
-              toggleSelectRow: 'Selectează rândul',
-            }}
-            muiSearchTextFieldProps={{
-              placeholder: 'Caută furnizori...',
-              sx: { minWidth: '300px' },
-              variant: 'outlined',
-              size: 'small',
-            }}
-            displayColumnDefOptions={{
-              'mrt-row-actions': {
-                muiTableHeadCellProps: {
-                  align: 'center',
-                },
-                size: 120,
-              },
-              'mrt-row-select': {
-                size: 50,
-              },
-            }}
-            initialState={{
-              density: "comfortable",
-              pagination: { pageIndex: 0, pageSize: 25 },
-              sorting: [{ id: "denumire", desc: false }],
-              showGlobalFilter: true,
-              showColumnFilters: false,
-            }}
-            enableRowVirtualization={rows.length > 100}
-            muiTableBodyRowProps={({ row }) => ({
-              sx: {
-                cursor: 'pointer',
-              },
-              onClick: () => {
-                // Optional: Add row click behavior
-                console.log('Row clicked:', row.original);
-              },
-            })}
-            positionGlobalFilter="left"
-            positionToolbarAlertBanner="bottom"
-          renderRowActions={({ row }) => (
-            <Stack direction="row" spacing={1}>
-              {row.original.site ? (
-                <Tooltip title="Deschide site" arrow>
-                  <span>
-                    <IconButton
-                      size="small"
-                      component="a"
-                      href={row.original.site.startsWith("http") ? row.original.site : `https://${row.original.site}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <OpenInNewRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              ) : null}
-              <Tooltip title="Editează" arrow>
-                <span>
-                  <IconButton size="small" onClick={() => startEdit(row.original)}>
-                    <EditOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Șterge" arrow>
-                <span>
-                  <IconButton
-                    color="error"
-                    size="small"
-                    onClick={() => setConfirmDelete(row.original)}
-                    disabled={saving}
-                  >
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Stack>
-          )}
-        />
+        <Box sx={{ flex: 1, minHeight: 0, maxHeight: "calc(100vh - 150px)", overflow: "auto" }}>
+          <MaterialReactTable table={table} />
         </Box>
       </Paper>
 
@@ -537,9 +483,6 @@ export default function SuppliersPage() {
                   value={form.tip}
                   onChange={(e) => setForm((f) => ({ ...f, tip: e.target.value }))}
                   fullWidth
-                  // required
-                  error={!!errs.tip}
-                  helperText={errs.tip}
                 >
                   {TIP_OPTIONS.map((t) => (
                     <MenuItem key={t} value={t}>{t}</MenuItem>
@@ -583,7 +526,6 @@ export default function SuppliersPage() {
                   value={form.adresa}
                   onChange={(e) => setForm((f) => ({ ...f, adresa: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.adresa}
                   helperText={errs.adresa}
                 />
@@ -594,7 +536,6 @@ export default function SuppliersPage() {
                   value={form.oras}
                   onChange={(e) => setForm((f) => ({ ...f, oras: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.oras}
                   helperText={errs.oras}
                 />
@@ -605,7 +546,6 @@ export default function SuppliersPage() {
                   value={form.judet}
                   onChange={(e) => setForm((f) => ({ ...f, judet: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.judet}
                   helperText={errs.judet}
                 />
@@ -616,7 +556,6 @@ export default function SuppliersPage() {
                   value={form.tara}
                   onChange={(e) => setForm((f) => ({ ...f, tara: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.tara}
                   helperText={errs.tara}
                 />
@@ -637,7 +576,6 @@ export default function SuppliersPage() {
                   value={form.contactNume}
                   onChange={(e) => setForm((f) => ({ ...f, contactNume: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.contactNume}
                   helperText={errs.contactNume}
                 />
@@ -676,7 +614,6 @@ export default function SuppliersPage() {
                   value={form.metodaPlata}
                   onChange={(e) => setForm((f) => ({ ...f, metodaPlata: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.metodaPlata}
                   helperText={errs.metodaPlata}
                 >
@@ -693,7 +630,6 @@ export default function SuppliersPage() {
                   value={form.termenPlata}
                   onChange={(e) => setForm((f) => ({ ...f, termenPlata: Math.max(0, Number(e.target.value || 0)) }))}
                   fullWidth
-                  // required
                   error={!!errs.termenPlata}
                   helperText={errs.termenPlata}
                 />
@@ -704,7 +640,6 @@ export default function SuppliersPage() {
                   value={form.contBancar}
                   onChange={(e) => setForm((f) => ({ ...f, contBancar: e.target.value.trim() }))}
                   fullWidth
-                  // required
                   error={!!errs.contBancar}
                   helperText={errs.contBancar}
                 />
@@ -715,7 +650,6 @@ export default function SuppliersPage() {
                   value={form.banca}
                   onChange={(e) => setForm((f) => ({ ...f, banca: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.banca}
                   helperText={errs.banca}
                 />
@@ -734,7 +668,6 @@ export default function SuppliersPage() {
                   value={form.status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
                   fullWidth
-                  // required
                   error={!!errs.status}
                   helperText={errs.status}
                 >

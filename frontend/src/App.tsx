@@ -18,6 +18,8 @@ import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
 import NotFound from "./modules/NotFound";
 import SuppliersPage from "./modules/suppliers/SuppliersPage";
+import ProjectsPage from "./modules/projects/ProjectsPage";
+import ClientLocationsPage from "./modules/projects/clientLocations/ClientLocationsPage";
 
 function AppLayout() {
   return (
@@ -111,6 +113,22 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <SuppliersPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "projects",
+        element: (
+          <RequireAuth>
+            <ProjectsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "client-locations",
+        element: (
+          <RequireAuth>
+            <ClientLocationsPage />
           </RequireAuth>
         ),
       },

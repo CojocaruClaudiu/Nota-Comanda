@@ -405,13 +405,22 @@ export default function CarPage() {
       </Stack>
     ),
 
-    // Row styling by urgency
+    // Row styling by urgency with zebra stripes
     muiTableBodyRowProps: ({ row }) => ({
       sx: (theme) => {
         const n = urgency(row.original);
+        const isEvenRow = row.index % 2 === 0;
+        
+        // Priority 1: Urgency-based coloring
         if (n <= 0) return { bgcolor: `${theme.palette.error.light}33` };
         if (n <= 30) return { bgcolor: `${theme.palette.error.light}1a` };
         if (n <= 90) return { bgcolor: `${theme.palette.warning.light}14` };
+        
+        // Priority 2: Zebra stripes for normal rows
+        if (isEvenRow) {
+          return { bgcolor: theme.palette.action.hover };
+        }
+        
         return {};
       },
     }),

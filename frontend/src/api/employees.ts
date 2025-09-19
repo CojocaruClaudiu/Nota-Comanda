@@ -6,7 +6,16 @@ export type Employee = {
   name: string;
   qualifications: string[];
   hiredAt: string;             // ISO
-  birthDate?: string | null;   // 👈 NEW (ISO)
+  birthDate?: string | null;   // NEW (ISO)
+  cnp?: string;                // NEW
+  phone?: string;              // NEW
+  idSeries?: string;           // NEW
+  idNumber?: string;           // NEW
+  idIssuer?: string;           // NEW
+  idIssueDateISO?: string;     // NEW
+  county?: string;             // NEW
+  locality?: string;           // NEW
+  address?: string;            // NEW
   createdAt?: string;
   updatedAt?: string;
 };
@@ -23,7 +32,15 @@ export type EmployeePayload = {
   cnp: string;
   qualifications?: string[];
   hiredAt: string;             // ISO
-  birthDate?: string | null;   // 👈 NEW
+  birthDate?: string | null;   // NEW
+  phone?: string;              // NEW
+  idSeries?: string;           // NEW
+  idNumber?: string;           // NEW
+  idIssuer?: string;           // NEW
+  idIssueDateISO?: string;     // NEW
+  county?: string;             // NEW
+  locality?: string;           // NEW
+  address?: string;            // NEW
 };
 
 export type Leave = {
