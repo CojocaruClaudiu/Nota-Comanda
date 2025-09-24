@@ -29,6 +29,12 @@ frontend/.env
 backend/prisma/*.db
 backend/prisma/migrations/*/steps.json
 
+# Local/temporary data files
+backend/*.dump
+backend/Furnizori.csv
+backend/scripts/Furnizori.csv
+frontend/public/sample-instructions.txt
+
 # OS / Editor
 .DS_Store
 Thumbs.db

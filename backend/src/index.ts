@@ -162,7 +162,7 @@ type EmployeePayload = {
   name: string;
   qualifications?: string[];
   hiredAt: string;            // ISO date
-  birthDate?: string | null;  // 👈 NEW (ISO, optional)
+  birthDate?: string | null;  // ISO, optional
 };
 type LeavePayload = {
   startDate: string; // ISO date for start
@@ -192,7 +192,7 @@ app.get('/employees', async (_req, res) => {
       const ent = entitledDays(e.hiredAt, now);
       const taken = takenMap.get(e.id) ?? 0;
       const remaining = Math.max(0, ent - taken);
-      const age = ageFrom(e.birthDate, now); // 👈 NEW
+  const age = ageFrom(e.birthDate, now);
       return { ...e, entitledDays: ent, takenDays: taken, remainingDays: remaining, age };
     });
 
@@ -217,7 +217,7 @@ app.post('/employees', async (req, res) => {
           ? qualifications.map(q => String(q).trim()).filter(Boolean)
           : [],
         hiredAt: toDate(hiredAt),
-        birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null, // 👈 NEW
+  birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
       },
     });
     res.status(201).json(created);
@@ -247,7 +247,7 @@ app.put('/employees/:id', async (req, res) => {
           ? qualifications.map(q => String(q).trim()).filter(Boolean)
           : [],
         hiredAt: toDate(hiredAt),
-        birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null, // 👈 NEW
+  birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
       },
     });
     res.json(updated);
