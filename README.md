@@ -51,6 +51,18 @@ Technologies:
 - CRUD: `/clients`, `/employees`, `/cars`
 - Leaves: `POST /employees/:id/leaves`, `GET /employees/:id/leaves`
 
+### Equipment (Scule & Echipamente)
+- Modelled in Prisma and exposed via REST endpoints:
+   - `GET /equipment` – list
+   - `POST /equipment` – create
+   - `PUT /equipment/:id` – update
+   - `DELETE /equipment/:id` – delete
+   - `POST /equipment/rename-category` – bulk rename category
+- Fields: categorie (category), descriere (description), cod (code/id), hourlyCost (cost/ora)
+- Scripts:
+   - `npm run seed:equipment` – import initial equipment list
+   - `npm run backfill:equipment-categories` – auto-assign categories by keywords
+
 ## Frontend
 Located in `frontend/` (or `Flota/` naming inside). Uses Vite.
 
@@ -80,6 +92,13 @@ Typical scripts you might add/use:
 - `dev` - ts-node-dev / nodemon runner (verify actual script in `backend/package.json`)
 - `build` - tsc compile
 - `start` - node dist
+ - `prisma:gen` - generate Prisma client
+ - `prisma:migrate` - run dev migrations
+ - `seed:equipment` - seed equipment (Scule & Echipamente)
+ - `backfill:equipment-categories` - auto-categorize equipment
+
+## CI
+This repo includes a minimal GitHub Actions workflow that builds backend and frontend on pushes/PRs to `main`.
 
 ## Contributing
 1. Create feature branch
