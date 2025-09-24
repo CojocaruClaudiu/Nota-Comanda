@@ -1,34 +1,21 @@
 // src/pages/clients/ClientsTable.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { MaterialReactTable, MRT_ColumnDef } from 'material-react-table';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import {
   Box, Typography, Paper, Alert, Stack, Button,
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, CircularProgress, IconButton, Tooltip
+  CircularProgress, IconButton, Tooltip
 } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import {
-  fetchClients, createClient, deleteClient, updateClient,
-  type Client, type ClientPayload
+  fetchClients,
+  type Client
 } from '../../api/clients';
 import useNotistack from '../orders/hooks/useNotistack';
-
-const columns: MRT_ColumnDef<Client>[] = [
-  { accessorKey: 'name', header: 'Nume Client' },
-  { accessorKey: 'location', header: 'Locație' },
-  { accessorKey: 'contact', header: 'Contact' },
-  {
-    accessorKey: 'registrulComertului',
-    header: 'Registrul Comerțului',
-    Cell: ({ cell }) => (cell.getValue<string | null>()?.trim() || '—'),
-  },
-  {
-    accessorKey: 'cif',
-    header: 'CIF',
-    Cell: ({ cell }) => (cell.getValue<string | null>()?.trim() || '—'),
-  },
-];
+import { tableLocalization } from '../../localization/tableLocalization';
+import { AddClientModal } from './AddClientModal';
+import { EditClientModal } from './EditClientModal';
+import { DeleteClientDialog } from './DeleteClientDialog';
 
 export const ClientsTable: React.FC = () => {
   const [data, setData] = useState<Client[]>([]);
@@ -37,23 +24,72 @@ export const ClientsTable: React.FC = () => {
 
   // Add dialog
   const [openAdd, setOpenAdd] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<ClientPayload>({
-    name: '', location: '', contact: '', registrulComertului: '', cif: '',
-  });
 
   // Edit dialog
   const [editTarget, setEditTarget] = useState<Client | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [editForm, setEditForm] = useState<ClientPayload>({
-    name: '', location: '', contact: '', registrulComertului: '', cif: '',
-  });
 
   // Delete dialog
   const [toDelete, setToDelete] = useState<Client | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
-  const { successNotistack, errorNotistack } = useNotistack();
+  const { errorNotistack } = useNotistack();
+
+  // Memoized columns with enhanced features
+  const columns = useMemo<MRT_ColumnDef<Client>[]>(
+    () => [
+      { 
+        accessorKey: 'name', 
+        header: 'Nume Client',
+        size: 180,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+      { 
+        accessorKey: 'location', 
+        header: 'Locație',
+        size: 200,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+      { 
+        accessorKey: 'phone', 
+        header: 'Telefon',
+        size: 150,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+      {
+        accessorKey: 'email',
+        header: 'Email',
+        size: 200,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        accessorFn: (row) => row.email || '', // Ensure we return empty string instead of null
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+      {
+        accessorKey: 'registrulComertului',
+        header: 'Registrul Comerțului',
+        size: 180,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        accessorFn: (row) => row.registrulComertului || '', // Ensure we return empty string instead of null
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+      {
+        accessorKey: 'cui',
+        header: 'CUI',
+        size: 120,
+        enableColumnFilter: true,
+        enableGlobalFilter: true,
+        accessorFn: (row) => row.cui || '', // Ensure we return empty string instead of null
+        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+      },
+    ],
+    [],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -72,87 +108,92 @@ export const ClientsTable: React.FC = () => {
 
   useEffect(() => { void load(); }, [load]);
 
-  // ✅ only mandatory fields
-  const canSave = useMemo(
-    () => form.name.trim() && form.location.trim() && form.contact.trim(),
-    [form]
-  );
-  const canUpdate = useMemo(
-    () => editForm.name.trim() && editForm.location.trim() && editForm.contact.trim(),
-    [editForm]
-  );
-
-  const onAddChange = (k: keyof ClientPayload) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(prev => ({ ...prev, [k]: e.target.value }));
-
-  const onEditChange = (k: keyof ClientPayload) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setEditForm(prev => ({ ...prev, [k]: e.target.value }));
-
-  const handleSave = async () => {
-    if (!canSave) return;
-    try {
-      setSaving(true);
-      setError(null);
-      const created = await createClient(form);
-      setData(prev => [created, ...prev]);
-      setOpenAdd(false);
-      setForm({ name: '', location: '', contact: '', registrulComertului: '', cif: '' });
-      successNotistack('Clientul a fost adăugat cu succes!');
-    } catch (e: any) {
-      const msg = e?.message || 'Nu am putut crea clientul';
-      setError(msg);
-      errorNotistack(msg);
-    } finally {
-      setSaving(false);
-    }
+  const handleClientAdded = (newClient: Client) => {
+    setData(prev => [newClient, ...prev]);
+    setOpenAdd(false);
   };
 
-  const openEditDialog = (row: Client) => {
-    setEditTarget(row);
-    setEditForm({
-      name: row.name,
-      location: row.location,
-      contact: row.contact,
-      registrulComertului: row.registrulComertului ?? '',
-      cif: row.cif ?? '',
-    });
+  const handleClientUpdated = (updatedClient: Client) => {
+    setData(prev => prev.map(c => (c.id === updatedClient.id ? updatedClient : c)));
+    setEditTarget(null);
   };
 
-  const handleUpdate = async () => {
-    if (!editTarget || !canUpdate) return;
-    try {
-      setUpdating(true);
-      setError(null);
-      const updated = await updateClient(editTarget.id, editForm);
-      setData(prev => prev.map(c => (c.id === updated.id ? updated : c))); // optimistic replace
-      setEditTarget(null);
-      successNotistack('Clientul a fost actualizat cu succes!');
-    } catch (e: any) {
-      const msg = e?.message || 'Nu am putut actualiza clientul';
-      setError(msg);
-      errorNotistack(msg);
-    } finally {
-      setUpdating(false);
-    }
+  const handleClientDeleted = (clientId: string) => {
+    setData(prev => prev.filter(c => c.id !== clientId));
+    setToDelete(null);
   };
 
-  const confirmDelete = async () => {
-    if (!toDelete) return;
-    try {
-      setDeleting(true);
-      setError(null);
-      await deleteClient(toDelete.id);
-      setData(prev => prev.filter(c => c.id !== toDelete.id));
-      successNotistack('Clientul a fost șters cu succes!');
-      setToDelete(null);
-    } catch (e: any) {
-      const msg = e?.message || 'Nu am putut șterge clientul';
-      setError(msg);
-      errorNotistack(msg);
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const table = useMaterialReactTable({
+    columns,
+    data,
+    localization: tableLocalization,
+    state: { isLoading: loading, showAlertBanner: !!error },
+    initialState: { 
+      pagination: { pageIndex: 0, pageSize: 10 },
+      density: 'comfortable',
+      showGlobalFilter: true,
+    },
+    // Enhanced search and filtering
+    enableGlobalFilter: true,
+    enableFacetedValues: true,
+    enableColumnFilters: true,
+    enableColumnFilterModes: true,
+    enableSorting: true,
+    enableMultiSort: true,
+    enableRowSelection: false,
+    enableRowActions: true,
+    enableDensityToggle: true,
+    enableFullScreenToggle: true,
+    enableColumnOrdering: true,
+    enableColumnPinning: true,
+    enableHiding: true,
+    
+    // Use built-in string search for reliable filtering
+    globalFilterFn: 'includesString',
+    
+    // Enhanced pagination
+    paginationDisplayMode: 'pages',
+    
+    positionActionsColumn: 'last',
+    positionGlobalFilter: 'right',
+    positionToolbarAlertBanner: 'bottom',
+    
+    // Styling
+    muiTableBodyRowProps: ({ row, table }) => {
+      const visibleRows = table.getRowModel().rows;
+      const displayIndex = visibleRows.findIndex(r => r.id === row.id);
+      return {
+        sx: {
+          backgroundColor: displayIndex % 2 === 0 ? 'action.hover' : 'inherit',
+        },
+      };
+    },
+    
+    muiSearchTextFieldProps: {
+      placeholder: 'Căutare în toate coloanele...',
+      sx: { minWidth: '300px' },
+      variant: 'outlined',
+    },
+    
+    renderRowActions: ({ row }) => (
+      <Stack direction="row" gap={1}>
+        <Tooltip title="Editează">
+          <span>
+            <IconButton size="small" onClick={() => setEditTarget(row.original)}>
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Șterge">
+          <span>
+            <IconButton color="error" size="small" onClick={() => setToDelete(row.original)}>
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+    ),
+  });
 
   return (
     <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default' }}>
@@ -160,7 +201,9 @@ export const ClientsTable: React.FC = () => {
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1, gap: 1 }}>
           <Typography variant="h5">Lista Clienți</Typography>
           <Stack direction="row" gap={1}>
-            <Button variant="outlined" onClick={() => setOpenAdd(true)}>Adaugă client</Button>
+            <Button variant="outlined" onClick={() => setOpenAdd(true)}>
+              Adaugă client
+            </Button>
             <Button onClick={load} disabled={loading} variant="contained">
               {loading ? <CircularProgress size={18} /> : 'Reîncarcă'}
             </Button>
@@ -170,90 +213,33 @@ export const ClientsTable: React.FC = () => {
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <Box sx={{ flex: 1, minHeight: 0 }}>
-          <MaterialReactTable
-            columns={columns}
-            data={data}
-            state={{ isLoading: loading, showAlertBanner: !!error, density: 'comfortable' }}
-            enableSorting
-            enableColumnFilters
-            enableRowActions
-            positionActionsColumn="last"
-            renderRowActions={({ row }) => (
-              <Stack direction="row" gap={1}>
-                <Tooltip title="Editează">
-                  <span>
-                    <IconButton size="small" onClick={() => openEditDialog(row.original)}>
-                      <EditOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Șterge">
-                  <span>
-                    <IconButton color="error" size="small" onClick={() => setToDelete(row.original)} disabled={deleting}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </Stack>
-            )}
-            initialState={{ pagination: { pageIndex: 0, pageSize: 10 } }}
-          />
+          <MaterialReactTable table={table} />
         </Box>
       </Paper>
 
-      {/* Dialog Adăugare */}
-      <Dialog open={openAdd} onClose={() => setOpenAdd(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Adaugă client</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Stack gap={2}>
-            <TextField label="Nume Client" value={form.name} onChange={onAddChange('name')} required />
-            <TextField label="Locație" value={form.location} onChange={onAddChange('location')} required />
-            <TextField label="Contact" value={form.contact} onChange={onAddChange('contact')} required />
-            <TextField label="Registrul Comerțului (opțional)" value={form.registrulComertului ?? ''} onChange={onAddChange('registrulComertului')} />
-            <TextField label="CIF (opțional)" value={form.cif ?? ''} onChange={onAddChange('cif')} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenAdd(false)}>Anulează</Button>
-          <Button onClick={handleSave} disabled={!canSave || saving} variant="contained">
-            {saving ? <CircularProgress size={18} /> : 'Salvează'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Add Client Modal */}
+      <AddClientModal
+        open={openAdd}
+        onClose={() => setOpenAdd(false)}
+        onClientAdded={handleClientAdded}
+      />
 
-      {/* Dialog Editare */}
-      <Dialog open={!!editTarget} onClose={() => setEditTarget(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Editează client</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Stack gap={2}>
-            <TextField label="Nume Client" value={editForm.name} onChange={onEditChange('name')} required />
-            <TextField label="Locație" value={editForm.location} onChange={onEditChange('location')} required />
-            <TextField label="Contact" value={editForm.contact} onChange={onEditChange('contact')} required />
-            <TextField label="Registrul Comerțului (opțional)" value={editForm.registrulComertului ?? ''} onChange={onEditChange('registrulComertului')} />
-            <TextField label="CIF (opțional)" value={editForm.cif ?? ''} onChange={onEditChange('cif')} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditTarget(null)}>Anulează</Button>
-          <Button onClick={handleUpdate} disabled={!canUpdate || updating} variant="contained">
-            {updating ? <CircularProgress size={18} /> : 'Salvează'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Edit Client Modal */}
+      <EditClientModal
+        open={!!editTarget}
+        client={editTarget}
+        onClose={() => setEditTarget(null)}
+        onClientUpdated={handleClientUpdated}
+      />
 
-      {/* Dialog Confirmare Ștergere */}
-      <Dialog open={!!toDelete} onClose={() => setToDelete(null)}>
-        <DialogTitle>Confirmare ștergere</DialogTitle>
-        <DialogContent>
-          Ești sigur că vrei să ștergi <strong>{toDelete?.name}</strong>?
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setToDelete(null)}>Anulează</Button>
-          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? <CircularProgress size={18} /> : 'Șterge'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Delete Client Dialog */}
+      <DeleteClientDialog
+        key={toDelete?.id || 'none'}
+        open={!!toDelete}
+        client={toDelete}
+        onClose={() => setToDelete(null)}
+        onClientDeleted={handleClientDeleted}
+      />
     </Box>
   );
 };

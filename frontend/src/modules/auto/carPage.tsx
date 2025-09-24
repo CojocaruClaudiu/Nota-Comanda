@@ -1,9 +1,6 @@
 // src/pages/auto/CarPage.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Box, Paper, Stack, Typography, Button, Chip, Tooltip, CircularProgress, Alert,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, IconButton, MenuItem,
-} from '@mui/material';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Box, Paper, Stack, Typography, Button, Chip, Tooltip, CircularProgress, Alert, IconButton } from '@mui/material';
 import {
   MaterialReactTable,
   useMaterialReactTable,
@@ -15,14 +12,16 @@ import DirectionsCarFilledRoundedIcon from '@mui/icons-material/DirectionsCarFil
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded';
-import dayjs, { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import 'dayjs/locale/ro';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { Autocomplete } from '@mui/material';
+// DatePicker/Autocomplete used in EditCarModal, not here
 
 import useNotistack from '../orders/hooks/useNotistack';
-import { getCars, createCar, updateCar, deleteCar, type Car, type CarPayload } from '../../api/cars';
+import AddCarModal from './AddCarModal';
+import EditCarModal from './EditCarModal';
+import DeleteCarDialog from './DeleteCarDialog';
+import { getCars, type Car } from '../../api/cars';
 import { getEmployees, type EmployeeWithStats } from '../../api/employees';
 
 dayjs.extend(customParseFormat);
@@ -48,8 +47,6 @@ const FUEL_OPTIONS: { value: FuelType; label: string }[] = [
 ];
 
 // helpers date
-const toIso = (d: Dayjs | null) => (d && d.isValid() ? d.format('YYYY-MM-DD') : null);
-const fromIso = (s?: string | null) => (s ? dayjs(s) : null);
 const dmy = (s?: string | null) => (s ? dayjs(s).format('DD/MM/YYYY') : '—');
 
 // urgency helpers
@@ -92,35 +89,7 @@ const urgency = (c: Car) => {
 };
 
 // form shape
-type CarForm = {
-  vin: string;
-  marca: string;
-  model: string;
-  an: number | '';
-  culoare: string;
-  placute: string;
-  driverId: string | null;
-  driverNote: string;
-  combustibil: FuelType | '';
-  expItp: Dayjs | null;
-  expRca: Dayjs | null;
-  expRovi: Dayjs | null;
-};
-
-const emptyForm: CarForm = {
-  vin: '',
-  marca: '',
-  model: '',
-  an: '',
-  culoare: '',
-  placute: '',
-  driverId: null,
-  driverNote: '',
-  combustibil: '',
-  expItp: null,
-  expRca: null,
-  expRovi: null,
-};
+// local edit/add forms moved into dedicated modals
 
 // Romanian MRT localization (minimal)
 const roLoc = {
@@ -136,11 +105,11 @@ const roLoc = {
 };
 
 export default function CarPage() {
-  const { successNotistack, errorNotistack } = useNotistack();
+  const { errorNotistack } = useNotistack();
   const [rows, setRows] = useState<Car[]>([]);
   const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  // saving handled inside modals
   const [error, setError] = useState<string | null>(null);
 
   // dialogs
@@ -149,7 +118,7 @@ export default function CarPage() {
   const [confirmDelete, setConfirmDelete] = useState<Car | null>(null);
 
   // forms
-  const [form, setForm] = useState<CarForm>(emptyForm);
+  // form state handled within modals for add/edit
   const [pagination, setPagination] = useState<MRT_PaginationState>({
     pageIndex: 0,
     pageSize: 100,
@@ -243,81 +212,13 @@ export default function CarPage() {
   ], []);
 
   // CRUD handlers
-  const canSubmit = form.vin && form.marca && form.model && form.placute && Number(form.an) > 1900;
+  // creation handled in AddCarModal; edit handled in EditCarModal
 
-  const handleCreate = async () => {
-    if (!canSubmit) return;
-    try {
-      setSaving(true);
-      const payload: CarPayload = {
-        vin: form.vin.trim(),
-        marca: form.marca.trim(),
-        model: form.model.trim(),
-        an: Number(form.an),
-        culoare: form.culoare.trim() || null,
-        placute: form.placute.trim().toUpperCase(),
-        driverId: form.driverId || null,
-        driverNote: form.driverNote.trim() || null,
-        combustibil: (form.combustibil || null) as FuelType | null,
-        expItp: toIso(form.expItp),
-        expRca: toIso(form.expRca),
-        expRovi: toIso(form.expRovi),
-      };
-      const created = await createCar(payload);
-      setRows((prev) => [created, ...prev].sort((a, b) => urgency(a) - urgency(b)));
-      setOpenAdd(false);
-      setForm(emptyForm);
-      successNotistack('Mașină adăugată');
-    } catch (e: any) {
-      errorNotistack(e?.message || 'Nu am putut adăuga mașina');
-    } finally {
-      setSaving(false);
-    }
-  };
+  // handleCreate removed; creation handled by AddCarModal
 
-  const handleUpdate = async () => {
-    if (!editTarget || !canSubmit) return;
-    try {
-      setSaving(true);
-      const payload: CarPayload = {
-        vin: form.vin.trim(),
-        marca: form.marca.trim(),
-        model: form.model.trim(),
-        an: Number(form.an),
-        culoare: form.culoare.trim() || null,
-        placute: form.placute.trim().toUpperCase(),
-        driverId: form.driverId || null,
-        driverNote: form.driverNote.trim() || null,
-        combustibil: (form.combustibil || null) as FuelType | null,
-        expItp: toIso(form.expItp),
-        expRca: toIso(form.expRca),
-        expRovi: toIso(form.expRovi),
-      };
-      const updated = await updateCar(editTarget.id, payload);
-      setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => urgency(a) - urgency(b)));
-      setEditTarget(null);
-      successNotistack('Mașină actualizată');
-    } catch (e: any) {
-      errorNotistack(e?.message || 'Nu am putut actualiza mașina');
-    } finally {
-      setSaving(false);
-    }
-  };
+  // handleUpdate moved into EditCarModal
 
-  const handleDelete = async () => {
-    if (!confirmDelete) return;
-    try {
-      setSaving(true);
-      await deleteCar(confirmDelete.id);
-      setRows((prev) => prev.filter((r) => r.id !== confirmDelete.id));
-      setConfirmDelete(null);
-      successNotistack('Mașină ștearsă');
-    } catch (e: any) {
-      errorNotistack(e?.message || 'Nu am putut șterge mașina');
-    } finally {
-      setSaving(false);
-    }
-  };
+  // delete handled inside DeleteCarDialog
 
   const data = useMemo(() => rows, [rows]);
 
@@ -326,40 +227,21 @@ export default function CarPage() {
       <Stack direction="row" spacing={1}>
         <Tooltip title="Editează">
           <span>
-            <IconButton
-              size="small"
-              onClick={() => {
-                setEditTarget(row.original);
-                setForm({
-                  vin: row.original.vin,
-                  marca: row.original.marca,
-                  model: row.original.model,
-                  an: row.original.an,
-                  culoare: row.original.culoare || '',
-                  placute: row.original.placute || '',
-                  driverId: row.original.driverId || null,
-                  driverNote: row.original.driverNote || '',
-                  combustibil: (row.original.combustibil || '') as FuelType | '',
-                  expItp: fromIso(row.original.expItp),
-                  expRca: fromIso(row.original.expRca),
-                  expRovi: fromIso(row.original.expRovi),
-                });
-              }}
-            >
+            <IconButton size="small" onClick={() => setEditTarget(row.original)}>
               <EditOutlinedIcon fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => setConfirmDelete(row.original)} disabled={saving}>
+            <IconButton color="error" size="small" onClick={() => setConfirmDelete(row.original)}>
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
       </Stack>
     ),
-    [saving],
+  [],
   );
 
   const table = useMaterialReactTable({
@@ -378,6 +260,7 @@ export default function CarPage() {
 
     // UX
     enableSorting: true,
+  enableMultiSort: true,
     enableColumnFilters: true,
     columnFilterDisplayMode: 'popover',
     enableGlobalFilterModes: true,
@@ -385,18 +268,12 @@ export default function CarPage() {
     enableColumnPinning: true,
     enableStickyHeader: true,
     enableRowVirtualization: true,
+  enableRowActions: true,
     positionActionsColumn: 'last',
     renderRowActions,
     renderTopToolbarCustomActions: () => (
       <Stack direction="row" spacing={1}>
-        <Button
-          variant="outlined"
-          startIcon={<AddCircleOutlineRoundedIcon />}
-          onClick={() => {
-            setForm(emptyForm);
-            setOpenAdd(true);
-          }}
-        >
+  <Button variant="outlined" startIcon={<AddCircleOutlineRoundedIcon />} onClick={() => setOpenAdd(true)}>
           Adaugă mașină
         </Button>
         <Button variant="contained" onClick={load} disabled={loading}>
@@ -405,13 +282,22 @@ export default function CarPage() {
       </Stack>
     ),
 
-    // Row styling by urgency
+    // Row styling by urgency with zebra stripes
     muiTableBodyRowProps: ({ row }) => ({
       sx: (theme) => {
         const n = urgency(row.original);
+        const isEvenRow = row.index % 2 === 0;
+        
+        // Priority 1: Urgency-based coloring
         if (n <= 0) return { bgcolor: `${theme.palette.error.light}33` };
         if (n <= 30) return { bgcolor: `${theme.palette.error.light}1a` };
         if (n <= 90) return { bgcolor: `${theme.palette.warning.light}14` };
+        
+        // Priority 2: Zebra stripes for normal rows
+        if (isEvenRow) {
+          return { bgcolor: theme.palette.action.hover };
+        }
+        
         return {};
       },
     }),
@@ -445,188 +331,39 @@ export default function CarPage() {
         </Box>
       </Paper>
 
-      {/* ADD */}
-      <Dialog open={openAdd} onClose={() => setOpenAdd(false)} fullWidth maxWidth="md">
-        <DialogTitle>Adaugă mașină</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="VIN" value={form.vin} onChange={(e) => setForm((f) => ({ ...f, vin: e.target.value }))} required fullWidth />
-              <TextField label="Plăcuțe" value={form.placute} onChange={(e) => setForm((f) => ({ ...f, placute: e.target.value }))} required fullWidth />
-              <TextField
-                label="An"
-                type="number"
-                value={form.an}
-                onChange={(e) => setForm((f) => ({ ...f, an: Number(e.target.value) || '' }))}
-                required
-                fullWidth
-              />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Marcă" value={form.marca} onChange={(e) => setForm((f) => ({ ...f, marca: e.target.value }))} required fullWidth />
-              <TextField label="Model" value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} required fullWidth />
-              <TextField label="Culoare" value={form.culoare} onChange={(e) => setForm((f) => ({ ...f, culoare: e.target.value }))} fullWidth />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              {/* Driver autocomplete */}
-              <Autocomplete
-                options={employees}
-                getOptionLabel={(o) => o.name}
-                value={employees.find((e) => e.id === form.driverId) || null}
-                onChange={(_, val) => setForm((f) => ({ ...f, driverId: val?.id || null }))}
-                renderInput={(params) => <TextField {...params} label="Șofer (angajat)" fullWidth />}
-                isOptionEqualToValue={(opt, val) => opt.id === val.id}
-              />
-              <TextField
-                label="Notă șofer"
-                value={form.driverNote}
-                onChange={(e) => setForm((f) => ({ ...f, driverNote: e.target.value }))}
-                fullWidth
-              />
-              <TextField
-                select
-                label="Combustibil"
-                value={form.combustibil}
-                onChange={(e) => setForm((f) => ({ ...f, combustibil: e.target.value as FuelType }))}
-                fullWidth
-              >
-                {FUEL_OPTIONS.map((o) => (
-                  <MenuItem key={o.value} value={o.value}>
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <DatePicker
-                label="Expirare ITP"
-                format="DD/MM/YYYY"
-                value={form.expItp}
-                onChange={(d) => setForm((f) => ({ ...f, expItp: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-              <DatePicker
-                label="Expirare RCA"
-                format="DD/MM/YYYY"
-                value={form.expRca}
-                onChange={(d) => setForm((f) => ({ ...f, expRca: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-              <DatePicker
-                label="Expirare Rovinietă"
-                format="DD/MM/YYYY"
-                value={form.expRovi}
-                onChange={(d) => setForm((f) => ({ ...f, expRovi: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-            </Stack>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenAdd(false)}>Anulează</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving || !canSubmit}>
-            {saving ? <CircularProgress size={18} /> : 'Salvează'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* ADD (refactored) */}
+      <AddCarModal
+        open={openAdd}
+        onClose={() => setOpenAdd(false)}
+        employees={employees}
+        onCarAdded={(created) => {
+          setRows((prev) => [created, ...prev].sort((a, b) => urgency(a) - urgency(b)));
+        }}
+      />
 
-      {/* EDIT */}
-      <Dialog open={!!editTarget} onClose={() => setEditTarget(null)} fullWidth maxWidth="md">
-        <DialogTitle>Editează mașină</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="VIN" value={form.vin} onChange={(e) => setForm((f) => ({ ...f, vin: e.target.value }))} required fullWidth />
-              <TextField label="Plăcuțe" value={form.placute} onChange={(e) => setForm((f) => ({ ...f, placute: e.target.value }))} required fullWidth />
-              <TextField
-                label="An"
-                type="number"
-                value={form.an}
-                onChange={(e) => setForm((f) => ({ ...f, an: Number(e.target.value) || '' }))}
-                required
-                fullWidth
-              />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Marcă" value={form.marca} onChange={(e) => setForm((f) => ({ ...f, marca: e.target.value }))} required fullWidth />
-              <TextField label="Model" value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} required fullWidth />
-              <TextField label="Culoare" value={form.culoare} onChange={(e) => setForm((f) => ({ ...f, culoare: e.target.value }))} fullWidth />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <Autocomplete
-                options={employees}
-                getOptionLabel={(o) => o.name}
-                value={employees.find((e) => e.id === form.driverId) || null}
-                onChange={(_, val) => setForm((f) => ({ ...f, driverId: val?.id || null }))}
-                renderInput={(params) => <TextField {...params} label="Șofer (angajat)" fullWidth />}
-                isOptionEqualToValue={(opt, val) => opt.id === val.id}
-              />
-              <TextField
-                label="Notă șofer"
-                value={form.driverNote}
-                onChange={(e) => setForm((f) => ({ ...f, driverNote: e.target.value }))}
-                fullWidth
-              />
-              <TextField
-                select
-                label="Combustibil"
-                value={form.combustibil}
-                onChange={(e) => setForm((f) => ({ ...f, combustibil: e.target.value as FuelType }))}
-                fullWidth
-              >
-                {FUEL_OPTIONS.map((o) => (
-                  <MenuItem key={o.value} value={o.value}>
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <DatePicker
-                label="Expirare ITP"
-                format="DD/MM/YYYY"
-                value={form.expItp}
-                onChange={(d) => setForm((f) => ({ ...f, expItp: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-              <DatePicker
-                label="Expirare RCA"
-                format="DD/MM/YYYY"
-                value={form.expRca}
-                onChange={(d) => setForm((f) => ({ ...f, expRca: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-              <DatePicker
-                label="Expirare Rovinietă"
-                format="DD/MM/YYYY"
-                value={form.expRovi}
-                onChange={(d) => setForm((f) => ({ ...f, expRovi: d }))}
-                slotProps={{ textField: { fullWidth: true } }}
-              />
-            </Stack>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditTarget(null)}>Anulează</Button>
-          <Button variant="contained" onClick={handleUpdate} disabled={saving || !canSubmit}>
-            {saving ? <CircularProgress size={18} /> : 'Salvează'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* EDIT (refactored) */}
+      <EditCarModal
+        open={!!editTarget}
+        car={editTarget}
+        employees={employees}
+        onClose={() => setEditTarget(null)}
+        onCarUpdated={(updated) => {
+          setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)).sort((a, b) => urgency(a) - urgency(b)));
+        }}
+      />
 
-      {/* DELETE CONFIRM */}
-      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)}>
-        <DialogTitle>Confirmare ștergere</DialogTitle>
-        <DialogContent>
-          Sigur doriți să ștergeți {confirmDelete?.placute} ({confirmDelete?.marca} {confirmDelete?.model})?
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(null)}>Anulează</Button>
-          <Button color="error" variant="contained" onClick={handleDelete} disabled={saving}>
-            Șterge
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* DELETE (refactored) */}
+      <DeleteCarDialog
+        open={!!confirmDelete}
+        car={confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onCarDeleted={() => {
+          if (confirmDelete) {
+            setRows((prev) => prev.filter((r) => r.id !== confirmDelete.id));
+            setConfirmDelete(null);
+          }
+        }}
+      />
     </Box>
   );
 }

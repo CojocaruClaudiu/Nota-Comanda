@@ -8,10 +8,17 @@
     "start": "node dist/index.js",
     "prisma:gen": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+  "prisma:seed": "tsx prisma/seed.ts",
+  "seed:equipment": "tsx scripts/import-equipment.ts",
+  "backfill:equipment-categories": "tsx scripts/backfill-equipment-categories.ts",
+  "seed:operation-items": "tsx scripts/add-operation-items.ts",
+  "backfill:item-units": "tsx scripts/backfill-operation-item-units.ts",
+  "wipe:operation-items": "tsx scripts/wipe-operation-items.ts",
+  "reseed:operation-items": "npm run wipe:operation-items && npm run seed:operation-items && npm run backfill:item-units"
   },
   "dependencies": {
-    "@prisma/client": "^5.16.1",
+    "@prisma/client": "^5.22.0",
+    "@tanstack/react-query": "^5.87.1",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -22,9 +29,10 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
-    "prisma": "^5.16.1",
+    "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.5.4"
   }

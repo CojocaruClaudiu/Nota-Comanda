@@ -33,7 +33,41 @@ async function main() {
     create: { userId: admin.id, roleId: adminRole.id },
   });
 
+  // Add Razvan
+  const razvanEmail = "razvan@topazconstruct.ro";
+  const razvanPass = "razvan123";
+  const razvanHash = await bcrypt.hash(razvanPass, 10);
+  const razvan = await prisma.user.upsert({
+    where: { email: razvanEmail },
+    update: {},
+    create: { email: razvanEmail, name: "Razvan", passwordHash: razvanHash },
+  });
+  // Use STAFF as the default role for normal users
+  const staffRole = roles.find((r) => r.name === "STAFF")!;
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: razvan.id, roleId: staffRole.id } },
+    update: {},
+    create: { userId: razvan.id, roleId: staffRole.id },
+  });
+
+  // Add Claudiu
+  const claudiuEmail = "claudiu@topazconstruct.ro";
+  const claudiuPass = "claudiu123";
+  const claudiuHash = await bcrypt.hash(claudiuPass, 10);
+  const claudiu = await prisma.user.upsert({
+    where: { email: claudiuEmail },
+    update: {},
+    create: { email: claudiuEmail, name: "Claudiu", passwordHash: claudiuHash },
+  });
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: claudiu.id, roleId: staffRole.id } },
+    update: {},
+    create: { userId: claudiu.id, roleId: staffRole.id },
+  });
+
   console.log(`Seeded admin: ${email} / ${pass}`);
+  console.log(`Seeded user: ${razvanEmail} / ${razvanPass}`);
+  console.log(`Seeded user: ${claudiuEmail} / ${claudiuPass}`);
 }
 
 main().finally(() => prisma.$disconnect());

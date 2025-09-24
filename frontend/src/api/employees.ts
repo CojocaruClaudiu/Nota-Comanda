@@ -6,7 +6,16 @@ export type Employee = {
   name: string;
   qualifications: string[];
   hiredAt: string;             // ISO
-  birthDate?: string | null;   // 👈 NEW (ISO)
+  birthDate?: string | null;   // NEW (ISO)
+  cnp?: string;                // NEW
+  phone?: string;              // NEW
+  idSeries?: string;           // NEW
+  idNumber?: string;           // NEW
+  idIssuer?: string;           // NEW
+  idIssueDateISO?: string;     // NEW
+  county?: string;             // NEW
+  locality?: string;           // NEW
+  address?: string;            // NEW
   createdAt?: string;
   updatedAt?: string;
 };
@@ -20,9 +29,18 @@ export type EmployeeWithStats = Employee & {
 
 export type EmployeePayload = {
   name: string;
+  cnp: string;
   qualifications?: string[];
   hiredAt: string;             // ISO
-  birthDate?: string | null;   // 👈 NEW
+  birthDate?: string | null;   // NEW
+  phone?: string;              // NEW
+  idSeries?: string;           // NEW
+  idNumber?: string;           // NEW
+  idIssuer?: string;           // NEW
+  idIssueDateISO?: string;     // NEW
+  county?: string;             // NEW
+  locality?: string;           // NEW
+  address?: string;            // NEW
 };
 
 export type Leave = {
@@ -76,3 +94,5 @@ export const addLeave = (employeeId: string, data: LeavePayload) =>
   });
 export const getLeaves = (employeeId: string) => request<Leave[]>(`/employees/${employeeId}/leaves`);
 export const deleteLeave = (leaveId: string) => request<void>(`/leaves/${leaveId}`, { method: 'DELETE' });
+
+

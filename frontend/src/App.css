@@ -7,4 +7,5 @@ body, #root {
   min-height: 0;
   box-sizing: border-box;
   background: #242424;
+  overflow-x: hidden;
 }

@@ -51,7 +51,7 @@ async function main() {
     // split by TAB; your paste uses real tabs between columns
     const cols = line.split('\t');
     if (cols.length < 10) {
-      console.warn('⚠️  Linie ignorată (nu are suficiente coloane):', line);
+  console.warn('Linie ignorată (nu are suficiente coloane):', line);
       fail++;
       continue;
     }
@@ -69,7 +69,7 @@ async function main() {
     const an = Number(anStr);
 
     if (!vin || !marca || !model || !placute || !an) {
-      console.warn('⚠️  Linie cu câmpuri lipsă, ignor:', line);
+  console.warn('Linie cu câmpuri lipsă, ignor:', line);
       fail++;
       continue;
     }
@@ -97,10 +97,10 @@ async function main() {
       });
 
       ok++;
-      console.log(`✅ ${placute} (${marca} ${model}) importat`);
+  console.log(`${placute} (${marca} ${model}) importat`);
     } catch (e) {
       fail++;
-      console.error(`❌ Eroare la VIN ${vin}:`, e?.message || e);
+  console.error(`Eroare la VIN ${vin}:`, e?.message || e);
     }
   }
 

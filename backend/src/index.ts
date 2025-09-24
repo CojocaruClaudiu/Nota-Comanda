@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import authRoutes from "./auth/authRoutes";
+import projectRoutes from "./routes/projects";
+import clientLocationRoutes from "./routes/clientLocations";
 
 const prisma = new PrismaClient({ log: ['warn', 'error'] });
 const app = express();
@@ -10,6 +12,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/auth", authRoutes);
+app.use("/projects", projectRoutes);
+app.use("/client-locations", clientLocationRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();
@@ -18,6 +22,18 @@ const cleanOptional = (v: unknown): string | null => {
   return s ? s : null; // empty -> null so UNIQUE allows multiples
 };
 const toDate = (v: unknown): Date => new Date(String(v));
+
+// Error handling utility
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown error occurred';
+};
+
+// Prisma error checking utility
+const isPrismaError = (error: unknown): error is { code: string; message: string } => {
+  return typeof error === 'object' && error !== null && 'code' in error;
+};
 function fullYearsBetween(start: Date, ref = new Date()): number {
   let years = ref.getFullYear() - start.getFullYear();
   const anniversaryThisYear = new Date(ref.getFullYear(), start.getMonth(), start.getDate());
@@ -48,53 +64,54 @@ app.get('/clients', async (_req, res) => {
       orderBy: { createdAt: 'desc' },
     });
     res.json(clients);
-  } catch (e: any) {
-    console.error('GET /clients error:', e);
-    res.status(500).json({ error: e?.message || 'Failed to fetch clients' });
+  } catch (error: unknown) {
+    console.error('GET /clients error:', error);
+    res.status(500).json({ error: getErrorMessage(error) || 'Failed to fetch clients' });
   }
 });
 
-/** Create client (registrulComertului & cif OPTIONAL) */
+/** Create client (registrulComertului & cui OPTIONAL) */
 app.post('/clients', async (req, res) => {
   try {
-    const { name, location, contact, registrulComertului, cif } = req.body || {};
+    const { name, location, phone, registrulComertului, cui, email } = req.body || {};
 
-    if (!name || !location || !contact) {
+    if (!name || !location) {
       return res
         .status(400)
-        .json({ error: 'Nume, Locație și Contact sunt obligatorii' });
+        .json({ error: 'Nume și Locație sunt obligatorii' });
     }
 
     const client = await prisma.client.create({
       data: {
         name: cleanRequired(name),
         location: cleanRequired(location),
-        contact: cleanRequired(contact),
+        phone: cleanOptional(phone) ?? '',
         registrulComertului: cleanOptional(registrulComertului),
-        cif: cleanOptional(cif),
+        cui: cleanOptional(cui),
+        email: cleanOptional(email),
       },
     });
     res.status(201).json(client);
-  } catch (e: any) {
-    if (e?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === 'P2002') {
       return res
         .status(409)
-        .json({ error: 'CIF sau Registrul Comerțului este deja folosit.' });
+        .json({ error: 'CUI sau Registrul Comerțului este deja folosit.' });
     }
-    console.error('POST /clients error:', e);
-    res.status(500).json({ error: e?.message || 'Failed to create client' });
+    console.error('POST /clients error:', error);
+    res.status(500).json({ error: getErrorMessage(error) || 'Failed to create client' });
   }
 });
 
-/** Update client (registrulComertului & cif OPTIONAL) */
+/** Update client (registrulComertului & cui OPTIONAL) */
 app.put('/clients/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, location, contact, registrulComertului, cif } = req.body || {};
+  const { name, location, phone, registrulComertului, cui, email } = req.body || {};
 
-  if (!name || !location || !contact) {
+  if (!name || !location) {
     return res
       .status(400)
-      .json({ error: 'Nume, Locație și Contact sunt obligatorii' });
+      .json({ error: 'Nume și Locație sunt obligatorii' });
   }
 
   try {
@@ -106,19 +123,20 @@ app.put('/clients/:id', async (req, res) => {
       data: {
         name: cleanRequired(name),
         location: cleanRequired(location),
-        contact: cleanRequired(contact),
+        phone: cleanOptional(phone) ?? '',
         registrulComertului: cleanOptional(registrulComertului),
-        cif: cleanOptional(cif),
+        cui: cleanOptional(cui),
+        email: cleanOptional(email),
       },
     });
     res.json(updated);
-  } catch (e: any) {
-    if (e?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === 'P2002') {
       return res
         .status(409)
-        .json({ error: 'CIF sau Registrul Comerțului este deja folosit.' });
+        .json({ error: 'CUI sau Registrul Comerțului este deja folosit.' });
     }
-    console.error('PUT /clients/:id error:', e);
+    console.error('PUT /clients/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza clientul' });
   }
 });
@@ -132,9 +150,9 @@ app.delete('/clients/:id', async (req, res) => {
 
     await prisma.client.delete({ where: { id } });
     res.status(204).send();
-  } catch (e: any) {
-    console.error('DELETE /clients/:id error:', e);
-    res.status(500).json({ error: e?.message || 'Nu am putut șterge clientul' });
+  } catch (error: unknown) {
+    console.error('DELETE /clients/:id error:', error);
+    res.status(500).json({ error: getErrorMessage(error) || 'Nu am putut șterge clientul' });
   }
 });
 
@@ -179,9 +197,9 @@ app.get('/employees', async (_req, res) => {
     });
 
     res.json(result);
-  } catch (e: any) {
-    console.error('GET /employees error:', e);
-    res.status(500).json({ error: e?.message || 'Nu am putut încărca echipa' });
+  } catch (error: unknown) {
+    console.error('GET /employees error:', error);
+    res.status(500).json({ error: getErrorMessage(error) || 'Nu am putut încărca echipa' });
   }
 });
 
@@ -203,8 +221,8 @@ app.post('/employees', async (req, res) => {
       },
     });
     res.status(201).json(created);
-  } catch (e: any) {
-    console.error('POST /employees error:', e);
+  } catch (error: unknown) {
+    console.error('POST /employees error:', error);
     res.status(500).json({ error: 'Nu am putut crea angajatul' });
   }
 });
@@ -233,8 +251,8 @@ app.put('/employees/:id', async (req, res) => {
       },
     });
     res.json(updated);
-  } catch (e: any) {
-    console.error('PUT /employees/:id error:', e);
+  } catch (error: unknown) {
+    console.error('PUT /employees/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza angajatul' });
   }
 });
@@ -248,8 +266,8 @@ app.delete('/employees/:id', async (req, res) => {
 
     await prisma.employee.delete({ where: { id } });
     res.status(204).send();
-  } catch (e: any) {
-    console.error('DELETE /employees/:id error:', e);
+  } catch (error: unknown) {
+    console.error('DELETE /employees/:id error:', error);
     res.status(500).json({ error: 'Nu am putut șterge angajatul' });
   }
 });
@@ -274,8 +292,8 @@ app.post('/employees/:id/leaves', async (req, res) => {
       },
     });
     res.status(201).json(created);
-  } catch (e: any) {
-    console.error('POST /employees/:id/leaves error:', e);
+  } catch (error: unknown) {
+    console.error('POST /employees/:id/leaves error:', error);
     res.status(500).json({ error: 'Nu am putut înregistra concediul' });
   }
 });
@@ -289,8 +307,8 @@ app.get('/employees/:id/leaves', async (req, res) => {
       orderBy: { startDate: 'desc' },
     });
     res.json(leaves);
-  } catch (e: any) {
-    console.error('GET /employees/:id/leaves error:', e);
+  } catch (error: unknown) {
+    console.error('GET /employees/:id/leaves error:', error);
     res.status(500).json({ error: 'Nu am putut încărca istoricul concediilor' });
   }
 });
@@ -301,8 +319,8 @@ app.delete('/leaves/:leaveId', async (req, res) => {
   try {
     await prisma.leave.delete({ where: { id: leaveId } });
     res.status(204).send();
-  } catch (e: any) {
-    console.error('DELETE /leaves/:leaveId error:', e);
+  } catch (error: unknown) {
+    console.error('DELETE /leaves/:leaveId error:', error);
     res.status(500).json({ error: 'Nu am putut șterge înregistrarea de concediu' });
   }
 });
@@ -348,8 +366,8 @@ app.get('/cars', async (_req, res) => {
       orderBy: [{ updatedAt: 'desc' }],
     });
     res.json(cars);
-  } catch (e: any) {
-    console.error('GET /cars error:', e);
+  } catch (error: unknown) {
+    console.error('GET /cars error:', error);
     res.status(500).json({ error: 'Nu am putut încărca mașinile' });
   }
 });
@@ -382,12 +400,12 @@ app.post('/cars', async (req, res) => {
     });
 
     res.status(201).json(created);
-  } catch (e: any) {
-    if (e?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === 'P2002') {
       // unique vin or placute
       return res.status(409).json({ error: 'VIN sau plăcuțele sunt deja folosite' });
     }
-    console.error('POST /cars error:', e);
+    console.error('POST /cars error:', error);
     res.status(500).json({ error: 'Nu am putut crea mașina' });
   }
 });
@@ -425,11 +443,11 @@ app.put('/cars/:id', async (req, res) => {
     });
 
     res.json(updated);
-  } catch (e: any) {
-    if (e?.code === 'P2002') {
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === 'P2002') {
       return res.status(409).json({ error: 'VIN sau plăcuțele sunt deja folosite' });
     }
-    console.error('PUT /cars/:id error:', e);
+    console.error('PUT /cars/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza mașina' });
   }
 });
@@ -443,11 +461,464 @@ app.delete('/cars/:id', async (req, res) => {
 
     await prisma.car.delete({ where: { id } });
     res.status(204).send();
-  } catch (e: any) {
-    console.error('DELETE /cars/:id error:', e);
+  } catch (error: unknown) {
+    console.error('DELETE /cars/:id error:', error);
     res.status(500).json({ error: 'Nu am putut șterge mașina' });
   }
 });
+
+/* ===================== FURNIZORI (Suppliers) ===================== */
+
+type SupplierPayload = {
+  denumire: string;
+  cui_cif: string;
+  nrRegCom?: string | null;
+  tip: string;
+  tva: boolean;
+  tvaData?: string | null; // ISO
+  adresa: string;
+  oras: string;
+  judet: string;
+  tara: string;
+  contactNume: string;
+  email: string;
+  telefon: string;
+  site?: string | null;
+  metodaPlata: string;
+  termenPlata: number; // zile
+  contBancar: string;
+  banca: string;
+  status: "activ" | "inactiv";
+  notite?: string | null;
+};
+
+const toBool = (v: unknown) => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return ["true", "1", "yes", "da"].includes(v.toLowerCase());
+  return Boolean(v);
+};
+const toInt = (v: unknown) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+};
+const optDate2 = (v: unknown): Date | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+/** GET /furnizori */
+app.get("/furnizori", async (_req, res) => {
+  try {
+    const list = await prisma.furnizor.findMany({ orderBy: { createdAt: "desc" } });
+    res.json(list);
+  } catch (error: unknown) {
+    console.error("GET /furnizori error:", error);
+    res.status(500).json({ error: "Nu am putut încărca furnizorii" });
+  }
+});
+
+/** POST /furnizori */
+app.post("/furnizori", async (req, res) => {
+  const p = req.body as SupplierPayload;
+  const required: (keyof SupplierPayload)[] = [
+    "denumire","cui_cif","tip","adresa","oras","judet","tara",
+    "contactNume","email","telefon","metodaPlata","termenPlata",
+    "contBancar","banca","status",
+  ];
+  for (const k of required) {
+    if (!p[k as keyof SupplierPayload]) return res.status(400).json({ error: `Câmpul '${k}' este obligatoriu` });
+  }
+
+  try {
+    const created = await prisma.furnizor.create({
+      data: {
+        denumire: cleanRequired(p.denumire),
+        cui_cif: cleanRequired(p.cui_cif),
+        nrRegCom: cleanOptional(p.nrRegCom),
+        tip: cleanRequired(p.tip),
+        tva: toBool(p.tva),
+        tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
+        adresa: cleanRequired(p.adresa),
+        oras: cleanRequired(p.oras),
+        judet: cleanRequired(p.judet),
+        tara: cleanRequired(p.tara),
+        contactNume: cleanRequired(p.contactNume),
+        email: cleanRequired(p.email),
+        telefon: cleanRequired(p.telefon),
+        site: cleanOptional(p.site),
+        metodaPlata: cleanRequired(p.metodaPlata),
+        termenPlata: toInt(p.termenPlata),
+        contBancar: cleanRequired(p.contBancar),
+        banca: cleanRequired(p.banca),
+        status: cleanRequired(p.status),
+        notite: cleanOptional(p.notite),
+      },
+    });
+    res.status(201).json(created);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") {
+      return res.status(409).json({ error: "Denumire sau CUI/CIF deja existent" });
+    }
+    console.error("POST /furnizori error:", error);
+    res.status(500).json({ error: "Nu am putut crea furnizorul" });
+  }
+});
+
+/** PUT /furnizori/:id */
+app.put("/furnizori/:id", async (req, res) => {
+  const { id } = req.params;
+  const p = req.body as SupplierPayload;
+
+  try {
+    const exists = await prisma.furnizor.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Furnizorul nu a fost găsit" });
+
+    const updated = await prisma.furnizor.update({
+      where: { id },
+      data: {
+        denumire: cleanRequired(p.denumire),
+        cui_cif: cleanRequired(p.cui_cif),
+        nrRegCom: cleanOptional(p.nrRegCom),
+        tip: cleanRequired(p.tip),
+        tva: toBool(p.tva),
+        tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
+        adresa: cleanRequired(p.adresa),
+        oras: cleanRequired(p.oras),
+        judet: cleanRequired(p.judet),
+        tara: cleanRequired(p.tara),
+        contactNume: cleanRequired(p.contactNume),
+        email: cleanRequired(p.email),
+        telefon: cleanRequired(p.telefon),
+        site: cleanOptional(p.site),
+        metodaPlata: cleanRequired(p.metodaPlata),
+        termenPlata: toInt(p.termenPlata),
+        contBancar: cleanRequired(p.contBancar),
+        banca: cleanRequired(p.banca),
+        status: cleanRequired(p.status),
+        notite: cleanOptional(p.notite),
+      },
+    });
+    res.json(updated);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") {
+      return res.status(409).json({ error: "Denumire sau CUI/CIF deja existent" });
+    }
+    console.error("PUT /furnizori/:id error:", error);
+    res.status(500).json({ error: "Nu am putut actualiza furnizorul" });
+  }
+});
+
+/** DELETE /furnizori/:id */
+app.delete("/furnizori/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await prisma.furnizor.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Furnizorul nu a fost găsit" });
+
+    await prisma.furnizor.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    console.error("DELETE /furnizori/:id error:", error);
+    res.status(500).json({ error: "Nu am putut șterge furnizorul" });
+  }
+});
+
+/* ===================== CATEGORII OPERAȚII ===================== */
+
+type OperationCategoryPayload = {
+  name: string;
+};
+
+// GET /operation-categories
+app.get("/operation-categories", async (_req, res) => {
+  try {
+  const list = await prisma.operationCategory.findMany({ orderBy: { createdAt: "desc" }, include: { operations: true } });
+    res.json(list);
+  } catch (error: unknown) {
+    console.error("GET /operation-categories error:", error);
+    res.status(500).json({ error: "Nu am putut încărca categoriile" });
+  }
+});
+
+// POST /operation-categories
+app.post("/operation-categories", async (req, res) => {
+  const p = (req.body || {}) as OperationCategoryPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+    const created = await prisma.operationCategory.create({
+      data: {
+        name: cleanRequired(p.name),
+      },
+    });
+    res.status(201).json(created);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") {
+      return res.status(409).json({ error: "Categorie deja existentă" });
+    }
+    console.error("POST /operation-categories error:", error);
+    res.status(500).json({ error: "Nu am putut crea categoria" });
+  }
+});
+
+// PUT /operation-categories/:id
+app.put("/operation-categories/:id", async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as OperationCategoryPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+    const exists = await prisma.operationCategory.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Categoria nu a fost găsită" });
+    const updated = await prisma.operationCategory.update({
+      where: { id },
+      data: {
+        name: cleanRequired(p.name),
+      },
+    });
+    res.json(updated);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") {
+      return res.status(409).json({ error: "Categorie deja existentă" });
+    }
+    console.error("PUT /operation-categories/:id error:", error);
+    res.status(500).json({ error: "Nu am putut actualiza categoria" });
+  }
+});
+
+// --- Operations under categories ---
+type OperationPayload = {
+  name: string;
+};
+
+// GET /operation-categories/:id/operations
+app.get("/operation-categories/:id/operations", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const ops = await prisma.operation.findMany({ where: { categoryId: id }, orderBy: { createdAt: "desc" } });
+    res.json(ops);
+  } catch (error: unknown) {
+    console.error("GET /operation-categories/:id/operations error:", error);
+    res.status(500).json({ error: "Nu am putut încărca operațiile" });
+  }
+});
+
+// POST /operation-categories/:id/operations
+app.post("/operation-categories/:id/operations", async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as OperationPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+    const created = await prisma.operation.create({ data: { categoryId: id, name: cleanRequired(p.name) } });
+    res.status(201).json(created);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") return res.status(409).json({ error: "Operație duplicată în categorie" });
+    console.error("POST /operation-categories/:id/operations error:", error);
+    res.status(500).json({ error: "Nu am putut crea operația" });
+  }
+});
+
+// PUT /operations/:opId
+app.put("/operations/:opId", async (req, res) => {
+  const { opId } = req.params;
+  const p = (req.body || {}) as OperationPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+    const updated = await prisma.operation.update({ where: { id: opId }, data: { name: cleanRequired(p.name) } });
+    res.json(updated);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") return res.status(409).json({ error: "Operație duplicată în categorie" });
+    console.error("PUT /operations/:opId error:", error);
+    res.status(500).json({ error: "Nu am putut actualiza operația" });
+  }
+});
+
+// ===== Third level: Operation Items =====
+type OperationItemPayload = { name: string; unit?: string | null };
+
+// GET /operations/:opId/items
+app.get("/operations/:opId/items", async (req, res) => {
+  const { opId } = req.params;
+  try {
+  const items = await (prisma as any).operationItem.findMany({ where: { operationId: opId }, orderBy: { createdAt: "desc" } });
+    res.json(items);
+  } catch (error: unknown) {
+    console.error("GET /operations/:opId/items error:", error);
+    res.status(500).json({ error: "Nu am putut încărca elementele" });
+  }
+});
+
+// POST /operations/:opId/items
+app.post("/operations/:opId/items", async (req, res) => {
+  const { opId } = req.params;
+  const p = (req.body || {}) as OperationItemPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+  const created = await (prisma as any).operationItem.create({ data: { operationId: opId, name: cleanRequired(p.name), unit: cleanOptional(p.unit) } });
+    res.status(201).json(created);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") return res.status(409).json({ error: "Element duplicat în operație" });
+    console.error("POST /operations/:opId/items error:", error);
+    res.status(500).json({ error: "Nu am putut crea elementul" });
+  }
+});
+
+// PUT /items/:itemId
+app.put("/items/:itemId", async (req, res) => {
+  const { itemId } = req.params;
+  const p = (req.body || {}) as OperationItemPayload;
+  if (!p.name) return res.status(400).json({ error: "Denumirea este obligatorie" });
+  try {
+  const updated = await (prisma as any).operationItem.update({ where: { id: itemId }, data: { name: cleanRequired(p.name), unit: cleanOptional(p.unit) } });
+    res.json(updated);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && error.code === "P2002") return res.status(409).json({ error: "Element duplicat în operație" });
+    console.error("PUT /items/:itemId error:", error);
+    res.status(500).json({ error: "Nu am putut actualiza elementul" });
+  }
+});
+
+// DELETE /items/:itemId
+app.delete("/items/:itemId", async (req, res) => {
+  const { itemId } = req.params;
+  try {
+    await prisma.operationItem.delete({ where: { id: itemId } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error("DELETE /items/:itemId error:", error);
+    res.status(500).json({ error: "Nu am putut șterge elementul" });
+  }
+});
+
+// DELETE /operations/:opId
+app.delete("/operations/:opId", async (req, res) => {
+  const { opId } = req.params;
+  try {
+    await prisma.operation.delete({ where: { id: opId } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error("DELETE /operations/:opId error:", error);
+    res.status(500).json({ error: "Nu am putut șterge operația" });
+  }
+});
+
+// DELETE /operation-categories/:id
+app.delete("/operation-categories/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await prisma.operationCategory.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: "Categoria nu a fost găsită" });
+    await prisma.operationCategory.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error("DELETE /operation-categories/:id error:", error);
+    res.status(500).json({ error: "Nu am putut șterge categoria" });
+  }
+});
+
+/* ===================== EQUIPMENT (Scule & Echipamente) ===================== */
+
+type EquipmentPayload = {
+  category: string;        // Categorie echipament
+  code: string;            // ID / cod intern
+  description: string;     // Descriere
+  hourlyCost: number;      // Cost orar
+};
+
+// GET /equipment
+app.get('/equipment', async (_req, res) => {
+  try {
+    const list = await (prisma as any).equipment.findMany({ orderBy: [{ category: 'asc' }, { code: 'asc' }] });
+    res.json(list);
+  } catch (error: unknown) {
+    console.error('GET /equipment error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca echipamentele' });
+  }
+});
+
+// POST /equipment
+app.post('/equipment', async (req, res) => {
+  const p = (req.body || {}) as EquipmentPayload;
+  if (!p.category || !p.code || !p.description || p.hourlyCost == null) {
+    return res.status(400).json({ error: 'Categorie, Cod, Descriere și Cost orar sunt obligatorii' });
+  }
+  try {
+    const created = await (prisma as any).equipment.create({
+      data: {
+        category: cleanRequired(p.category),
+        code: cleanRequired(p.code),
+        description: cleanRequired(p.description),
+        hourlyCost: Number(p.hourlyCost),
+      },
+    });
+    res.status(201).json(created);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && (error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Cod echipament deja existent' });
+    }
+    console.error('POST /equipment error:', error);
+    res.status(500).json({ error: 'Nu am putut crea echipamentul' });
+  }
+});
+
+// PUT /equipment/:id
+app.put('/equipment/:id', async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as EquipmentPayload;
+  if (!p.category || !p.code || !p.description || p.hourlyCost == null) {
+    return res.status(400).json({ error: 'Categorie, Cod, Descriere și Cost orar sunt obligatorii' });
+  }
+  try {
+    const exists = await (prisma as any).equipment.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Echipamentul nu a fost găsit' });
+    const updated = await (prisma as any).equipment.update({
+      where: { id },
+      data: {
+        category: cleanRequired(p.category),
+        code: cleanRequired(p.code),
+        description: cleanRequired(p.description),
+        hourlyCost: Number(p.hourlyCost),
+      },
+    });
+    res.json(updated);
+  } catch (error: unknown) {
+    if (isPrismaError(error) && (error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Cod echipament deja existent' });
+    }
+    console.error('PUT /equipment/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut actualiza echipamentul' });
+  }
+});
+
+// DELETE /equipment/:id
+app.delete('/equipment/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await (prisma as any).equipment.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Echipamentul nu a fost găsit' });
+    await (prisma as any).equipment.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error('DELETE /equipment/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge echipamentul' });
+  }
+});
+
+// POST /equipment/rename-category { from, to }
+app.post('/equipment/rename-category', async (req, res) => {
+  const { from, to } = (req.body || {}) as { from?: string; to?: string };
+  const src = cleanRequired(from);
+  const dst = cleanRequired(to);
+  if (!src || !dst) return res.status(400).json({ error: 'Parametrii from și to sunt obligatorii' });
+  try {
+    const result = await (prisma as any).equipment.updateMany({ where: { category: src }, data: { category: dst } });
+    res.json({ updated: result.count ?? 0 });
+  } catch (error: unknown) {
+    console.error('POST /equipment/rename-category error:', error);
+    res.status(500).json({ error: 'Nu am putut redenumi categoria' });
+  }
+});
+
 
 
 /* ===================== BOOT ===================== */
@@ -457,13 +928,13 @@ const PORT = Number(process.env.PORT || 4000);
 (async () => {
   try {
     await prisma.$connect();
-    console.log('✅ Prisma connected to DB');
+  console.log('Prisma connected to DB');
     console.log('DB URL:', process.env.DATABASE_URL);
     app.listen(PORT, () =>
       console.log(`API running on http://localhost:${PORT}`)
     );
-  } catch (e) {
-    console.error('❌ Prisma failed to connect:', e);
+  } catch (error: unknown) {
+  console.error('Prisma failed to connect:', error);
     process.exit(1);
   }
 })();
