@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
-  CircularProgress, Alert, Chip, Dialog, DialogTitle, DialogContent,
-  DialogContentText, DialogActions
+  CircularProgress, Alert, Chip
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -14,12 +13,13 @@ import {
   useMaterialReactTable,
   createRow,
   type MRT_ColumnDef,
-  type MRT_Row,
   type MRT_TableOptions,
 } from 'material-react-table';
 import { MRT_Localization_RO } from 'material-react-table/locales/ro';
 import { rankItem } from '@tanstack/match-sorter-utils';
 import { unitSelectOptions, isValidUnit } from '../../utils/units';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import useNotistack from '../orders/hooks/useNotistack';
 
 import {
   listOperationCategories,
@@ -153,32 +153,14 @@ const savePersist = (patch: PersistState) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 };
 
-/* ---------------- Confirm dialog ---------------- */
-function ConfirmDialog({
-  open, title, message, onCancel, onConfirm,
-}: { open: boolean; title: string; message: string; onCancel: () => void; onConfirm: () => void; }) {
-  return (
-    <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText>{message}</DialogContentText>
-      </DialogContent>
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onCancel}>Anulează</Button>
-        <Button color="error" variant="contained" onClick={onConfirm}>
-          Șterge
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
 /* ---------------- Page ---------------- */
 export default function OperationCategoriesPage() {
   const [tree, setTree] = useState<TreeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const { successNotistack, errorNotistack } = useNotistack();
 
   // where the creating row appears
   const [createPos, setCreatePos] = useState<'top' | 'bottom' | number>('top');
@@ -193,9 +175,6 @@ export default function OperationCategoriesPage() {
   const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(
     persisted.pagination ?? { pageIndex: 0, pageSize: 50 }
   );
-
-  // delete dialog state
-  const [pendingDelete, setPendingDelete] = useState<MRT_Row<TreeRow> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -370,21 +349,6 @@ export default function OperationCategoriesPage() {
     }
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    const r = pendingDelete.original;
-    setPendingDelete(null);
-    try {
-      setSaving(true);
-      if (r.type === 'category') await deleteOperationCategory(r.id);
-      else if (r.type === 'operation') await deleteOperation(r.id);
-      else await deleteOperationItem(r.id);
-      await load();
-    } finally {
-      setSaving(false);
-    }
-  };
-
   /* -------- Table -------- */
   const table = useMaterialReactTable<TreeRow>({
     columns,
@@ -486,7 +450,32 @@ export default function OperationCategoriesPage() {
               <IconButton
                 size="small"
                 color="error"
-                onClick={() => setPendingDelete(row)}
+                onClick={async () => {
+                  const r = row.original;
+                  const isCategory = r.type === 'category';
+                  const isOperation = r.type === 'operation';
+                  const title = 'Confirmare ștergere';
+                  const bodyTitle = 'Ești sigur că vrei să ștergi?';
+                  const desc = isCategory
+                    ? (<span>Categoria <strong>{r.name}</strong> și toate operațiile și elementele din ea vor fi șterse permanent.</span>)
+                    : isOperation
+                      ? (<span>Operația <strong>{r.name}</strong> și toate elementele ei vor fi șterse permanent.</span>)
+                      : (<span>Elementul <strong>{r.name}</strong> va fi șters permanent.</span>);
+                  const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'Șterge', cancelText: 'Anulează', danger: true });
+                  if (!ok) return;
+                  try {
+                    setSaving(true);
+                    if (isCategory) await deleteOperationCategory(r.id);
+                    else if (isOperation) await deleteOperation(r.id);
+                    else await deleteOperationItem(r.id);
+                    await load();
+                    successNotistack('Șters');
+                  } catch (e: any) {
+                    errorNotistack(e?.message || 'Nu am putut șterge');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
               >
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
@@ -664,14 +653,6 @@ export default function OperationCategoriesPage() {
           <MaterialReactTable table={table} />
         </Box>
       </Paper>
-
-      <ConfirmDialog
-        open={!!pendingDelete}
-        title="Confirmare ștergere"
-        message="Această acțiune nu poate fi anulată."
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={confirmDelete}
-      />
     </Box>
   );
 }

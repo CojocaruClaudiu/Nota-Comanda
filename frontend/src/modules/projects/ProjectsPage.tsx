@@ -19,12 +19,13 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AddProjectModal from './AddProjectModal';
 import EditProjectModal from './EditProjectModal';
-import DeleteProjectDialog from './DeleteProjectDialog';
+// removed DeleteProjectDialog in favor of global confirm dialog
 import { AddClientModal } from '../clients/AddClientModal';
 import { fetchClients, type Client } from '../../api/clients';
 import { api } from '../../api/axios';
 import { tableLocalization } from '../../localization/tableLocalization';
 import useNotistack from '../orders/hooks/useNotistack';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
 import type { Project, ProjectStatus } from '../../types/types';
 
 const getStatusColor = (status: ProjectStatus) => {
@@ -63,12 +64,12 @@ const ProjectsPage: React.FC = () => {
   // Edit dialog
   const [editTarget, setEditTarget] = useState<Project | null>(null);
   
-  // Delete dialog
-  const [toDelete, setToDelete] = useState<Project | null>(null);
+  // Global confirm handles deletion now
   
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
   
-  const { errorNotistack } = useNotistack();
+  const { errorNotistack, successNotistack } = useNotistack();
+  const confirm = useConfirm();
 
   // Memoized columns with enhanced features
   const columns = useMemo<MRT_ColumnDef<Project>[]>(
@@ -197,9 +198,7 @@ const ProjectsPage: React.FC = () => {
     // Note: We could also add success notification here if needed
   };
 
-  const handleDelete = (project: Project) => {
-    setToDelete(project);
-  };
+  // delete handled inline via confirm()
 
   const table = useMaterialReactTable({
     columns,
@@ -264,7 +263,33 @@ const ProjectsPage: React.FC = () => {
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => handleDelete(row.original)}>
+            <IconButton
+              color="error"
+              size="small"
+              onClick={async () => {
+                const p = row.original;
+                const ok = await confirm({
+                  title: 'Confirmare Ștergere',
+                  bodyTitle: 'Ești sigur că vrei să ștergi?',
+                  description: (
+                    <>
+                      Proiectul <strong>{p.name}</strong> va fi șters permanent.
+                    </>
+                  ),
+                  confirmText: 'Șterge',
+                  cancelText: 'Anulează',
+                  danger: true,
+                });
+                if (!ok) return;
+                try {
+                  await api.delete(`/projects/${p.id}`);
+                  setData((prev) => prev.filter((x) => x.id !== p.id));
+                  successNotistack('Șters');
+                } catch (e: any) {
+                  errorNotistack(e?.message || 'Nu am putut șterge proiectul');
+                }
+              }}
+            >
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </span>
@@ -339,16 +364,7 @@ const ProjectsPage: React.FC = () => {
         onAddClient={() => setShowAddClientModal(true)}
       />
 
-      {/* Delete Project Dialog */}
-      <DeleteProjectDialog
-        open={!!toDelete}
-        project={toDelete}
-        onClose={() => setToDelete(null)}
-        onProjectDeleted={(projectId) => {
-          setData(prev => prev.filter(p => p.id !== projectId));
-          setToDelete(null);
-        }}
-      />
+  {/* delete handled by global ConfirmProvider */}
     </Box>
   );
 };

@@ -16,33 +16,30 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Place as PlaceIcon,
-} from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Place as PlaceIcon } from '@mui/icons-material';
 
 import { useClientLocations } from './useClientLocations';
 import AddLocationModal from './AddLocationModal';
 import EditLocationModal from './EditLocationModal';
-import DeleteLocationDialog from './DeleteLocationDialog';
+// removed DeleteLocationDialog in favor of global confirm dialog
 import { AddClientModal } from '../../clients/AddClientModal';
 import { fetchClients, type Client } from '../../../api/clients';
 import type { ClientLocation } from '../../../types/types';
 import { tableLocalization } from '../../../localization/tableLocalization';
 import useNotistack from '../../orders/hooks/useNotistack';
+import { useConfirm } from '../../common/confirm/ConfirmProvider';
 
 const ClientLocationsPage: React.FC = () => {
   const { locations, loading, error, deleteLocation, createLocation, updateLocation, refetch } = useClientLocations();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
-  const [newClientName, setNewClientName] = useState('');
+  // removed unused local state for client name (handled in modal inputs)
   const [editTarget, setEditTarget] = useState<ClientLocation | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ClientLocation | null>(null);
+  // deletion handled inline via global confirm
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
 
   const { errorNotistack, successNotistack } = useNotistack();
+  const confirm = useConfirm();
 
   // Fetch clients for the "Add" modal select
   useEffect(() => {
@@ -59,17 +56,7 @@ const ClientLocationsPage: React.FC = () => {
     void fetchClientData();
   }, []);
 
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteLocation(id);
-      successNotistack('Locația a fost ștearsă.');
-      setDeleteTarget(null);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to delete location:', err);
-      errorNotistack('Eroare la ștergerea locației.');
-    }
-  };
+  // delete handled per-row via confirm()
 
   const handleEdit = async (updates: Partial<ClientLocation>) => {
     if (!editTarget) return;
@@ -87,8 +74,7 @@ const ClientLocationsPage: React.FC = () => {
   const handleClientAdded = (newClient: Client) => {
     // Add the new client to the clients list
     setClients(prev => [...prev, { id: newClient.id, name: newClient.name }]);
-    setShowAddClientModal(false);
-    setNewClientName('');
+  setShowAddClientModal(false);
     successNotistack('Clientul a fost adăugat cu succes!');
   };
 
@@ -219,7 +205,30 @@ const ClientLocationsPage: React.FC = () => {
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => setDeleteTarget(row.original)}>
+            <IconButton
+              color="error"
+              size="small"
+              onClick={async () => {
+                const loc = row.original;
+                const ok = await confirm({
+                  title: 'Confirmare Ștergere',
+                  bodyTitle: 'Ești sigur că vrei să ștergi?',
+                  description: (
+                    <>Locația <strong>{loc.name}</strong> va fi ștearsă permanent.</>
+                  ),
+                  confirmText: 'Șterge',
+                  cancelText: 'Anulează',
+                  danger: true,
+                });
+                if (!ok) return;
+                try {
+                  await deleteLocation(loc.id);
+                  successNotistack('Locația a fost ștearsă.');
+                } catch (err: any) {
+                  errorNotistack(err?.message || 'Eroare la ștergerea locației.');
+                }
+              }}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </span>
@@ -269,8 +278,7 @@ const ClientLocationsPage: React.FC = () => {
           }
         }}
         clients={clients}
-        onAddClient={(clientName) => {
-          setNewClientName(clientName);
+        onAddClient={() => {
           setShowAddClientModal(true);
         }}
       />
@@ -284,20 +292,13 @@ const ClientLocationsPage: React.FC = () => {
         onSave={handleEdit}
       />
 
-      {/* Delete Location Dialog */}
-      <DeleteLocationDialog
-        open={!!deleteTarget}
-        locationName={deleteTarget?.name}
-        onClose={() => setDeleteTarget(null)}
-        onDelete={() => deleteTarget && handleDelete(deleteTarget.id)}
-      />
+  {/* delete handled by global ConfirmProvider */}
 
       {/* Add Client Modal */}
       <AddClientModal
         open={showAddClientModal}
         onClose={() => {
           setShowAddClientModal(false);
-          setNewClientName('');
         }}
         onClientAdded={handleClientAdded}
       />

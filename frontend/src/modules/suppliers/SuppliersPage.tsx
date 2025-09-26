@@ -1,28 +1,8 @@
 // src/pages/suppliers/SuppliersPage.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from "material-react-table";
-import {
-  Box,
-  Paper,
-  Stack,
-  Typography,
-  Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Chip,
-  Divider,
-  Grid,
-  MenuItem,
-  Switch,
-  FormControlLabel,
-  Alert,
-} from "@mui/material";
+import { Box, Paper, Stack, Typography, Button, TextField, IconButton, Tooltip, CircularProgress, Chip, Divider, MenuItem, Switch, FormControlLabel, Alert, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import Grid from "@mui/material/Grid";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -32,6 +12,7 @@ import "dayjs/locale/ro";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 import useNotistack from "../orders/hooks/useNotistack";
+import { useConfirm } from "../common/confirm/ConfirmProvider";
 import {
   getSuppliers,
   createSupplier,
@@ -193,7 +174,7 @@ export default function SuppliersPage() {
 
   // dialogs
   const [openUpsert, setOpenUpsert] = useState<null | { mode: "add" | "edit"; row?: Supplier }>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Supplier | null>(null);
+  const confirm = useConfirm();
 
   // upsert form
   const emptyForm: SupplierPayload = {
@@ -307,7 +288,6 @@ export default function SuppliersPage() {
     try {
       setSaving(true);
       await deleteSupplier(row.id);
-      setConfirmDelete(null);
       await load();
       successNotistack("Furnizor șters");
     } catch (e: any) {
@@ -396,7 +376,25 @@ export default function SuppliersPage() {
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => setConfirmDelete(row.original)} disabled={saving}>
+            <IconButton
+              color="error"
+              size="small"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Ștergere furnizor',
+                  bodyTitle: 'Ești sigur că vrei să ștergi?',
+                  description: (
+                    <>Furnizorul <strong>{row.original.denumire}</strong> va fi șters permanent.</>
+                  ),
+                  confirmText: 'Șterge',
+                  cancelText: 'Anulează',
+                  danger: true,
+                });
+                if (!ok) return;
+                await doDelete(row.original);
+              }}
+              disabled={saving}
+            >
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </span>
@@ -697,24 +695,7 @@ export default function SuppliersPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Confirm delete */}
-      <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)}>
-        <DialogTitle>Ștergere furnizor</DialogTitle>
-        <DialogContent>
-          Doriți să ștergeți furnizorul <strong>{confirmDelete?.denumire}</strong>?
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(null)}>Anulează</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => confirmDelete && doDelete(confirmDelete)}
-            disabled={saving}
-          >
-            Șterge
-          </Button>
-        </DialogActions>
-      </Dialog>
+  {/* delete handled by global ConfirmProvider */}
     </Box>
   );
 }

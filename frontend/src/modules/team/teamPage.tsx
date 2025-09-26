@@ -14,7 +14,8 @@ import 'dayjs/locale/ro';
 
 import AddEmployeeModal from './AddEmployeeModal';
 import { EditEmployeeModal } from './EditEmployeeModal';
-import { DeleteEmployeeDialog } from './DeleteEmployeeDialog';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import { deleteEmployee } from '../../api/employees';
 import AddLeaveModal from './AddLeaveModal';
 import HolidayHistoryModal from './HolidayHistoryModal';
 import useNotistack from '../orders/hooks/useNotistack';
@@ -182,7 +183,7 @@ export default function EchipaPage() {
   const [openEdit, setOpenEdit] = useState<EmployeeWithStats | null>(null);
   const [openLeave, setOpenLeave] = useState<EmployeeWithStats | null>(null);
   const [openHistory, setOpenHistory] = useState<EmployeeWithStats | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<EmployeeWithStats | null>(null);
+  const confirm = useConfirm();
 
   // --- forms
   const emptyForm: EmployeePayload = {
@@ -329,7 +330,26 @@ export default function EchipaPage() {
                   <IconButton
                     color="error"
                     size="small"
-                    onClick={() => setConfirmDelete(row.original)}
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: 'Confirmare Ștergere Angajat',
+                        bodyTitle: 'Ești sigur că vrei să ștergi angajatul?',
+                        description: (
+                          <>Angajatul <strong>{row.original.name}</strong> va fi șters permanent.</>
+                        ),
+                        confirmText: 'Șterge Angajat',
+                        cancelText: 'Anulează',
+                        danger: true,
+                      });
+                      if (!ok) return;
+                      try {
+                        await deleteEmployee(row.original.id);
+                        await handleEmployeeDeleted();
+                        successNotistack('Angajat șters');
+                      } catch (e: any) {
+                        errorNotistack(e?.message || 'Nu am putut șterge angajatul');
+                      }
+                    }}
                     disabled={saving}
                   >
                     <DeleteOutlineIcon fontSize="small" />
@@ -407,13 +427,7 @@ export default function EchipaPage() {
         onHistoryUpdated={load}
       />
 
-      {/* ---------------- Delete Employee Dialog ---------------- */}
-      <DeleteEmployeeDialog
-        open={!!confirmDelete}
-        employee={confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-        onEmployeeDeleted={handleEmployeeDeleted}
-      />
+  {/* delete handled by global ConfirmProvider */}
     </Box>
   );
 }
