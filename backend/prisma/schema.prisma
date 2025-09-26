@@ -33,7 +33,7 @@ model Employee {
   locality       String? // ex: "sat Novăcești (com. Florești)" or "Băicoi"
   address        String? // ex: "nr. 295" or full street
   phone          String? // ex: "+40 721 123 456"
-  qualifications String[]
+  qualifications Qualification[]
   hiredAt        DateTime
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -237,4 +237,32 @@ model Equipment {
 
   @@index([category])
   @@index([code])
+}
+
+// Employee qualifications catalog
+model Qualification {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  employees   Employee[]
+  laborLines  LaborLine[]
+}
+
+// Labor lines under a qualification (Linii manoperă)
+model LaborLine {
+  id              String    @id @default(uuid())
+  qualificationId String
+  qualification   Qualification @relation(fields: [qualificationId], references: [id], onDelete: Restrict)
+  name            String
+  unit            String    @default("ora")
+  hourlyRate      Float
+  currency        Currency  @default(RON)
+  active          Boolean   @default(true)
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([qualificationId])
+  @@unique([qualificationId, name])
 }

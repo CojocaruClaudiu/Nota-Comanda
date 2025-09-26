@@ -177,7 +177,10 @@ app.get('/employees', async (_req, res) => {
     const yearStart = new Date(now.getFullYear(), 0, 1);
     const yearEnd = new Date(now.getFullYear() + 1, 0, 1);
 
-    const employees = await prisma.employee.findMany({ orderBy: { name: 'asc' } });
+  const employees = await (prisma as any).employee.findMany({
+      orderBy: { name: 'asc' },
+      include: { qualifications: { select: { name: true } } },
+    });
 
     const sums = await prisma.leave.groupBy({
       by: ['employeeId'],
@@ -188,12 +191,16 @@ app.get('/employees', async (_req, res) => {
     const takenMap = new Map<string, number>();
     for (const s of sums) takenMap.set(s.employeeId, s._sum.days ?? 0);
 
-    const result = employees.map(e => {
+  const result = (employees as any[]).map((e: any) => {
       const ent = entitledDays(e.hiredAt, now);
       const taken = takenMap.get(e.id) ?? 0;
       const remaining = Math.max(0, ent - taken);
-  const age = ageFrom(e.birthDate, now);
-      return { ...e, entitledDays: ent, takenDays: taken, remainingDays: remaining, age };
+      const age = ageFrom(e.birthDate, now);
+      const qNames = Array.isArray((e as any).qualifications)
+        ? (e as any).qualifications.map((q: { name: string }) => q.name)
+        : [];
+      const { qualifications, ...rest } = e as any;
+      return { ...rest, qualifications: qNames, entitledDays: ent, takenDays: taken, remainingDays: remaining, age };
     });
 
     res.json(result);
@@ -210,17 +217,25 @@ app.post('/employees', async (req, res) => {
     if (!name || !hiredAt) {
       return res.status(400).json({ error: 'Nume și Data angajării sunt obligatorii' });
     }
-    const created = await prisma.employee.create({
+    const qualNames = Array.isArray(qualifications)
+      ? Array.from(new Set(qualifications.map(q => String(q).trim()).filter(Boolean)))
+      : [];
+  const created = await (prisma as any).employee.create({
       data: {
         name: cleanRequired(name),
-        qualifications: Array.isArray(qualifications)
-          ? qualifications.map(q => String(q).trim()).filter(Boolean)
-          : [],
         hiredAt: toDate(hiredAt),
-  birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        qualifications: {
+          connectOrCreate: qualNames.map((n) => ({
+            where: { name: n },
+            create: { name: n },
+          })),
+        },
       },
+      include: { qualifications: { select: { name: true } } },
     });
-    res.status(201).json(created);
+    const { qualifications: q, ...rest } = created as any;
+    res.status(201).json({ ...rest, qualifications: (q || []).map((x: any) => x.name) });
   } catch (error: unknown) {
     console.error('POST /employees error:', error);
     res.status(500).json({ error: 'Nu am putut crea angajatul' });
@@ -239,21 +254,193 @@ app.put('/employees/:id', async (req, res) => {
     const existing = await prisma.employee.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: 'Angajatul nu a fost găsit' });
 
-    const updated = await prisma.employee.update({
+    const qualNames = Array.isArray(qualifications)
+      ? Array.from(new Set(qualifications.map(q => String(q).trim()).filter(Boolean)))
+      : [];
+
+    const updated = await (prisma as any).employee.update({
       where: { id },
       data: {
         name: cleanRequired(name),
-        qualifications: Array.isArray(qualifications)
-          ? qualifications.map(q => String(q).trim()).filter(Boolean)
-          : [],
         hiredAt: toDate(hiredAt),
-  birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        qualifications: {
+          set: [],
+          connectOrCreate: qualNames.map((n) => ({ where: { name: n }, create: { name: n } })),
+        },
       },
+      include: { qualifications: { select: { name: true } } },
     });
-    res.json(updated);
+    const { qualifications: q, ...rest } = updated as any;
+    res.json({ ...rest, qualifications: (q || []).map((x: any) => x.name) });
   } catch (error: unknown) {
     console.error('PUT /employees/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza angajatul' });
+  }
+});
+
+/* ===================== QUALIFICATIONS ===================== */
+
+type QualificationPayload = { name: string };
+
+// GET /qualifications
+app.get('/qualifications', async (_req, res) => {
+  try {
+    const list = await (prisma as any).qualification.findMany({ orderBy: { name: 'asc' } });
+    res.json(list);
+  } catch (error: unknown) {
+    console.error('GET /qualifications error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca calificările' });
+  }
+});
+
+// POST /qualifications
+app.post('/qualifications', async (req, res) => {
+  const p = (req.body || {}) as QualificationPayload;
+  if (!p.name) return res.status(400).json({ error: 'Denumirea este obligatorie' });
+  try {
+    const created = await (prisma as any).qualification.create({ data: { name: cleanRequired(p.name) } });
+    res.status(201).json(created);
+  } catch (error: any) {
+    if (isPrismaError(error) && error.code === 'P2002') {
+      return res.status(409).json({ error: 'Calificare deja existentă' });
+    }
+    console.error('POST /qualifications error:', error);
+    res.status(500).json({ error: 'Nu am putut crea calificarea' });
+  }
+});
+
+// PUT /qualifications/:id
+app.put('/qualifications/:id', async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as QualificationPayload;
+  if (!p.name) return res.status(400).json({ error: 'Denumirea este obligatorie' });
+  try {
+    const exists = await (prisma as any).qualification.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Calificarea nu a fost găsită' });
+    const updated = await (prisma as any).qualification.update({ where: { id }, data: { name: cleanRequired(p.name) } });
+    res.json(updated);
+  } catch (error: any) {
+    if (isPrismaError(error) && error.code === 'P2002') {
+      return res.status(409).json({ error: 'Calificare deja existentă' });
+    }
+    console.error('PUT /qualifications/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut actualiza calificarea' });
+  }
+});
+
+// DELETE /qualifications/:id
+app.delete('/qualifications/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await (prisma as any).qualification.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    if ((error as any)?.code === 'P2003') {
+      // FK constraint failed (has labor lines)
+      return res.status(409).json({ error: 'Nu se poate șterge: există linii de manoperă asociate' });
+    }
+    console.error('DELETE /qualifications/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge calificarea' });
+  }
+});
+
+// Grouped fetch: qualifications with labor lines
+app.get('/qualifications-with-lines', async (_req, res) => {
+  try {
+    const list = await (prisma as any).qualification.findMany({
+      orderBy: { name: 'asc' },
+      include: { laborLines: { orderBy: [{ name: 'asc' }] } },
+    });
+    res.json(list);
+  } catch (error: unknown) {
+    console.error('GET /qualifications-with-lines error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca datele' });
+  }
+});
+
+/* ===================== LABOR LINES (Linii Manoperă) ===================== */
+
+type LaborLinePayload = {
+  name: string;
+  unit?: string | null;           // default "ora"
+  hourlyRate: number;             // cost unitar / ora
+  currency?: import('@prisma/client').Currency | null; // default RON
+  active?: boolean | null;
+  notes?: string | null;
+};
+
+// GET /qualifications/:id/labor-lines
+app.get('/qualifications/:id/labor-lines', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const lines = await (prisma as any).laborLine.findMany({ where: { qualificationId: id }, orderBy: [{ name: 'asc' }] });
+    res.json(lines);
+  } catch (error: unknown) {
+    console.error('GET /qualifications/:id/labor-lines error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca liniile de manoperă' });
+  }
+});
+
+// POST /qualifications/:id/labor-lines
+app.post('/qualifications/:id/labor-lines', async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as LaborLinePayload;
+  if (!p.name || p.hourlyRate == null) return res.status(400).json({ error: 'Denumire și tarif orar sunt obligatorii' });
+  try {
+    const created = await (prisma as any).laborLine.create({
+      data: {
+        qualificationId: id,
+        name: cleanRequired(p.name),
+        unit: cleanOptional(p.unit) ?? 'ora',
+        hourlyRate: Number(p.hourlyRate),
+        currency: (p.currency as any) ?? 'RON',
+        active: p.active == null ? true : Boolean(p.active),
+        notes: cleanOptional(p.notes),
+      },
+    });
+    res.status(201).json(created);
+  } catch (error: any) {
+    if (isPrismaError(error) && error.code === 'P2002') return res.status(409).json({ error: 'Linie duplicată pentru această calificare' });
+    console.error('POST /qualifications/:id/labor-lines error:', error);
+    res.status(500).json({ error: 'Nu am putut crea linia de manoperă' });
+  }
+});
+
+// PUT /labor-lines/:lineId
+app.put('/labor-lines/:lineId', async (req, res) => {
+  const { lineId } = req.params;
+  const p = (req.body || {}) as LaborLinePayload;
+  if (!p.name || p.hourlyRate == null) return res.status(400).json({ error: 'Denumire și tarif orar sunt obligatorii' });
+  try {
+    const updated = await (prisma as any).laborLine.update({
+      where: { id: lineId },
+      data: {
+        name: cleanRequired(p.name),
+        unit: cleanOptional(p.unit) ?? 'ora',
+        hourlyRate: Number(p.hourlyRate),
+        currency: (p.currency as any) ?? 'RON',
+        active: p.active == null ? true : Boolean(p.active),
+        notes: cleanOptional(p.notes),
+      },
+    });
+    res.json(updated);
+  } catch (error: any) {
+    if (isPrismaError(error) && error.code === 'P2002') return res.status(409).json({ error: 'Linie duplicată pentru această calificare' });
+    console.error('PUT /labor-lines/:lineId error:', error);
+    res.status(500).json({ error: 'Nu am putut actualiza linia de manoperă' });
+  }
+});
+
+// DELETE /labor-lines/:lineId
+app.delete('/labor-lines/:lineId', async (req, res) => {
+  const { lineId } = req.params;
+  try {
+    await (prisma as any).laborLine.delete({ where: { id: lineId } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error('DELETE /labor-lines/:lineId error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge linia de manoperă' });
   }
 });
 

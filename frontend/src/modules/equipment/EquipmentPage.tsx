@@ -1,28 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { MaterialReactTable, useMaterialReactTable, createRow, type MRT_ColumnDef, type MRT_Row, type MRT_TableOptions } from 'material-react-table';
+import { MaterialReactTable, useMaterialReactTable, createRow, type MRT_ColumnDef, type MRT_TableOptions } from 'material-react-table';
 import { MRT_Localization_RO } from 'material-react-table/locales/ro';
-import { Box, Paper, Stack, Typography, Button, IconButton, Tooltip, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
+import { Box, Paper, Stack, Typography, Button, IconButton, Tooltip, Chip, Alert } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 
 import { listEquipment, createEquipment, updateEquipment, deleteEquipment, renameEquipmentCategory, type Equipment, type EquipmentPayload } from '../../api/equipment';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import useNotistack from '../orders/hooks/useNotistack';
 
-function ConfirmDialog({ open, title, message, onCancel, onConfirm }: { open: boolean; title: string; message: string; onCancel: () => void; onConfirm: () => void; }) {
-  return (
-    <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText>{message}</DialogContentText>
-      </DialogContent>
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onCancel}>Anulează</Button>
-        <Button color="error" variant="contained" onClick={onConfirm}>Șterge</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
+// removed inline confirm dialog in favor of global ConfirmProvider
 
 /* Types for the tree rows */
 type NodeType = 'category' | 'item';
@@ -49,11 +38,13 @@ function numberize(tree: TreeRow[]): TreeRow[] {
   
 
 export default function EquipmentPage() {
+  const confirm = useConfirm();
+  const { successNotistack, errorNotistack } = useNotistack();
   const [tree, setTree] = useState<TreeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<MRT_Row<TreeRow> | null>(null);
+  // delete confirmation handled per-click using useConfirm
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,11 +79,13 @@ export default function EquipmentPage() {
         }));
   setTree(numberize(cats));
     } catch (e: any) {
-      setError(e?.message || 'Eroare la încărcare');
+    const msg = e?.message || 'Eroare la încărcare';
+    setError(msg);
+    errorNotistack(msg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [errorNotistack]);
   useEffect(() => { void load(); }, [load]);
 
   const columns = useMemo<MRT_ColumnDef<TreeRow>[]>(() => [
@@ -161,7 +154,15 @@ export default function EquipmentPage() {
     const category = String(t.parentId || '').trim();
     if (!category || !description || !code) return;
     const payload: EquipmentPayload = { category, code, description, hourlyCost };
-    try { setSaving(true); await createEquipment(payload); table.setCreatingRow(null); await load(); } finally { setSaving(false); }
+    try {
+      setSaving(true);
+      await createEquipment(payload);
+      table.setCreatingRow(null);
+      await load();
+      successNotistack('Echipament creat');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Nu am putut crea echipamentul');
+    } finally { setSaving(false); }
   };
 
   const handleEditRow: MRT_TableOptions<TreeRow>['onEditingRowSave'] = async ({ values, row, table }) => {
@@ -170,7 +171,15 @@ export default function EquipmentPage() {
       const from = r.name;
       const to = String(values.name || '').trim();
       if (!to || to === from) { table.setEditingRow(null); return; }
-      try { setSaving(true); await renameEquipmentCategory(from, to); table.setEditingRow(null); await load(); } finally { setSaving(false); }
+      try {
+        setSaving(true);
+        await renameEquipmentCategory(from, to);
+        table.setEditingRow(null);
+        await load();
+        successNotistack('Categorie actualizată');
+      } catch (e: any) {
+        errorNotistack(e?.message || 'Nu am putut redenumi categoria');
+      } finally { setSaving(false); }
       return;
     }
     // item edit
@@ -180,16 +189,18 @@ export default function EquipmentPage() {
     const category = String(r.parentId || '').trim();
     if (!category || !description || !code) return;
     const payload: EquipmentPayload = { category, code, description, hourlyCost };
-    try { setSaving(true); await updateEquipment(r.id, payload); table.setEditingRow(null); await load(); } finally { setSaving(false); }
+    try {
+      setSaving(true);
+      await updateEquipment(r.id, payload);
+      table.setEditingRow(null);
+      await load();
+      successNotistack('Echipament actualizat');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Nu am putut actualiza echipamentul');
+    } finally { setSaving(false); }
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    const r = pendingDelete.original as TreeRow;
-    setPendingDelete(null);
-    if (r.type !== 'item') return; // don't delete categories in bulk
-    try { setSaving(true); await deleteEquipment(r.id); await load(); } finally { setSaving(false); }
-  };
+  // per-row delete handled inline via useConfirm
 
   const table = useMaterialReactTable<TreeRow>({
     columns,
@@ -273,7 +284,32 @@ export default function EquipmentPage() {
           {row.original.type === 'item' && (
             <Tooltip title="Șterge">
               <span>
-                <IconButton size="small" color="error" onClick={() => setPendingDelete(row)}>
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={async () => {
+                    if (row.original.type !== 'item') return;
+                    const ok = await confirm({
+                      title: 'Confirmare Ștergere',
+                      bodyTitle: 'Ești sigur că vrei să ștergi?',
+                      description: (
+                        <>Echipamentul <strong>{row.original.name}</strong> va fi șters permanent.</>
+                      ),
+                      confirmText: 'Șterge',
+                      cancelText: 'Anulează',
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    try {
+                      setSaving(true);
+                      await deleteEquipment(row.original.id);
+                      await load();
+                      successNotistack('Șters');
+                    } catch (e: any) {
+                      errorNotistack(e?.message || 'Nu am putut șterge');
+                    } finally { setSaving(false); }
+                  }}
+                >
                   <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
               </span>
@@ -329,13 +365,7 @@ export default function EquipmentPage() {
         </Box>
       </Paper>
 
-      <ConfirmDialog
-        open={!!pendingDelete}
-        title="Confirmare ștergere"
-        message="Această acțiune nu poate fi anulată."
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={confirmDelete}
-      />
+  {/* deletion confirmation handled by global ConfirmProvider */}
     </Box>
   );
 }
