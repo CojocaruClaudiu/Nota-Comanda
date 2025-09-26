@@ -20,9 +20,9 @@ import 'dayjs/locale/ro';
 import useNotistack from '../orders/hooks/useNotistack';
 import AddCarModal from './AddCarModal';
 import EditCarModal from './EditCarModal';
-import DeleteCarDialog from './DeleteCarDialog';
-import { getCars, type Car } from '../../api/cars';
+import { getCars, deleteCar, type Car } from '../../api/cars';
 import { getEmployees, type EmployeeWithStats } from '../../api/employees';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
 
 dayjs.extend(customParseFormat);
 dayjs.locale('ro');
@@ -105,7 +105,8 @@ const roLoc = {
 };
 
 export default function CarPage() {
-  const { errorNotistack } = useNotistack();
+  const { errorNotistack, successNotistack } = useNotistack();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<Car[]>([]);
   const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +116,7 @@ export default function CarPage() {
   // dialogs
   const [openAdd, setOpenAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<Car | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Car | null>(null);
+  // global confirm dialog handles deletion
 
   // forms
   // form state handled within modals for add/edit
@@ -218,7 +219,7 @@ export default function CarPage() {
 
   // handleUpdate moved into EditCarModal
 
-  // delete handled inside DeleteCarDialog
+  // delete handled via global ConfirmProvider
 
   const data = useMemo(() => rows, [rows]);
 
@@ -234,7 +235,33 @@ export default function CarPage() {
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => setConfirmDelete(row.original)}>
+            <IconButton
+              color="error"
+              size="small"
+              onClick={async () => {
+                const car = row.original;
+                const ok = await confirm({
+                  title: 'Confirmare Ștergere',
+                  bodyTitle: 'Ești sigur că vrei să ștergi?',
+                  description: (
+                    <>
+                      Mașina <strong>{car.placute}</strong> ({car.marca} {car.model}) va fi ștearsă permanent.
+                    </>
+                  ),
+                  confirmText: 'Șterge',
+                  cancelText: 'Anulează',
+                  danger: true,
+                });
+                if (!ok) return;
+                try {
+                  await deleteCar(car.id);
+                  setRows((prev) => prev.filter((r) => r.id !== car.id));
+                  successNotistack('Șters');
+                } catch (e: any) {
+                  errorNotistack(e?.message || 'Nu am putut șterge');
+                }
+              }}
+            >
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </span>
@@ -352,18 +379,7 @@ export default function CarPage() {
         }}
       />
 
-      {/* DELETE (refactored) */}
-      <DeleteCarDialog
-        open={!!confirmDelete}
-        car={confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-        onCarDeleted={() => {
-          if (confirmDelete) {
-            setRows((prev) => prev.filter((r) => r.id !== confirmDelete.id));
-            setConfirmDelete(null);
-          }
-        }}
-      />
+  {/* delete handled by global ConfirmProvider */}
     </Box>
   );
 }

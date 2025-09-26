@@ -303,8 +303,8 @@ export const LandingPage: React.FC = () => {
         {
           label: "Calificări",
           icon: <WorkspacePremiumRoundedIcon />,
-          variant: "outlined",
-          soonLabel: "Calificări",
+          variant: "contained",
+          to: "/qualifications",
           minWidth: 160,
           keywords: ["calificari", "certificari"],
         },

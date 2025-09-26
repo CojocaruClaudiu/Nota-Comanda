@@ -15,7 +15,8 @@ import useNotistack from '../orders/hooks/useNotistack';
 import { tableLocalization } from '../../localization/tableLocalization';
 import { AddClientModal } from './AddClientModal';
 import { EditClientModal } from './EditClientModal';
-import { DeleteClientDialog } from './DeleteClientDialog';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import { deleteClient } from '../../api/clients';
 
 export const ClientsTable: React.FC = () => {
   const [data, setData] = useState<Client[]>([]);
@@ -28,10 +29,9 @@ export const ClientsTable: React.FC = () => {
   // Edit dialog
   const [editTarget, setEditTarget] = useState<Client | null>(null);
 
-  // Delete dialog
-  const [toDelete, setToDelete] = useState<Client | null>(null);
+  const confirm = useConfirm();
 
-  const { errorNotistack } = useNotistack();
+  const { errorNotistack, successNotistack } = useNotistack();
 
   // Memoized columns with enhanced features
   const columns = useMemo<MRT_ColumnDef<Client>[]>(
@@ -120,7 +120,6 @@ export const ClientsTable: React.FC = () => {
 
   const handleClientDeleted = (clientId: string) => {
     setData(prev => prev.filter(c => c.id !== clientId));
-    setToDelete(null);
   };
 
   const table = useMaterialReactTable({
@@ -186,7 +185,30 @@ export const ClientsTable: React.FC = () => {
         </Tooltip>
         <Tooltip title="Șterge">
           <span>
-            <IconButton color="error" size="small" onClick={() => setToDelete(row.original)}>
+            <IconButton
+              color="error"
+              size="small"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Confirmare Ștergere',
+                  bodyTitle: 'Ești sigur că vrei să ștergi?',
+                  description: (
+                    <>Clientul <strong>{row.original.name}</strong> va fi șters permanent.</>
+                  ),
+                  confirmText: 'Șterge Client',
+                  cancelText: 'Anulează',
+                  danger: true,
+                });
+                if (!ok) return;
+                try {
+                  await deleteClient(row.original.id);
+                  handleClientDeleted(row.original.id);
+                  successNotistack('Șters');
+                } catch (e: any) {
+                  errorNotistack(e?.message || 'Nu am putut șterge clientul');
+                }
+              }}
+            >
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </span>
@@ -232,14 +254,7 @@ export const ClientsTable: React.FC = () => {
         onClientUpdated={handleClientUpdated}
       />
 
-      {/* Delete Client Dialog */}
-      <DeleteClientDialog
-        key={toDelete?.id || 'none'}
-        open={!!toDelete}
-        client={toDelete}
-        onClose={() => setToDelete(null)}
-        onClientDeleted={handleClientDeleted}
-      />
+  {/* delete handled by global ConfirmProvider */}
     </Box>
   );
 };

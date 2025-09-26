@@ -22,6 +22,7 @@ import ProjectsPage from "./modules/projects/ProjectsPage";
 import OperationCategoriesPage from "./modules/operatii/OperationCategoriesPage";
 import ClientLocationsPage from "./modules/projects/clientLocations/ClientLocationsPage";
 import EquipmentPage from "./modules/equipment/EquipmentPage";
+import QualificationsTreePage from "./modules/qualifications/QualificationsTreePage";
 
 function AppLayout() {
   return (
@@ -139,6 +140,14 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <EquipmentPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "qualifications",
+        element: (
+          <RequireAuth>
+            <QualificationsTreePage />
           </RequireAuth>
         ),
       },
