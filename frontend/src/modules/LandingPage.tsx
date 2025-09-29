@@ -181,12 +181,29 @@ export const LandingPage: React.FC = () => {
         },
         {
           label: "Producători",
-        icon: <FactoryRoundedIcon />,
-          variant: "outlined",
-          soonLabel: "Producători",
+          icon: <FactoryRoundedIcon />,
+          variant: "contained",
+          to: "/producers",
           minWidth: 160,
           keywords: ["producatori", "manufacturers"],
         },
+        {
+          label: "Recepții",
+          icon: <Inventory2RoundedIcon />,
+          variant: "outlined",
+          to: "/receptii",
+          minWidth: 160,
+          keywords: ["receptii", "receptie", "intrari", "aprovizionare"],
+        },
+        {
+          label: "Comenzi",
+          icon: <ListAltRoundedIcon />,
+          variant: "contained",
+          to: "/orders",
+          minWidth: 160,
+          keywords: ["comenzi", "order", "achizitii", "purchase"],
+        },
+        
       ],
     },
     {

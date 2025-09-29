@@ -14,7 +14,8 @@
   "seed:operation-items": "tsx scripts/add-operation-items.ts",
   "backfill:item-units": "tsx scripts/backfill-operation-item-units.ts",
   "wipe:operation-items": "tsx scripts/wipe-operation-items.ts",
-  "reseed:operation-items": "npm run wipe:operation-items && npm run seed:operation-items && npm run backfill:item-units"
+  "reseed:operation-items": "npm run wipe:operation-items && npm run seed:operation-items && npm run backfill:item-units",
+  "seed:producers": "tsx scripts/import-producers.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

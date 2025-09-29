@@ -1,7 +1,8 @@
 // src/index.ts
+// <reference types="@prisma/client" />
 import express from 'express';
 import cors from 'cors';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client'; // ensure `npx prisma generate` run after adding Producator model
 import authRoutes from "./auth/authRoutes";
 import projectRoutes from "./routes/projects";
 import clientLocationRoutes from "./routes/clientLocations";
@@ -67,6 +68,105 @@ app.get('/clients', async (_req, res) => {
   } catch (error: unknown) {
     console.error('GET /clients error:', error);
     res.status(500).json({ error: getErrorMessage(error) || 'Failed to fetch clients' });
+  }
+});
+
+/* ===================== PRODUCATORI (Manufacturers) ===================== */
+
+type ProducatorPayload = {
+  name: string;
+  status?: string; // activ / inactiv
+  adresa?: string | null;
+  contBancar?: string | null;
+  banca?: string | null;
+  email?: string | null;
+  telefon?: string | null;
+  site?: string | null;
+  observatii?: string | null;
+};
+
+// GET /producatori
+app.get('/producatori', async (_req, res) => {
+  try {
+    const list = await prisma.producator.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(list);
+  } catch (error) {
+    console.error('GET /producatori error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca producătorii' });
+  }
+});
+
+// POST /producatori
+app.post('/producatori', async (req, res) => {
+  try {
+  const { name, status = 'activ', adresa, contBancar, banca, email, telefon, site, observatii } = (req.body || {}) as ProducatorPayload;
+    if (!name?.trim()) return res.status(400).json({ error: 'Numele este obligatoriu' });
+    const created = await prisma.producator.create({
+      data: {
+        name: cleanRequired(name),
+        status: cleanRequired(status),
+        adresa: cleanOptional(adresa),
+        contBancar: cleanOptional(contBancar),
+        banca: cleanOptional(banca),
+        email: cleanOptional(email),
+        telefon: cleanOptional(telefon),
+  site: cleanOptional(site),
+  observatii: cleanOptional(observatii),
+      },
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    if (isPrismaError(error) && (error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Numele producătorului este deja folosit.' });
+    }
+    console.error('POST /producatori error:', error);
+    res.status(500).json({ error: 'Nu am putut crea producătorul' });
+  }
+});
+
+// PUT /producatori/:id
+app.put('/producatori/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, status = 'activ', adresa, contBancar, banca, email, telefon, site, observatii } = (req.body || {}) as ProducatorPayload;
+  if (!name?.trim()) return res.status(400).json({ error: 'Numele este obligatoriu' });
+  try {
+    const exists = await prisma.producator.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Producătorul nu a fost găsit' });
+    const updated = await prisma.producator.update({
+      where: { id },
+      data: {
+        name: cleanRequired(name),
+        status: cleanRequired(status),
+        adresa: cleanOptional(adresa),
+        contBancar: cleanOptional(contBancar),
+        banca: cleanOptional(banca),
+        email: cleanOptional(email),
+        telefon: cleanOptional(telefon),
+  site: cleanOptional(site),
+  observatii: cleanOptional(observatii),
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    if (isPrismaError(error) && (error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Numele producătorului este deja folosit.' });
+    }
+    console.error('PUT /producatori/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut actualiza producătorul' });
+  }
+});
+
+// DELETE /producatori/:id
+app.delete('/producatori/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await prisma.producator.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Producătorul nu a fost găsit' });
+    await prisma.producator.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('DELETE /producatori/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge producătorul' });
   }
 });
 
@@ -657,6 +757,7 @@ app.delete('/cars/:id', async (req, res) => {
 /* ===================== FURNIZORI (Suppliers) ===================== */
 
 type SupplierPayload = {
+  id_tert?: string | null;
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;
@@ -721,6 +822,7 @@ app.post("/furnizori", async (req, res) => {
   try {
     const created = await prisma.furnizor.create({
       data: {
+    id_tert: cleanOptional(p.id_tert),
         denumire: cleanRequired(p.denumire),
         cui_cif: cleanRequired(p.cui_cif),
         nrRegCom: cleanOptional(p.nrRegCom),
@@ -765,6 +867,7 @@ app.put("/furnizori/:id", async (req, res) => {
     const updated = await prisma.furnizor.update({
       where: { id },
       data: {
+  id_tert: cleanOptional(p.id_tert),
         denumire: cleanRequired(p.denumire),
         cui_cif: cleanRequired(p.cui_cif),
         nrRegCom: cleanOptional(p.nrRegCom),
@@ -1103,6 +1206,396 @@ app.post('/equipment/rename-category', async (req, res) => {
   } catch (error: unknown) {
     console.error('POST /equipment/rename-category error:', error);
     res.status(500).json({ error: 'Nu am putut redenumi categoria' });
+  }
+});
+
+/* ===================== PURCHASE ORDERS (Comenzi) ===================== */
+
+type POItemInput = {
+  name: string;
+  category?: string | null;
+  sku?: string | null;
+  unit?: string | null;
+  qtyOrdered: number;
+  unitPrice?: number;
+  currency?: string | null;
+  vatPercent?: number | null;
+  discountPercent?: number | null;
+  promisedDate?: string | null;
+};
+
+type POCreatePayload = {
+  poNumber?: string; // optional; auto-generate if missing
+  orderDate?: string;
+  requestedBy?: string;
+  orderedBy?: string;
+  supplierId?: string;
+  supplierContactName?: string;
+  supplierContactPhone?: string;
+  supplierContactEmail?: string;
+  projectId?: string;
+  deliveryAddress?: string;
+  priority?: string;
+  notes?: string;
+  promisedDeliveryDate?: string;
+  currency?: string;
+  exchangeRate?: number;
+  items: POItemInput[];
+};
+
+// Helper to generate next PO number using MAX existing sequence (avoids reuse after deletions)
+async function generateNextPONumber() {
+  const y = new Date().getFullYear();
+  const prefix = `TOPAZ-PO-${y}-`;
+  const last = await (prisma as any).purchaseOrder.findFirst({
+    where: { poNumber: { startsWith: prefix } },
+    orderBy: { poNumber: 'desc' },
+    select: { poNumber: true }
+  });
+  let next = 1;
+  if (last?.poNumber) {
+    const m = last.poNumber.match(/(\d{5})$/);
+    if (m) next = Number(m[1]) + 1;
+  }
+  return prefix + String(next).padStart(5, '0');
+}
+
+// GET /orders
+app.get('/orders', async (_req, res) => {
+  try {
+    const list = await (prisma as any).purchaseOrder.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { items: { include: { allocations: true } } },
+      take: 200,
+    });
+    res.json(list);
+  } catch (error) {
+    console.error('GET /orders error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca comenzile' });
+  }
+});
+
+// POST /orders
+app.post('/orders', async (req, res) => {
+  const p = (req.body || {}) as POCreatePayload;
+  if (!p.items || !Array.isArray(p.items) || p.items.length === 0) {
+    return res.status(400).json({ error: 'Cel puțin o linie este necesară' });
+  }
+  try {
+  const orderDate = p.orderDate ? new Date(p.orderDate) : new Date();
+  // Generate / retry logic to avoid 409 on concurrent inserts
+    let attempts = 0; let created: any; let lastError: any; let poNumber = p.poNumber?.trim();
+    while (attempts < 5) {
+      if (!poNumber) poNumber = await generateNextPONumber();
+      try {
+        created = await (prisma as any).purchaseOrder.create({
+          data: {
+            poNumber,
+            orderDate,
+            requestedBy: cleanOptional(p.requestedBy),
+            orderedBy: cleanOptional(p.orderedBy),
+            supplierId: cleanOptional(p.supplierId),
+            supplierContactName: cleanOptional(p.supplierContactName),
+            supplierContactPhone: cleanOptional(p.supplierContactPhone),
+            supplierContactEmail: cleanOptional(p.supplierContactEmail),
+            projectId: cleanOptional(p.projectId),
+            deliveryAddress: cleanOptional(p.deliveryAddress),
+            priority: (p.priority?.toUpperCase() as any) || 'MEDIUM',
+            notes: cleanOptional(p.notes),
+            promisedDeliveryDate: p.promisedDeliveryDate ? new Date(p.promisedDeliveryDate) : null,
+            currency: (p.currency as any) || 'RON',
+            exchangeRate: p.exchangeRate ?? null,
+            items: {
+              create: p.items.map(i => ({
+                name: cleanRequired(i.name),
+                category: cleanOptional(i.category),
+                sku: cleanOptional(i.sku),
+                unit: cleanOptional(i.unit),
+                qtyOrdered: Number(i.qtyOrdered),
+                unitPrice: Number(i.unitPrice ?? 0),
+                currency: (i.currency as any) || null,
+                vatPercent: i.vatPercent ?? null,
+                discountPercent: i.discountPercent ?? null,
+                promisedDate: i.promisedDate ? new Date(i.promisedDate) : null,
+              }))
+            }
+          },
+          include: { items: true }
+        });
+        break; // success
+      } catch (err: any) {
+        if (isPrismaError(err) && err.code === 'P2002' && !p.poNumber) {
+          // regenerate and retry
+            poNumber = undefined;
+            attempts++;
+            lastError = err;
+            continue;
+        }
+        lastError = err;
+        break;
+      }
+    }
+    if (!created) {
+      if (isPrismaError(lastError) && (lastError as any).code === 'P2002') {
+        return res.status(409).json({ error: 'Număr de comandă deja folosit (după 5 încercări)' });
+      }
+      throw lastError;
+    }
+    res.status(201).json(created);
+  } catch (error) {
+    if (isPrismaError(error) && (error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Număr de comandă deja folosit' });
+    }
+    console.error('POST /orders error:', error);
+    res.status(500).json({ error: 'Nu am putut crea comanda' });
+  }
+});
+
+// GET /orders/:id (include allocations & distributions)
+app.get('/orders/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const order = await (prisma as any).purchaseOrder.findUnique({
+      where: { id },
+      include: {
+        items: { include: { allocations: true, invoiceDistributions: true } },
+        receipts: { include: { items: { include: { project: true } } } },
+        invoices: { include: { distributions: true } },
+        payments: true,
+        project: true,
+      }
+    });
+    if (!order) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    res.json(order);
+  } catch (error) {
+    console.error('GET /orders/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca comanda' });
+  }
+});
+
+// PATCH /orders/:id/status { status }
+app.patch('/orders/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ error: 'Status lipsă' });
+  try {
+    const updated = await (prisma as any).purchaseOrder.update({ where: { id }, data: { status } });
+    // add event
+    await (prisma as any).purchaseOrderEvent.create({ data: { orderId: id, type: 'STATUS_CHANGE', message: `Status: ${status}` } });
+    res.json(updated);
+  } catch (error) {
+    console.error('PATCH /orders/:id/status error:', error);
+    res.status(500).json({ error: 'Nu am putut modifica statusul' });
+  }
+});
+
+// POST /orders/:id/items (add additional line)
+app.post('/orders/:id/items', async (req, res) => {
+  const { id } = req.params;
+  const i = (req.body || {}) as POItemInput;
+  if (!i.name || i.qtyOrdered == null) return res.status(400).json({ error: 'Denumire și cantitate obligatorii' });
+  try {
+    const exists = await (prisma as any).purchaseOrder.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    const created = await (prisma as any).purchaseOrderItem.create({
+      data: {
+        orderId: id,
+        name: cleanRequired(i.name),
+        category: cleanOptional(i.category),
+        sku: cleanOptional(i.sku),
+        unit: cleanOptional(i.unit),
+        qtyOrdered: Number(i.qtyOrdered),
+        unitPrice: Number(i.unitPrice ?? 0),
+        currency: (i.currency as any) || null,
+        vatPercent: i.vatPercent ?? null,
+        discountPercent: i.discountPercent ?? null,
+        promisedDate: i.promisedDate ? new Date(i.promisedDate) : null,
+      }
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('POST /orders/:id/items error:', error);
+    res.status(500).json({ error: 'Nu am putut adăuga linia' });
+  }
+});
+
+// DELETE /orders/:id
+app.delete('/orders/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await (prisma as any).purchaseOrder.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    await (prisma as any).purchaseOrder.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error) {
+    console.error('DELETE /orders/:id error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge comanda' });
+  }
+});
+
+// ----- Helpers for aggregates & payment status -----
+async function recalcOrderAggregates(orderId: string) {
+  const items = await (prisma as any).purchaseOrderItem.findMany({ where: { orderId } });
+  let subTotal = 0;
+  let totalVat = 0;
+  let totalOrderedQty = 0;
+  let totalReceivedQty = 0;
+  for (const it of items) {
+    const qty = Number(it.qtyOrdered) || 0;
+    const received = Number(it.qtyReceived) || 0;
+    const price = Number(it.unitPrice) || 0;
+    const discount = it.discountPercent ? (1 - it.discountPercent / 100) : 1;
+    const lineNet = qty * price * discount;
+    const vat = it.vatPercent ? lineNet * (it.vatPercent / 100) : 0;
+    subTotal += lineNet;
+    totalVat += vat;
+    totalOrderedQty += qty;
+    totalReceivedQty += received;
+  }
+  const totalGross = subTotal + totalVat;
+  const receivedPercent = totalOrderedQty > 0 ? (totalReceivedQty / totalOrderedQty) * 100 : 0;
+  // update status if fully received
+  let statusUpdate: any = {};
+  if (receivedPercent > 0) {
+    statusUpdate.status = receivedPercent >= 99.999 ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+  }
+  await (prisma as any).purchaseOrder.update({
+    where: { id: orderId },
+    data: { subTotal, totalVat, totalGross, receivedPercent, ...statusUpdate }
+  });
+  return { subTotal, totalVat, totalGross, receivedPercent };
+}
+
+async function updatePaymentStatus(orderId: string) {
+  const invoices = await (prisma as any).purchaseInvoice.findMany({ where: { orderId } });
+  const payments = await (prisma as any).purchasePayment.findMany({ where: { orderId } });
+  const totalInvoiced = invoices.reduce((s: number, i: any) => s + Number(i.total || 0), 0);
+  const totalPaid = payments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+  let paymentStatus: string = 'UNPAID';
+  if (totalPaid > 0 && totalPaid < totalInvoiced) paymentStatus = 'PARTIAL';
+  if (totalInvoiced > 0 && Math.abs(totalPaid - totalInvoiced) < 0.01) paymentStatus = 'PAID';
+  // OVERDUE detection would need due date; skip for now.
+  await (prisma as any).purchaseOrder.update({ where: { id: orderId }, data: { paymentStatus } });
+  return { totalInvoiced, totalPaid, paymentStatus };
+}
+
+// POST /orders/:id/recalc
+app.post('/orders/:id/recalc', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const exists = await (prisma as any).purchaseOrder.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    const agg = await recalcOrderAggregates(id);
+    res.json(agg);
+  } catch (error) {
+    console.error('POST /orders/:id/recalc error:', error);
+    res.status(500).json({ error: 'Nu am putut recalcula totalurile' });
+  }
+});
+
+// ----- Receipts -----
+type ReceiptItemInput = { orderItemId: string; quantity: number; damagedQuantity?: number; returnQuantity?: number; note?: string; projectId?: string };
+type ReceiptPayload = { deliveredDate?: string; transporter?: string; awb?: string; tracking?: string; note?: string; items: ReceiptItemInput[] };
+
+// POST /orders/:id/receipts
+app.post('/orders/:id/receipts', async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as ReceiptPayload;
+  if (!p.items || !Array.isArray(p.items) || p.items.length === 0) return res.status(400).json({ error: 'Cel puțin o linie de recepție' });
+  try {
+    const order = await (prisma as any).purchaseOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    const receipt = await (prisma as any).purchaseReceipt.create({
+      data: {
+        orderId: id,
+        deliveredDate: p.deliveredDate ? new Date(p.deliveredDate) : null,
+        transporter: cleanOptional(p.transporter),
+        awb: cleanOptional(p.awb),
+        tracking: cleanOptional(p.tracking),
+        note: cleanOptional(p.note),
+        items: {
+          create: p.items.map(it => ({
+            orderItemId: it.orderItemId,
+            quantity: Number(it.quantity || 0),
+            damagedQuantity: it.damagedQuantity ? Number(it.damagedQuantity) : 0,
+            returnQuantity: it.returnQuantity ? Number(it.returnQuantity) : 0,
+            note: cleanOptional(it.note),
+            projectId: cleanOptional(it.projectId)
+          }))
+        }
+      },
+      include: { items: true }
+    });
+    // update received quantities
+    for (const ri of receipt.items) {
+      await (prisma as any).purchaseOrderItem.update({
+        where: { id: ri.orderItemId },
+        data: { qtyReceived: { increment: ri.quantity } }
+      });
+    }
+    await recalcOrderAggregates(id);
+    await (prisma as any).purchaseOrderEvent.create({ data: { orderId: id, type: 'RECEIPT', message: `Recepție ${receipt.id} creată` } });
+    res.status(201).json(receipt);
+  } catch (error) {
+    console.error('POST /orders/:id/receipts error:', error);
+    res.status(500).json({ error: 'Nu am putut înregistra recepția' });
+  }
+});
+
+// ----- Invoices -----
+type InvoicePayload = { number: string; date?: string; valueNet: number; vatValue: number; total: number; currency?: string };
+app.post('/orders/:id/invoices', async (req, res) => {
+  const { id } = req.params;
+  const p = (req.body || {}) as InvoicePayload;
+  if (!p.number || p.valueNet == null || p.vatValue == null || p.total == null) return res.status(400).json({ error: 'Număr, valori net/vat/total obligatorii' });
+  try {
+    const order = await (prisma as any).purchaseOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ error: 'Comanda nu a fost găsită' });
+    const inv = await (prisma as any).purchaseInvoice.create({
+      data: {
+        orderId: id,
+        number: cleanRequired(p.number),
+        date: p.date ? new Date(p.date) : new Date(),
+        valueNet: Number(p.valueNet),
+        vatValue: Number(p.vatValue),
+        total: Number(p.total),
+        currency: (p.currency as any) || order.currency
+      }
+    });
+    await (prisma as any).purchaseOrderEvent.create({ data: { orderId: id, type: 'INVOICE', message: `Factură ${inv.number}` } });
+    await updatePaymentStatus(id);
+    res.status(201).json(inv);
+  } catch (error) {
+    console.error('POST /orders/:id/invoices error:', error);
+    res.status(500).json({ error: 'Nu am putut adăuga factura' });
+  }
+});
+
+// ----- Payments -----
+type PaymentPayload = { date?: string; amount: number; method?: string; note?: string };
+app.post('/invoices/:invoiceId/payments', async (req, res) => {
+  const { invoiceId } = req.params;
+  const p = (req.body || {}) as PaymentPayload;
+  if (p.amount == null) return res.status(400).json({ error: 'Suma obligatorie' });
+  try {
+    const invoice = await (prisma as any).purchaseInvoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) return res.status(404).json({ error: 'Factura nu a fost găsită' });
+    const pay = await (prisma as any).purchasePayment.create({
+      data: {
+        invoiceId,
+        orderId: invoice.orderId,
+        date: p.date ? new Date(p.date) : new Date(),
+        amount: Number(p.amount),
+        method: (p.method as any) || 'BANK_TRANSFER',
+        note: cleanOptional(p.note)
+      }
+    });
+    await (prisma as any).purchaseOrderEvent.create({ data: { orderId: invoice.orderId, type: 'PAYMENT', message: `Plată ${pay.amount}` } });
+    await updatePaymentStatus(invoice.orderId);
+    res.status(201).json(pay);
+  } catch (error) {
+    console.error('POST /invoices/:invoiceId/payments error:', error);
+    res.status(500).json({ error: 'Nu am putut înregistra plata' });
   }
 });
 
