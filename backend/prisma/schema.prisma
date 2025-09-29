@@ -143,6 +143,25 @@ model Furnizor {
   notite        String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  purchaseOrders PurchaseOrder[]
+}
+
+// Manufacturers / Producers
+model Producator {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  status     String   @default("activ") // activ / inactiv
+  adresa     String?
+  contBancar String?
+  banca      String?
+  email      String?
+  telefon    String?
+  site       String?
+  observatii String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status])
 }
 
 model Project {
@@ -159,6 +178,11 @@ model Project {
   location    String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  purchaseOrders PurchaseOrder[]
+  // Back-relations for multi-project PO extensions
+  receiptItems        PurchaseReceiptItem[]
+  poItemAllocations   POItemAllocation[]
+  invoiceDistributions InvoiceDistribution[]
 
   @@index([status])
   @@index([clientId])
@@ -187,6 +211,245 @@ enum ProjectStatus {
 enum Currency {
   RON
   EUR
+}
+
+// ---------------- PURCHASE ORDERS MODULE ----------------
+
+enum OrderStatus {
+  DRAFT
+  WAITING_APPROVAL
+  APPROVED
+  ORDERED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum OrderPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CARD
+  OTHER
+}
+
+model PurchaseOrder {
+  id                   String          @id @default(uuid())
+  poNumber             String          @unique
+  orderDate            DateTime        @default(now())
+  requestedBy          String?
+  costCenter           String?
+  orderedBy            String?
+  approvedBy           String?
+  approvedAt           DateTime?
+  supplierId           String?
+  supplier             Furnizor?       @relation(fields: [supplierId], references: [id])
+  supplierContactName  String?
+  supplierContactPhone String?
+  supplierContactEmail String?
+  projectId            String?
+  project              Project?        @relation(fields: [projectId], references: [id])
+  deliveryAddress      String?
+  priority             OrderPriority   @default(MEDIUM)
+  status               OrderStatus     @default(DRAFT)
+  notes                String?
+  promisedDeliveryDate DateTime?
+  paymentStatus        PaymentStatus   @default(UNPAID)
+  paymentTerms         String?         // ex: "30 zile"
+  budgetCode           String?
+  currency             Currency        @default(RON)
+  exchangeRate         Float?
+  subTotal             Float           @default(0)
+  totalVat             Float           @default(0)
+  totalGross           Float           @default(0)
+  receivedPercent      Float           @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  items                PurchaseOrderItem[]
+  receipts             PurchaseReceipt[]
+  invoices             PurchaseInvoice[]
+  payments             PurchasePayment[]
+  attachments          PurchaseOrderAttachment[]
+  events               PurchaseOrderEvent[]
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([projectId])
+  @@index([orderDate])
+}
+
+model PurchaseOrderItem {
+  id             String        @id @default(uuid())
+  orderId        String
+  order          PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name           String
+  category       String?
+  sku            String?
+  unit           String?       // U.M.
+  qtyOrdered     Float
+  qtyReceived    Float          @default(0)
+  unitPrice      Float          @default(0)
+  currency       Currency?      // defaults to order currency if null
+  vatPercent     Float?         // TVA%
+  discountPercent Float?        // %
+  promisedDate   DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  receiptItems   PurchaseReceiptItem[]
+  allocations    POItemAllocation[]
+  invoiceDistributions InvoiceDistribution[]
+
+  @@index([orderId])
+}
+
+model PurchaseReceipt {
+  id          String                @id @default(uuid())
+  orderId     String
+  order       PurchaseOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveredDate DateTime?
+  transporter String?
+  awb         String?
+  tracking    String?
+  note        String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  items       PurchaseReceiptItem[]
+
+  @@index([orderId])
+}
+
+model PurchaseReceiptItem {
+  id             String           @id @default(uuid())
+  receiptId      String
+  receipt        PurchaseReceipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  orderItemId    String
+  orderItem      PurchaseOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity       Float
+  damagedQuantity Float?          @default(0)
+  returnQuantity Float?           @default(0)
+  note           String?
+  // NEW: actual destination project for this received quantity
+  projectId      String?
+  project        Project?         @relation(fields: [projectId], references: [id])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([receiptId])
+  @@index([orderItemId])
+}
+
+model PurchaseInvoice {
+  id        String        @id @default(uuid())
+  orderId   String
+  order     PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  number    String
+  date      DateTime
+  valueNet  Float
+  vatValue  Float
+  total     Float
+  currency  Currency?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  payments  PurchasePayment[]
+  distributions InvoiceDistribution[]
+
+  @@index([orderId])
+  @@index([number])
+}
+
+model PurchasePayment {
+  id         String         @id @default(uuid())
+  orderId    String?
+  order      PurchaseOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceId  String?
+  invoice    PurchaseInvoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  date       DateTime
+  amount     Float
+  method     PaymentMethod   @default(BANK_TRANSFER)
+  note       String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([orderId])
+  @@index([invoiceId])
+}
+
+model PurchaseOrderAttachment {
+  id        String        @id @default(uuid())
+  orderId   String
+  order     PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fileName  String
+  path      String
+  mimeType  String?
+  size      Int?
+  createdAt DateTime      @default(now())
+
+  @@index([orderId])
+}
+
+model PurchaseOrderEvent {
+  id        String        @id @default(uuid())
+  orderId   String
+  order     PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String
+  message   String?
+  createdBy String?
+  createdAt DateTime      @default(now())
+
+  @@index([orderId])
+  @@index([type])
+}
+
+// Planned allocation of a PO line to multiple projects (by quantity OR percent)
+model POItemAllocation {
+  id          String            @id @default(uuid())
+  orderItemId String
+  orderItem   PurchaseOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project           @relation(fields: [projectId], references: [id])
+  qty         Float?            // strategy A: quantity-based allocation
+  percent     Float?            // strategy B: percent-based allocation (0..100)
+  valueOverride Float?          // optional explicit value override
+  note        String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([orderItemId, projectId])
+  @@index([projectId])
+  @@index([orderItemId])
+}
+
+// Financial distribution of an invoice amount to projects
+model InvoiceDistribution {
+  id         String          @id @default(uuid())
+  invoiceId  String
+  invoice    PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project         @relation(fields: [projectId], references: [id])
+  amount     Float           // store chosen strategy (gross or net) consistently
+  note       String?
+  orderItemId String?
+  orderItem   PurchaseOrderItem? @relation(fields: [orderItemId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([invoiceId, projectId])
+  @@index([projectId])
+  @@index([orderItemId])
 }
 
 // Categories for operations ("Categorii operatii")

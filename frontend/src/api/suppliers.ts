@@ -1,6 +1,7 @@
 // src/api/suppliers.ts
 export type Supplier = {
   id: string;
+  id_tert?: string | null;
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;
@@ -26,6 +27,7 @@ export type Supplier = {
 };
 
 export type SupplierPayload = {
+  id_tert?: string | null;
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;

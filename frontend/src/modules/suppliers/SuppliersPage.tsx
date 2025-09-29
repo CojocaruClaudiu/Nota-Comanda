@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from "material-react-table";
 import { Box, Paper, Stack, Typography, Button, TextField, IconButton, Tooltip, CircularProgress, Chip, Divider, MenuItem, Switch, FormControlLabel, Alert, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
-import Grid from "@mui/material/Grid";
+// Removed MUI Grid usage (type issues) and replaced with simple CSS grid Boxes below.
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -45,6 +45,15 @@ const mkColumns = (): MRT_ColumnDef<Supplier>[] => [
     size: 280,
     enableColumnFilter: true,
     enableGlobalFilter: true,
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
+  },
+  {
+    accessorKey: "id_tert",
+    header: "ID Tert",
+    size: 120,
+    enableColumnFilter: true,
+    enableGlobalFilter: true,
+    accessorFn: (row) => row.id_tert || "",
     Cell: ({ renderedCellValue }) => renderedCellValue || "—",
   },
   {
@@ -178,6 +187,7 @@ export default function SuppliersPage() {
 
   // upsert form
   const emptyForm: SupplierPayload = {
+  id_tert: "",
     denumire: "",
     cui_cif: "",
     nrRegCom: "",
@@ -241,6 +251,7 @@ export default function SuppliersPage() {
   };
   const startEdit = (row: Supplier) => {
     setForm({
+  id_tert: row.id_tert ?? "",
       denumire: row.denumire,
       cui_cif: row.cui_cif,
       nrRegCom: row.nrRegCom ?? "",
@@ -442,8 +453,8 @@ export default function SuppliersPage() {
           <Stack spacing={2}>
             {/* Identificare */}
             <Typography variant="subtitle2" color="text.secondary">Identificare</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' } }}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 6' } }}>
                 <TextField
                   label="Denumire"
                   value={form.denumire}
@@ -453,8 +464,17 @@ export default function SuppliersPage() {
                   error={!!errs.denumire}
                   helperText={errs.denumire}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
+                <TextField
+                  label="ID Tert contabil"
+                  value={form.id_tert ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, id_tert: e.target.value }))}
+                  fullWidth
+                  placeholder="ex: 12345"
+                />
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   label="CUI / CIF"
                   value={form.cui_cif}
@@ -464,17 +484,17 @@ export default function SuppliersPage() {
                   error={!!errs.cui_cif}
                   helperText={errs.cui_cif}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   label="Nr. Reg. Com."
                   value={form.nrRegCom ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, nrRegCom: e.target.value }))}
                   fullWidth
                 />
-              </Grid>
+              </Box>
 
-              <Grid item xs={12} md={3}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   select
                   label="Tip"
@@ -486,9 +506,9 @@ export default function SuppliersPage() {
                     <MenuItem key={t} value={t}>{t}</MenuItem>
                   ))}
                 </TextField>
-              </Grid>
+              </Box>
 
-              <Grid item xs={12} md={3}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' }, display: 'flex', alignItems: 'center', pl: 1 }}>
                 <FormControlLabel
                   control={
                     <Switch
@@ -498,8 +518,8 @@ export default function SuppliersPage() {
                   }
                   label="Plătitor TVA"
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <DatePicker
                   label="TVA din data"
                   disabled={!form.tva}
@@ -510,15 +530,15 @@ export default function SuppliersPage() {
                     textField: { fullWidth: true, error: !!errs.tvaData, helperText: errs.tvaData },
                   }}
                 />
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
 
             <Divider />
 
             {/* Adresă & Contact */}
             <Typography variant="subtitle2" color="text.secondary">Adresă & Contact</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={8}>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' } }}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 8' } }}>
                 <TextField
                   label="Adresă"
                   value={form.adresa}
@@ -527,8 +547,8 @@ export default function SuppliersPage() {
                   error={!!errs.adresa}
                   helperText={errs.adresa}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Oraș"
                   value={form.oras}
@@ -537,8 +557,8 @@ export default function SuppliersPage() {
                   error={!!errs.oras}
                   helperText={errs.oras}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Județ"
                   value={form.judet}
@@ -547,8 +567,8 @@ export default function SuppliersPage() {
                   error={!!errs.judet}
                   helperText={errs.judet}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Țara"
                   value={form.tara}
@@ -557,8 +577,8 @@ export default function SuppliersPage() {
                   error={!!errs.tara}
                   helperText={errs.tara}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Site"
                   value={form.site ?? ""}
@@ -566,9 +586,9 @@ export default function SuppliersPage() {
                   fullWidth
                   placeholder="ex: https://exemplu.ro"
                 />
-              </Grid>
+              </Box>
 
-              <Grid item xs={12} md={4}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Nume persoană contact"
                   value={form.contactNume}
@@ -577,8 +597,8 @@ export default function SuppliersPage() {
                   error={!!errs.contactNume}
                   helperText={errs.contactNume}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Email"
                   value={form.email}
@@ -587,8 +607,8 @@ export default function SuppliersPage() {
                   error={!!errs.email}
                   helperText={errs.email}
                 />
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 4' } }}>
                 <TextField
                   label="Telefon"
                   value={form.telefon}
@@ -597,15 +617,15 @@ export default function SuppliersPage() {
                   error={!!errs.telefon}
                   helperText={errs.telefon}
                 />
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
 
             <Divider />
 
             {/* Plăți & Bancă */}
             <Typography variant="subtitle2" color="text.secondary">Plăți & Bancă</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' } }}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   select
                   label="Metodă plată"
@@ -619,8 +639,8 @@ export default function SuppliersPage() {
                     <MenuItem key={p} value={p}>{p}</MenuItem>
                   ))}
                 </TextField>
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   type="number"
                   label="Termen plată (zile)"
@@ -631,8 +651,8 @@ export default function SuppliersPage() {
                   error={!!errs.termenPlata}
                   helperText={errs.termenPlata}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   label="Cont bancar (IBAN)"
                   value={form.contBancar}
@@ -641,8 +661,8 @@ export default function SuppliersPage() {
                   error={!!errs.contBancar}
                   helperText={errs.contBancar}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   label="Banca"
                   value={form.banca}
@@ -651,20 +671,20 @@ export default function SuppliersPage() {
                   error={!!errs.banca}
                   helperText={errs.banca}
                 />
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
 
             <Divider />
 
             {/* Status & Note */}
             <Typography variant="subtitle2" color="text.secondary">Status & Note</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(12, 1fr)' } }}>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
                   select
                   label="Status"
                   value={form.status}
-                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as typeof STATUS_OPTIONS[number] }))}
                   fullWidth
                   error={!!errs.status}
                   helperText={errs.status}
@@ -673,8 +693,8 @@ export default function SuppliersPage() {
                     <MenuItem key={s} value={s}>{s}</MenuItem>
                   ))}
                 </TextField>
-              </Grid>
-              <Grid item xs={12} md={9}>
+              </Box>
+              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 9' } }}>
                 <TextField
                   label="Notițe"
                   value={form.notite ?? ""}
@@ -683,8 +703,8 @@ export default function SuppliersPage() {
                   multiline
                   minRows={2}
                 />
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>

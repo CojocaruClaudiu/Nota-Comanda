@@ -23,6 +23,9 @@ import OperationCategoriesPage from "./modules/operatii/OperationCategoriesPage"
 import ClientLocationsPage from "./modules/projects/clientLocations/ClientLocationsPage";
 import EquipmentPage from "./modules/equipment/EquipmentPage";
 import QualificationsTreePage from "./modules/qualifications/QualificationsTreePage";
+import ProducersPage from "./modules/producers/ProducersPage";
+import ReceptionsPage from "./modules/receptii/ReceptionsPage";
+import OrdersPage from "./modules/orders/OrdersPage";
 
 function AppLayout() {
   return (
@@ -116,6 +119,30 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <SuppliersPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "producers",
+        element: (
+          <RequireAuth>
+            <ProducersPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "receptii",
+        element: (
+          <RequireAuth>
+            <ReceptionsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "orders",
+        element: (
+          <RequireAuth>
+            <OrdersPage />
           </RequireAuth>
         ),
       },
