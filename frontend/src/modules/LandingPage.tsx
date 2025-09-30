@@ -38,6 +38,7 @@ import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 
 // ---------- Types
 type ActionItem = {
@@ -132,6 +133,15 @@ export const LandingPage: React.FC = () => {
       minWidth: 200,
       keywords: ["clienti", "clients", "customer", "proiecte"],
       tooltip: "C",
+    },
+    {
+      label: "Registru de casă",
+      icon: <AccountBalanceWalletRoundedIcon />,
+      variant: "contained",
+      to: "/cash-ledger",
+      minWidth: 200,
+      keywords: ["cash", "casa", "registru", "bani"],
+      tooltip: "R",
     },
     {
       label: "Echipă",
@@ -392,6 +402,23 @@ export const LandingPage: React.FC = () => {
           keywords: ["trimite", "send", "email", "client"],
         },
       ],
+    },
+    {
+      id: 'financiar',
+      icon: <AccountBalanceWalletRoundedIcon />,
+      badgeColor: 'secondary',
+      title: 'Financiar',
+      subheader: 'Flux de numerar și registru de casă.',
+      actions: [
+        {
+          label: 'Registru de casă',
+          icon: <AccountBalanceWalletRoundedIcon />,
+          variant: 'contained',
+          to: '/cash-ledger',
+          minWidth: 180,
+          keywords: ['cash','casa','registru','numerar']
+        }
+      ]
     },
   ];
 

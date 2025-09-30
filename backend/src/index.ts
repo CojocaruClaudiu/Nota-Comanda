@@ -6,15 +6,27 @@ import { PrismaClient } from '@prisma/client'; // ensure `npx prisma generate` r
 import authRoutes from "./auth/authRoutes";
 import projectRoutes from "./routes/projects";
 import clientLocationRoutes from "./routes/clientLocations";
+import cashRoutes from "./routes/cash/cashRoutes";
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient({ log: ['warn', 'error'] });
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+// Simple auth decode middleware (non-strict for now)
+app.use((req, _res, next) => {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) {
+    const token = auth.slice(7);
+    try { (req as any).user = jwt.verify(token, process.env.JWT_SECRET || 'change_me_now'); } catch { /* ignore */ }
+  }
+  next();
+});
 app.use("/auth", authRoutes);
 app.use("/projects", projectRoutes);
 app.use("/client-locations", clientLocationRoutes);
+app.use("/api", cashRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();

@@ -68,6 +68,24 @@ async function main() {
   console.log(`Seeded admin: ${email} / ${pass}`);
   console.log(`Seeded user: ${razvanEmail} / ${razvanPass}`);
   console.log(`Seeded user: ${claudiuEmail} / ${claudiuPass}`);
+
+  // Companies & Cash Accounts (idempotent upserts)
+  const p: any = prisma as any;
+  const topazConstruct = await p.company.upsert({
+    where: { name: 'Topaz Construct' },
+    update: {},
+    create: { name: 'Topaz Construct', code: 'TC' }
+  });
+  const topazSystech = await p.company.upsert({
+    where: { name: 'Topaz Systech' },
+    update: {},
+    create: { name: 'Topaz Systech', code: 'TS' }
+  });
+
+  await p.cashAccount.upsert({ where: { companyId_name: { companyId: topazConstruct.id, name: 'Casa Sediu' } }, update: {}, create: { companyId: topazConstruct.id, name: 'Casa Sediu' } });
+  await p.cashAccount.upsert({ where: { companyId_name: { companyId: topazSystech.id, name: 'Casa Sediu' } }, update: {}, create: { companyId: topazSystech.id, name: 'Casa Sediu' } });
+
+  console.log('Seeded companies & cash accounts');
 }
 
 main().finally(() => prisma.$disconnect());

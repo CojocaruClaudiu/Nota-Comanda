@@ -19,7 +19,6 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AddProjectModal from './AddProjectModal';
 import EditProjectModal from './EditProjectModal';
-// removed DeleteProjectDialog in favor of global confirm dialog
 import { AddClientModal } from '../clients/AddClientModal';
 import { fetchClients, type Client } from '../../api/clients';
 import { api } from '../../api/axios';
