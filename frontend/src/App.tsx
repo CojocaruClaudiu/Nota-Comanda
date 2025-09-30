@@ -26,6 +26,7 @@ import QualificationsTreePage from "./modules/qualifications/QualificationsTreeP
 import ProducersPage from "./modules/producers/ProducersPage";
 import ReceptionsPage from "./modules/receptii/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
+import CashLedgerPage from "./modules/cash/CashLedgerPage";
 
 function AppLayout() {
   return (
@@ -186,6 +187,14 @@ const router = createBrowserRouter([
           </RequireAuth>
         ),
       },
+      {
+        path: "cash-ledger",
+        element: (
+          <RequireAuth>
+            <CashLedgerPage />
+          </RequireAuth>
+        )
+      }
     ],
   },
 ]);

@@ -7,6 +7,82 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ================== CASH LEDGER MODULE ==================
+
+model Company {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  code        String?       @unique // optional short code, ex: TOPAZC
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  cashAccounts CashAccount[]
+  projects    Project[]     @relation("CompanyProjects")
+  cashEntries CashEntry[]
+}
+
+model CashAccount {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashEntries CashEntry[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+// Categories for cash movements (Materiale, Diurna etc)
+model CashCategory {
+  id        String     @id @default(uuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([name])
+}
+
+// Generic person taking/bringing cash (could map to Employee externally)
+model Person {
+  id        String     @id @default(uuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+enum CashEntryType {
+  IN
+  OUT
+}
+
+
+model CashEntry {
+  id             String           @id @default(uuid())
+  companyId      String           // denormalized for quicker filters
+  cashAccountId  String
+  effectiveAt    DateTime
+  type           CashEntryType
+  amount         Decimal          @db.Decimal(14, 2)
+  currency       Currency         @default(RON)
+  employeeId     String?
+  notes          String?
+  transferGroupId String?         // shared uuid for transfers
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cashAccount    CashAccount      @relation(fields: [cashAccountId], references: [id], onDelete: Cascade)
+  employee       Employee?        @relation("EmployeeCashEntries", fields: [employeeId], references: [id])
+
+  @@index([cashAccountId, effectiveAt])
+  @@index([transferGroupId])
+}
+
+// Extend existing Project with optional company (backwards compatible)
+
+
 model Client {
   id                  String    @id @default(uuid())
   name                String
@@ -40,6 +116,7 @@ model Employee {
   birthDate      DateTime?
   cars           Car[]
   leaves         Leave[]
+  cashEntries    CashEntry[] @relation("EmployeeCashEntries")
 }
 
 model Leave {
@@ -183,6 +260,8 @@ model Project {
   receiptItems        PurchaseReceiptItem[]
   poItemAllocations   POItemAllocation[]
   invoiceDistributions InvoiceDistribution[]
+  companyId   String? 
+  company     Company?     @relation("CompanyProjects", fields: [companyId], references: [id])
 
   @@index([status])
   @@index([clientId])

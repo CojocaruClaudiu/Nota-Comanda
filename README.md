@@ -107,3 +107,32 @@ This repo includes a minimal GitHub Actions workflow that builds backend and fro
 
 ## License
 Proprietary / Internal (adjust if open source later)
+
+## Cash Ledger (Registru de casă)
+Draft implementation added.
+
+Models: Company, CashAccount, CashCategory, Person, CashEntry.
+
+Migrate & generate after pulling:
+```
+cd backend
+npm run prisma:migrate
+npm run prisma:gen
+```
+
+Seed companies & default cash accounts:
+```
+npm run prisma:seed
+```
+
+API (mounted under /api):
+ - GET /api/cash-entries (filters, pagination)
+ - POST /api/cash-entries (IN/OUT)
+ - PATCH /api/cash-entries/:id
+ - POST /api/cash-entries/transfer
+ - GET /api/balances
+ - POST /api/locks/close-day
+ - POST /api/locks/close-month
+
+Frontend route `/cash-ledger` shows draft table; needs enhancement for full feature (forms, transfers, export PDF, locks UI, validation feedback, optimistic updates).
+
