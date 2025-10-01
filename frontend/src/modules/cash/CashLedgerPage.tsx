@@ -219,9 +219,17 @@ export default function CashLedgerPage() {
       setCompanyId(companiesQ.data[0].id);
   }, [companiesQ.data, companyId]);
   useEffect(() => {
-    if (companyId && accountsQ.data?.length && !cashAccountId)
+    // Only auto-select when we have accounts for the currently selected company
+    // and the query is not actively fetching to avoid using stale placeholder data.
+    if (
+      companyId &&
+      accountsQ.data?.length &&
+      !cashAccountId &&
+      !accountsQ.isFetching
+    ) {
       setCashAccountId(accountsQ.data[0].id);
-  }, [accountsQ.data, companyId, cashAccountId]);
+    }
+  }, [accountsQ.data, accountsQ.isFetching, companyId, cashAccountId]);
 
   const createMut = useMutation({
     mutationFn: createCashEntry,
