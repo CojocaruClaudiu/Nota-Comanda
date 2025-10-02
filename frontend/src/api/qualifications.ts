@@ -1,7 +1,17 @@
 // src/api/qualifications.ts
+import type { LaborLine } from './laborLines';
+
 export type Qualification = {
   id: string;
   name: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type QualificationWithLines = {
+  id: string;
+  name: string;
+  laborLines: LaborLine[];
   createdAt?: string;
   updatedAt?: string;
 };
@@ -26,6 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const getQualifications = () => request<Qualification[]>('/qualifications');
+export const getQualificationsWithLines = () => request<QualificationWithLines[]>('/qualifications-with-lines');
 export const createQualification = (data: QualificationPayload) =>
   request<Qualification>('/qualifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const updateQualification = (id: string, data: QualificationPayload) =>

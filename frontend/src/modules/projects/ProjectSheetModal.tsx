@@ -25,6 +25,7 @@ import { tableLocalization } from '../../localization/tableLocalization';
 import type { ProjectDevizLine } from '../../api/projectDeviz';
 import SelectOperationModal from './SelectOperationModal';
 import DevizeModal, { type MaterialItem, type LaborItem } from './DevizeModal';
+import { FisaOperatieModal } from './FisaOperatieModal';
 
 export type ProjectSheetData = {
   id?: string;
@@ -75,6 +76,8 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   const [showSelectOperation, setShowSelectOperation] = useState(false);
   const [editingOperation, setEditingOperation] = useState<ProjectSheetOperation | null>(null);
   const [showDevize, setShowDevize] = useState(false);
+  const [showFisaOperatie, setShowFisaOperatie] = useState(false);
+  const [selectedOperationForFisa, setSelectedOperationForFisa] = useState<ProjectSheetOperation | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -271,7 +274,11 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
       <Stack direction="row" gap={0.5}>
         <IconButton
           size="small"
-          onClick={() => setEditingOperation(row.original)}
+          onClick={() => {
+            setSelectedOperationForFisa(row.original);
+            setShowFisaOperatie(true);
+          }}
+          title="Fișa Operație"
         >
           <EditOutlinedIcon fontSize="small" />
         </IconButton>
@@ -525,6 +532,18 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
         onClose={() => setShowDevize(false)}
         onSave={handleSaveDevize}
       />
+
+      {/* Fisa Operatie Modal */}
+      {selectedOperationForFisa && (
+        <FisaOperatieModal
+          open={showFisaOperatie}
+          onClose={() => {
+            setShowFisaOperatie(false);
+            setSelectedOperationForFisa(null);
+          }}
+          operationName={selectedOperationForFisa.operationName}
+        />
+      )}
     </LocalizationProvider>
   );
 };
