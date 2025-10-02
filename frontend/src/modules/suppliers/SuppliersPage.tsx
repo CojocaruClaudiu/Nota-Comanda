@@ -33,7 +33,6 @@ const dmy = (v?: string | Date | null) => {
 };
 const toIsoDate = (d: Dayjs | null) => (d && d.isValid() ? d.format("YYYY-MM-DD") : "");
 
-const TIP_OPTIONS = ["SRL", "SA", "PFA", "II", "IF", "ONG", "Altul"];
 const PLATA_OPTIONS = ["OP", "Numerar", "Card"];
 const STATUS_OPTIONS = ["activ", "inactiv"] as const;
 
@@ -75,12 +74,13 @@ const mkColumns = (): MRT_ColumnDef<Supplier>[] => [
     Cell: ({ renderedCellValue }) => renderedCellValue || "—",
   },
   {
-    accessorKey: "tip",
-    header: "Tip",
-    size: 90,
+    accessorKey: "den_catart",
+    header: "Categorie",
+    size: 140,
     enableColumnFilter: true,
     enableGlobalFilter: true,
-    Cell: ({ cell }) => <Chip size="small" label={cell.getValue<string>() || "—"} />,
+    accessorFn: (row) => row.den_catart || "",
+    Cell: ({ renderedCellValue }) => renderedCellValue || "—",
   },
   {
     accessorKey: "tva",
@@ -187,11 +187,11 @@ export default function SuppliersPage() {
 
   // upsert form
   const emptyForm: SupplierPayload = {
-  id_tert: "",
+    id_tert: "",
     denumire: "",
     cui_cif: "",
     nrRegCom: "",
-    tip: "SRL",
+    den_catart: "",
     tva: false,
     tvaData: null,
     adresa: "",
@@ -203,7 +203,6 @@ export default function SuppliersPage() {
     telefon: "",
     site: "",
     metodaPlata: "OP",
-    termenPlata: 30,
     contBancar: "",
     banca: "",
     status: "activ",
@@ -251,11 +250,11 @@ export default function SuppliersPage() {
   };
   const startEdit = (row: Supplier) => {
     setForm({
-  id_tert: row.id_tert ?? "",
+      id_tert: row.id_tert ?? "",
       denumire: row.denumire,
       cui_cif: row.cui_cif,
       nrRegCom: row.nrRegCom ?? "",
-      tip: row.tip,
+      den_catart: row.den_catart ?? "",
       tva: row.tva,
       tvaData: row.tvaData ?? null,
       adresa: row.adresa,
@@ -267,7 +266,6 @@ export default function SuppliersPage() {
       telefon: row.telefon,
       site: row.site ?? "",
       metodaPlata: row.metodaPlata,
-      termenPlata: row.termenPlata,
       contBancar: row.contBancar,
       banca: row.banca,
       status: row.status,
@@ -496,16 +494,12 @@ export default function SuppliersPage() {
 
               <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField
-                  select
-                  label="Tip"
-                  value={form.tip}
-                  onChange={(e) => setForm((f) => ({ ...f, tip: e.target.value }))}
+                  label="Categorie (den_catart)"
+                  value={form.den_catart ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, den_catart: e.target.value }))}
                   fullWidth
-                >
-                  {TIP_OPTIONS.map((t) => (
-                    <MenuItem key={t} value={t}>{t}</MenuItem>
-                  ))}
-                </TextField>
+                  placeholder="ex: Servicii IT"
+                />
               </Box>
 
               <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' }, display: 'flex', alignItems: 'center', pl: 1 }}>
@@ -639,18 +633,6 @@ export default function SuppliersPage() {
                     <MenuItem key={p} value={p}>{p}</MenuItem>
                   ))}
                 </TextField>
-              </Box>
-              <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
-                <TextField
-                  type="number"
-                  label="Termen plată (zile)"
-                  inputProps={{ min: 0 }}
-                  value={form.termenPlata}
-                  onChange={(e) => setForm((f) => ({ ...f, termenPlata: Math.max(0, Number(e.target.value || 0)) }))}
-                  fullWidth
-                  error={!!errs.termenPlata}
-                  helperText={errs.termenPlata}
-                />
               </Box>
               <Box sx={{ gridColumn: { xs: 'span 12', md: 'span 3' } }}>
                 <TextField

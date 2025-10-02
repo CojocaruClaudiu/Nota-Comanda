@@ -5,7 +5,7 @@ export type Supplier = {
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;
-  tip: string;
+  den_catart?: string | null;
   tva: boolean;
   tvaData?: string | null;     // ISO date
   adresa: string;
@@ -17,7 +17,6 @@ export type Supplier = {
   telefon: string;
   site?: string | null;
   metodaPlata: string;
-  termenPlata: number;         // zile
   contBancar: string;
   banca: string;
   status: "activ" | "inactiv";
@@ -31,7 +30,7 @@ export type SupplierPayload = {
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;
-  tip?: string;
+  den_catart?: string | null;
   tva?: boolean;
   tvaData?: string | null;
   adresa?: string;
@@ -43,7 +42,6 @@ export type SupplierPayload = {
   telefon?: string;
   site?: string | null;
   metodaPlata?: string;
-  termenPlata?: number;
   contBancar?: string;
   banca?: string;
   status?: "activ" | "inactiv";

@@ -773,19 +773,18 @@ type SupplierPayload = {
   denumire: string;
   cui_cif: string;
   nrRegCom?: string | null;
-  tip: string;
+  den_catart?: string | null;
   tva: boolean;
   tvaData?: string | null; // ISO
   adresa: string;
   oras: string;
   judet: string;
   tara: string;
-  contactNume: string;
-  email: string;
-  telefon: string;
+  contactNume?: string | null;
+  email?: string | null;
+  telefon?: string | null;
   site?: string | null;
   metodaPlata: string;
-  termenPlata: number; // zile
   contBancar: string;
   banca: string;
   status: "activ" | "inactiv";
@@ -823,9 +822,8 @@ app.get("/furnizori", async (_req, res) => {
 app.post("/furnizori", async (req, res) => {
   const p = req.body as SupplierPayload;
   const required: (keyof SupplierPayload)[] = [
-    "denumire","cui_cif","tip","adresa","oras","judet","tara",
-    "contactNume","email","telefon","metodaPlata","termenPlata",
-    "contBancar","banca","status",
+  "denumire","cui_cif","adresa","oras","judet","tara",
+  "metodaPlata","status",
   ];
   for (const k of required) {
     if (!p[k as keyof SupplierPayload]) return res.status(400).json({ error: `Câmpul '${k}' este obligatoriu` });
@@ -838,21 +836,20 @@ app.post("/furnizori", async (req, res) => {
         denumire: cleanRequired(p.denumire),
         cui_cif: cleanRequired(p.cui_cif),
         nrRegCom: cleanOptional(p.nrRegCom),
-        tip: cleanRequired(p.tip),
+        den_catart: cleanOptional(p.den_catart),
         tva: toBool(p.tva),
         tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
         adresa: cleanRequired(p.adresa),
         oras: cleanRequired(p.oras),
         judet: cleanRequired(p.judet),
         tara: cleanRequired(p.tara),
-        contactNume: cleanRequired(p.contactNume),
-        email: cleanRequired(p.email),
-        telefon: cleanRequired(p.telefon),
+  contactNume: cleanOptional(p.contactNume),
+  email: cleanOptional(p.email),
+  telefon: cleanOptional(p.telefon),
         site: cleanOptional(p.site),
-        metodaPlata: cleanRequired(p.metodaPlata),
-        termenPlata: toInt(p.termenPlata),
-        contBancar: cleanRequired(p.contBancar),
-        banca: cleanRequired(p.banca),
+  metodaPlata: cleanRequired(p.metodaPlata),
+  contBancar: cleanOptional(p.contBancar),
+  banca: cleanOptional(p.banca),
         status: cleanRequired(p.status),
         notite: cleanOptional(p.notite),
       },
@@ -883,25 +880,25 @@ app.put("/furnizori/:id", async (req, res) => {
         denumire: cleanRequired(p.denumire),
         cui_cif: cleanRequired(p.cui_cif),
         nrRegCom: cleanOptional(p.nrRegCom),
-        tip: cleanRequired(p.tip),
+        den_catart: cleanOptional(p.den_catart),
         tva: toBool(p.tva),
         tvaData: toBool(p.tva) ? optDate2(p.tvaData) : null,
         adresa: cleanRequired(p.adresa),
         oras: cleanRequired(p.oras),
         judet: cleanRequired(p.judet),
         tara: cleanRequired(p.tara),
-        contactNume: cleanRequired(p.contactNume),
-        email: cleanRequired(p.email),
-        telefon: cleanRequired(p.telefon),
+  contactNume: cleanOptional(p.contactNume),
+  email: cleanOptional(p.email),
+  telefon: cleanOptional(p.telefon),
         site: cleanOptional(p.site),
-        metodaPlata: cleanRequired(p.metodaPlata),
-        termenPlata: toInt(p.termenPlata),
-        contBancar: cleanRequired(p.contBancar),
-        banca: cleanRequired(p.banca),
+  metodaPlata: cleanRequired(p.metodaPlata),
+  contBancar: cleanOptional(p.contBancar),
+  banca: cleanOptional(p.banca),
         status: cleanRequired(p.status),
         notite: cleanOptional(p.notite),
       },
     });
+
     res.json(updated);
   } catch (error: unknown) {
     if (isPrismaError(error) && error.code === "P2002") {
@@ -912,7 +909,7 @@ app.put("/furnizori/:id", async (req, res) => {
   }
 });
 
-/** DELETE /furnizori/:id */
+// DELETE /furnizori/:id
 app.delete("/furnizori/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -992,6 +989,20 @@ app.put("/operation-categories/:id", async (req, res) => {
 type OperationPayload = {
   name: string;
 };
+
+// GET /operations - Fetch all operations across all categories
+app.get("/operations", async (_req, res) => {
+  try {
+    const ops = await prisma.operation.findMany({ 
+      orderBy: { name: "asc" },
+      include: { category: { select: { name: true } } }
+    });
+    res.json(ops);
+  } catch (error: unknown) {
+    console.error("GET /operations error:", error);
+    res.status(500).json({ error: "Nu am putut încărca operațiile" });
+  }
+});
 
 // GET /operation-categories/:id/operations
 app.get("/operation-categories/:id/operations", async (req, res) => {

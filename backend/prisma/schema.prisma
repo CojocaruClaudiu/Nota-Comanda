@@ -201,26 +201,27 @@ model Furnizor {
   denumire      String   @unique
   cui_cif       String   @unique
   nrRegCom      String?
-  tip           String
+  den_catart    String? // category / articol denumire for filtering
   tva           Boolean
   tvaData       DateTime?
   adresa        String
   oras          String
   judet         String
   tara          String
-  contactNume   String
-  email         String
-  telefon       String
+  contactNume   String?
+  email         String?
+  telefon       String?
   site          String?
   metodaPlata   String
-  termenPlata   Int      // zile
-  contBancar    String
-  banca         String
+  contBancar    String?
+  banca         String?
   status        String   // activ/inactiv
   notite        String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   purchaseOrders PurchaseOrder[]
+
+  @@index([den_catart])
 }
 
 // Manufacturers / Producers
@@ -262,9 +263,141 @@ model Project {
   invoiceDistributions InvoiceDistribution[]
   companyId   String? 
   company     Company?     @relation("CompanyProjects", fields: [companyId], references: [id])
+  devizLines  ProjectDevizLine[]
+  projectSheets ProjectSheet[] @relation("ProjectSheets")
 
   @@index([status])
   @@index([clientId])
+}
+
+model ProjectDevizLine {
+  id              String   @id @default(uuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orderNum        Int      // Display order: 1, 2, 3...
+  code            String   // e.g., "01", "02", "03"
+  description     String   // e.g., "LUCRARI DE TENCUIELI"
+  priceLei        Float?   // Price in LEI (without VAT)
+  priceEuro       Float?   // Price in EURO (without VAT)
+  vatPercent      Float?   // VAT percentage (e.g., 19)
+  priceWithVatLei Float?   // Auto-calculated: priceLei * (1 + vatPercent/100)
+  priceWithVatEuro Float?  // Auto-calculated: priceEuro * (1 + vatPercent/100)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  projectSheet    ProjectSheet?
+  materials       ProjectDevizMaterial[]
+  labor           ProjectDevizLabor[]
+
+  @@index([projectId])
+}
+
+// Project Sheet - stores dates, financial parameters, and operations for a deviz line
+model ProjectSheet {
+  id                        String   @id @default(uuid())
+  projectId                 String
+  project                   Project  @relation("ProjectSheets", fields: [projectId], references: [id], onDelete: Cascade)
+  devizLineId               String   @unique
+  devizLine                 ProjectDevizLine @relation(fields: [devizLineId], references: [id], onDelete: Cascade)
+  
+  // Dates
+  initiationDate            DateTime?
+  estimatedStartDate        DateTime?
+  estimatedEndDate          DateTime?
+  
+  // Financial parameters (percentages)
+  standardMarkupPercent     Float?   // Adaos standard %
+  standardDiscountPercent   Float?   // Discount standard %
+  indirectCostsPercent      Float?   // Cheltuieli indirecte %
+  
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  // Relations
+  operations                ProjectSheetOperation[]
+
+  @@index([projectId])
+  @@index([devizLineId])
+}
+
+// Operations within a project sheet
+model ProjectSheetOperation {
+  id              String        @id @default(uuid())
+  projectSheetId  String
+  projectSheet    ProjectSheet  @relation(fields: [projectSheetId], references: [id], onDelete: Cascade)
+  orderNum        Int           // Display order
+  operationName   String        // e.g., "Tencuieli int. var cu mortar var-ciment"
+  unit            String        // e.g., "mp", "mc"
+  quantity        Float         // Cantitate
+  unitPrice       Float         // Preț unitar
+  totalPrice      Float         // Auto-calculated: quantity × unitPrice
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([projectSheetId])
+}
+
+// Materials for deviz (Lista Necesar Materiale)
+model ProjectDevizMaterial {
+  id                    String   @id @default(uuid())
+  devizLineId           String
+  devizLine             ProjectDevizLine @relation(fields: [devizLineId], references: [id], onDelete: Cascade)
+  orderNum              Int      // Display order
+  
+  // Operation details
+  operationCode         String
+  operationDescription  String
+  
+  // Material details
+  materialCode          String
+  materialDescription   String
+  unit                  String   // UM (unitate masura)
+  
+  // Pricing and calculations
+  quantity              Float    // Cantitate
+  unitPrice             Float    // Preț unitar
+  baseValue             Float    // Valoare bază (quantity × unitPrice)
+  markupPercent         Float?   // Adaos %
+  valueWithMarkup       Float    // Valoare cu adaos
+  discountPercent       Float?   // Discount %
+  finalValue            Float    // Valoare finală
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([devizLineId])
+}
+
+// Labor for deviz (Manopera proiect)
+model ProjectDevizLabor {
+  id                    String   @id @default(uuid())
+  devizLineId           String
+  devizLine             ProjectDevizLine @relation(fields: [devizLineId], references: [id], onDelete: Cascade)
+  orderNum              Int      // Display order
+  
+  // Operation details
+  operationCode         String
+  operationDescription  String
+  
+  // Labor details
+  laborDescription      String   // Descriere linie manoperă
+  
+  // Pricing and calculations
+  quantity              Float    // Cantitate
+  unitPrice             Float    // Preț unitar
+  baseValue             Float    // Valoare bază (quantity × unitPrice)
+  markupPercent         Float?   // Adaos %
+  valueWithMarkup       Float    // Valoare cu adaos
+  discountPercent       Float?   // Discount %
+  finalValue            Float    // Valoare finală
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([devizLineId])
 }
 
 model ClientLocation {
