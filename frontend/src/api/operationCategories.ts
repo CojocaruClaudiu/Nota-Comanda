@@ -56,6 +56,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const headers = { 'Content-Type': 'application/json' };
 
+// Fetch all operations across all categories
+export const fetchAllOperations = () => request<Operation[]>(`/operations`);
+
 // Categories
 export const listOperationCategories = () => request<OperationCategory[]>(`/operation-categories`);
 export const createOperationCategory = (payload: OperationCategoryPayload) =>

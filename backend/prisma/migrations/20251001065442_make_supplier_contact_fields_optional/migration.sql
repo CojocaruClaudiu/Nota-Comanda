@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "public"."Furnizor" ALTER COLUMN "contactNume" DROP NOT NULL,
+ALTER COLUMN "email" DROP NOT NULL,
+ALTER COLUMN "telefon" DROP NOT NULL,
+ALTER COLUMN "contBancar" DROP NOT NULL,
+ALTER COLUMN "banca" DROP NOT NULL;

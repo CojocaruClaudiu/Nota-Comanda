@@ -10,13 +10,16 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "test": "jest --runInBand",
+    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-database.ps1",
     "seed:equipment": "tsx scripts/import-equipment.ts",
+    "seed:producers": "tsx scripts/import-producers.ts",
+    "seed:suppliers": "tsx scripts/import-suppliers-from-json.ts",
+    "seed:employees": "tsx scripts/import-employees.ts",
     "backfill:equipment-categories": "tsx scripts/backfill-equipment-categories.ts",
     "seed:operation-items": "tsx scripts/add-operation-items.ts",
     "backfill:item-units": "tsx scripts/backfill-operation-item-units.ts",
     "wipe:operation-items": "tsx scripts/wipe-operation-items.ts",
-    "reseed:operation-items": "npm run wipe:operation-items && npm run seed:operation-items && npm run backfill:item-units",
-    "seed:producers": "tsx scripts/import-producers.ts"
+    "reseed:operation-items": "npm run wipe:operation-items && npm run seed:operation-items && npm run backfill:item-units"
   },
   "dependencies": {
     "@prisma/client": "6.16.2",
@@ -27,6 +30,7 @@
     "express": "^4.19.2",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

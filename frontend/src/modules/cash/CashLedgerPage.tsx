@@ -1,4 +1,4 @@
-import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Box,
@@ -21,6 +21,9 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   Paper,
+  Divider,
+  Skeleton,
+  CircularProgress,
 } from "@mui/material";
 import {
   MaterialReactTable,
@@ -36,6 +39,9 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import EditIcon from "@mui/icons-material/Edit";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -766,11 +772,6 @@ export default function CashLedgerPage() {
     columnResizeMode: "onEnd",
     enableStickyHeader: true,
 
-    enableRowVirtualization: true,
-    enableColumnVirtualization: true,
-    rowVirtualizerProps: { overscan: 10 },
-    columnVirtualizerProps: { overscan: 2 },
-
     enableGlobalFilter: true,
     enableFacetedValues: true,
     enableColumnFilters: true,
@@ -803,6 +804,9 @@ export default function CashLedgerPage() {
     muiTablePaperProps: {
       elevation: 0,
       sx: { borderRadius: 2, border: "1px solid", borderColor: "divider" },
+    },
+    muiTableContainerProps: {
+      sx: { maxHeight: 'calc(100vh - 360px)' },
     },
     muiTopToolbarProps: {
       sx: {
@@ -865,9 +869,9 @@ export default function CashLedgerPage() {
     renderTopToolbarCustomActions: () => (
       <Stack
         direction="row"
-        spacing={1}
+        spacing={1.5}
         alignItems="center"
-        sx={{ p: 0.5, flexWrap: "wrap", rowGap: 1 }}
+        sx={{ p: 1, flexWrap: "wrap", rowGap: 1.5 }}
       >
         {/* Context selectors */}
         <TextField
@@ -879,13 +883,18 @@ export default function CashLedgerPage() {
             setCompanyId(e.target.value);
             setCashAccountId("");
           }}
+          disabled={companiesQ.isLoading}
           sx={{ minWidth: 200 }}
         >
-          {companiesQ.data?.map((c) => (
-            <MenuItem key={c.id} value={c.id}>
-              {c.name}
-            </MenuItem>
-          ))}
+          {companiesQ.isLoading ? (
+            <MenuItem disabled>Se încarcă...</MenuItem>
+          ) : (
+            companiesQ.data?.map((c) => (
+              <MenuItem key={c.id} value={c.id}>
+                {c.name}
+              </MenuItem>
+            ))
+          )}
         </TextField>
         <TextField
           select
@@ -894,16 +903,69 @@ export default function CashLedgerPage() {
           value={cashAccountId}
           onChange={(e) => setCashAccountId(e.target.value)}
           sx={{ minWidth: 200 }}
-          disabled={!companyId}
+          disabled={!companyId || accountsQ.isLoading}
         >
-          {accountsQ.data?.map((a) => (
-            <MenuItem key={a.id} value={a.id}>
-              {a.name}
-            </MenuItem>
-          ))}
+          {accountsQ.isLoading ? (
+            <MenuItem disabled>Se încarcă...</MenuItem>
+          ) : !companyId ? (
+            <MenuItem disabled>Selectează mai întâi compania</MenuItem>
+          ) : (
+            accountsQ.data?.map((a) => (
+              <MenuItem key={a.id} value={a.id}>
+                {a.name}
+              </MenuItem>
+            ))
+          )}
         </TextField>
 
+        {/* Balance - moved to left side after company and casierie */}
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.5,
+            py: 0.75,
+            borderRadius: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            bgcolor: currentBalance && currentBalance < 0 ? 'error.50' : 'success.50',
+            borderColor: currentBalance && currentBalance < 0 ? 'error.200' : 'success.200',
+          }}
+        >
+          {balancesQ.isLoading ? (
+            <Skeleton variant="rectangular" width={120} height={24} sx={{ borderRadius: 1 }} />
+          ) : (
+            <>
+              <Typography variant="body2" sx={{ fontWeight: 500, opacity: 0.8 }}>
+                Sold Total:
+              </Typography>
+              <Chip
+                size="small"
+                icon={currentBalance && currentBalance >= 0 ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                color={currentBalance && currentBalance < 0 ? "error" : "success"}
+                label={
+                  currentBalance !== undefined
+                    ? `${numberFmt.format(currentBalance)} RON`
+                    : "—"
+                }
+                sx={{ fontWeight: 600 }}
+              />
+            </>
+          )}
+        </Paper>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
         {/* Filters */}
+        <Tooltip title="Filtrează după tipul de tranzacție">
+          <Chip
+            icon={<FilterListIcon />}
+            label="Filtre"
+            variant="outlined"
+            size="small"
+            sx={{ cursor: 'default' }}
+          />
+        </Tooltip>
         <ToggleButtonGroup
           size="small"
           exclusive
@@ -922,54 +984,64 @@ export default function CashLedgerPage() {
           </ToggleButton>
         </ToggleButtonGroup>
 
-        <DatePicker
-          label="De la"
-          format="DD.MM.YYYY"
-          value={dateFrom ? dayjs(dateFrom) : null}
-          onChange={(d) => {
-            const valid = d && d.isValid();
-            setDateFrom(valid ? d.format('YYYY-MM-DD') : '');
-          }}
-          slotProps={{
-            textField: {
-              size: 'small',
-              sx: { minWidth: 160 },
-              InputLabelProps: { shrink: true },
-            },
-          }}
-        />
-        <DatePicker
-          label="Până la"
-          format="DD.MM.YYYY"
-          value={dateTo ? dayjs(dateTo) : null}
-          onChange={(d) => {
-            const valid = d && d.isValid();
-            setDateTo(valid ? d.format('YYYY-MM-DD') : '');
-          }}
-          minDate={dateFrom ? dayjs(dateFrom) : undefined}
-          slotProps={{
-            textField: {
-              size: 'small',
-              sx: { minWidth: 160 },
-              InputLabelProps: { shrink: true },
-            },
-          }}
-        />
+        <Tooltip title="Data de început a intervalului">
+          <Box>
+            <DatePicker
+              label="De la"
+              format="DD.MM.YYYY"
+              value={dateFrom ? dayjs(dateFrom) : null}
+              onChange={(d) => {
+                const valid = d && d.isValid();
+                setDateFrom(valid ? d.format('YYYY-MM-DD') : '');
+              }}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: { minWidth: 160 },
+                  InputLabelProps: { shrink: true },
+                },
+              }}
+            />
+          </Box>
+        </Tooltip>
+        <Tooltip title="Data de sfârșit a intervalului">
+          <Box>
+            <DatePicker
+              label="Până la"
+              format="DD.MM.YYYY"
+              value={dateTo ? dayjs(dateTo) : null}
+              onChange={(d) => {
+                const valid = d && d.isValid();
+                setDateTo(valid ? d.format('YYYY-MM-DD') : '');
+              }}
+              minDate={dateFrom ? dayjs(dateFrom) : undefined}
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: { minWidth: 160 },
+                  InputLabelProps: { shrink: true },
+                },
+              }}
+            />
+          </Box>
+        </Tooltip>
 
         {/* Quick ranges as toggle */}
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={quickRange}
-          onChange={(_, v: QuickRange) => v && applyQuickRange(v)}
-          aria-label="interval-rapid"
-        >
-          <ToggleButton value="TODAY">Azi</ToggleButton>
-          <ToggleButton value="WEEK">Săpt.</ToggleButton>
-          <ToggleButton value="MONTH">Luna</ToggleButton>
-          <ToggleButton value="YEAR">An</ToggleButton>
-          <ToggleButton value="ALL">Toate</ToggleButton>
-        </ToggleButtonGroup>
+        <Tooltip title="Selectează rapid un interval de timp">
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={quickRange}
+            onChange={(_, v: QuickRange) => v && applyQuickRange(v)}
+            aria-label="interval-rapid"
+          >
+            <ToggleButton value="TODAY">Azi</ToggleButton>
+            <ToggleButton value="WEEK">Săptămâna</ToggleButton>
+            <ToggleButton value="MONTH">Luna</ToggleButton>
+            <ToggleButton value="YEAR">Anul</ToggleButton>
+            <ToggleButton value="ALL">Toate</ToggleButton>
+          </ToggleButtonGroup>
+        </Tooltip>
 
         <Tooltip title="Resetează toate filtrele (tip, interval, căutare)">
           <span>
@@ -977,6 +1049,11 @@ export default function CashLedgerPage() {
               aria-label="reset-filtre"
               size="small"
               onClick={resetAllFilters}
+              color="primary"
+              sx={{
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
             >
               <RestartAltIcon fontSize="small" />
             </IconButton>
@@ -986,30 +1063,52 @@ export default function CashLedgerPage() {
         {/* Spacer */}
         <Box sx={{ flex: 1 }} />
 
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
         {/* Primary actions */}
-        <Tooltip title="Scurtături: / i o t r e">
+        <Tooltip title="Exportă datele vizibile în format Excel">
           <span>
-            <IconButton size="small" aria-label="scurtaturi">
-              <KeyboardIcon fontSize="small" />
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<FileDownloadOutlinedIcon />}
+              onClick={exportXlsx}
+              disabled={entriesQ.isLoading || displayedRows.length === 0}
+            >
+              Export
+            </Button>
+          </span>
+        </Tooltip>
+
+        <Tooltip title="Reîncarcă datele (r)">
+          <span>
+            <IconButton
+              aria-label="refresh"
+              size="small"
+              onClick={() => {
+                entriesQ.refetch();
+                balancesQ.refetch();
+              }}
+              disabled={entriesQ.isLoading || balancesQ.isLoading}
+              sx={{
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <RefreshIcon fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
 
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<FileDownloadOutlinedIcon />}
-          onClick={exportXlsx}
-          disabled={entriesQ.isLoading || displayedRows.length === 0}
-        >
-          Export Excel
-        </Button>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
-        <Tooltip title="Transfer">
+        <Tooltip title="Transfer între casierii (t)">
           <span>
-            <IconButton
+            <Button
               aria-label="transfer"
               size="small"
+              variant="outlined"
+              startIcon={<CompareArrowsIcon />}
               onClick={() => {
                 if (!cashAccountId) return;
                 transferForm.reset({
@@ -1020,81 +1119,50 @@ export default function CashLedgerPage() {
                 } as any);
                 setShowTransfer(true);
               }}
+              disabled={!cashAccountId}
             >
-              <CompareArrowsIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-
-        <Tooltip title="Reîncarcă (r)">
-          <span>
-            <IconButton
-              aria-label="refresh"
-              size="small"
-              onClick={() => {
-                entriesQ.refetch();
-                balancesQ.refetch();
-              }}
-            >
-              <RefreshIcon fontSize="small" />
-            </IconButton>
+              Transfer
+            </Button>
           </span>
         </Tooltip>
 
         {/* Add actions */}
-        <Button
-          size="small"
-          variant="contained"
-          color="success"
-          startIcon={<AddRoundedIcon />}
-          onClick={() => {
-            if (!cashAccountId) return;
-            setEntryType("IN");
-            setEntryOpen(true);
-          }}
-        >
-          Intrare
-        </Button>
-        <Button
-          size="small"
-          variant="contained"
-          color="error"
-          startIcon={<RemoveCircleOutlineIcon />}
-          onClick={() => {
-            if (!cashAccountId) return;
-            setEntryType("OUT");
-            setEntryOpen(true);
-          }}
-        >
-          Ieșire
-        </Button>
-
-        {/* Balance */}
-        <Paper
-          variant="outlined"
-          sx={{
-            ml: 1,
-            px: 1,
-            py: 0.5,
-            borderRadius: 2,
-            display: "flex",
-            alignItems: "center",
-            gap: 0.75,
-          }}
-        >
-          <Typography variant="body2" sx={{ opacity: 0.7 }}>
-            Sold
-          </Typography>
-          <Chip
-            size="small"
-            color={currentBalance && currentBalance < 0 ? "error" : "success"}
-            label={
-              currentBalance !== undefined
-                ? `${numberFmt.format(currentBalance)} RON`
-                : "—"
-            }
-          />
-        </Paper>
+        <Tooltip title={!cashAccountId ? "Selectează mai întâi o casierie" : "Adaugă intrare în casierie (i)"}>
+          <span>
+            <Button
+              size="small"
+              variant="contained"
+              color="success"
+              startIcon={<AddRoundedIcon />}
+              onClick={() => {
+                if (!cashAccountId) return;
+                setEntryType("IN");
+                setEntryOpen(true);
+              }}
+              disabled={!cashAccountId}
+            >
+              Intrare
+            </Button>
+          </span>
+        </Tooltip>
+        <Tooltip title={!cashAccountId ? "Selectează mai întâi o casierie" : "Adaugă ieșire din casierie (o)"}>
+          <span>
+            <Button
+              size="small"
+              variant="contained"
+              color="error"
+              startIcon={<RemoveCircleOutlineIcon />}
+              onClick={() => {
+                if (!cashAccountId) return;
+                setEntryType("OUT");
+                setEntryOpen(true);
+              }}
+              disabled={!cashAccountId}
+            >
+              Ieșire
+            </Button>
+          </span>
+        </Tooltip>
       </Stack>
     ),
 
@@ -1102,27 +1170,82 @@ export default function CashLedgerPage() {
     renderBottomToolbarCustomActions: () => (
       <Stack
         direction="row"
-        spacing={3}
+        spacing={2}
         alignItems="center"
-        sx={{ px: 1, py: 0.75, flexWrap: "wrap" }}
+        sx={{ px: 1.5, py: 1, flexWrap: "wrap", gap: 2 }}
       >
-        <Typography variant="body2">
-          Total Intrări:{" "}
-          <strong style={{ color: "#2e7d32" }}>
-            {numberFmt.format(totals.inSum)}
-          </strong>
-        </Typography>
-        <Typography variant="body2">
-          Total Ieșiri:{" "}
-          <strong style={{ color: "#d32f2f" }}>
-            {numberFmt.format(totals.outSum)}
-          </strong>
-        </Typography>
-        <Typography variant="body2">
-          Sold Net:{" "}
-          <strong style={{ color: totals.net >= 0 ? "#2e7d32" : "#d32f2f" }}>
-            {numberFmt.format(totals.net)}
-          </strong>
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 1.5,
+            bgcolor: 'success.50',
+            borderColor: 'success.200',
+          }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TrendingUpIcon sx={{ fontSize: 18, color: 'success.main' }} />
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              Total Intrări:
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "success.dark" }}>
+              {numberFmt.format(totals.inSum)} RON
+            </Typography>
+          </Stack>
+        </Paper>
+        
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 1.5,
+            bgcolor: 'error.50',
+            borderColor: 'error.200',
+          }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TrendingDownIcon sx={{ fontSize: 18, color: 'error.main' }} />
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              Total Ieșiri:
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "error.dark" }}>
+              {numberFmt.format(totals.outSum)} RON
+            </Typography>
+          </Stack>
+        </Paper>
+        
+        <Divider orientation="vertical" flexItem />
+        
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 1.5,
+            bgcolor: totals.net >= 0 ? 'success.100' : 'error.100',
+            borderColor: totals.net >= 0 ? 'success.300' : 'error.300',
+            borderWidth: 2,
+          }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            {totals.net >= 0 ? (
+              <TrendingUpIcon sx={{ fontSize: 20, color: 'success.main' }} />
+            ) : (
+              <TrendingDownIcon sx={{ fontSize: 20, color: 'error.main' }} />
+            )}
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Sold Net:
+            </Typography>
+            <Typography variant="body1" sx={{ fontWeight: 700, color: totals.net >= 0 ? "success.dark" : "error.dark" }}>
+              {numberFmt.format(totals.net)} RON
+            </Typography>
+          </Stack>
+        </Paper>
+        
+        <Typography variant="caption" sx={{ ml: 'auto', opacity: 0.6 }}>
+          {displayedRows.length} {displayedRows.length === 1 ? 'înregistrare' : 'înregistrări'}
         </Typography>
       </Stack>
     ),
@@ -1131,48 +1254,71 @@ export default function CashLedgerPage() {
     renderEmptyRowsFallback: () => (
       <Box
         sx={{
-          py: 6,
+          py: 8,
           textAlign: "center",
           color: "text.secondary",
           width: "100%",
         }}
       >
-        <Typography variant="h6" sx={{ mb: 1.5 }}>
-          Nicio înregistrare pentru filtrele curente
+        <AccountBalanceWalletIcon sx={{ fontSize: 64, opacity: 0.3, mb: 2 }} />
+        <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+          {!cashAccountId 
+            ? "Selectează o companie și o casierie pentru a începe"
+            : "Nicio înregistrare pentru filtrele curente"
+          }
         </Typography>
-        <Typography variant="body2" sx={{ mb: 2 }}>
-          Ajustează intervalul sau tipul de tranzacție, ori adaugă una nouă.
+        <Typography variant="body2" sx={{ mb: 3, maxWidth: 400, mx: 'auto', opacity: 0.8 }}>
+          {!cashAccountId
+            ? "Alege compania și casieria din filtrele de mai sus pentru a vedea tranzacțiile."
+            : "Ajustează intervalul de timp sau tipul de tranzacție, sau adaugă o înregistrare nouă."
+          }
         </Typography>
-        <Stack direction="row" spacing={1} justifyContent="center">
-          <Button
-            variant="outlined"
-            startIcon={<RestartAltIcon />}
-            onClick={resetAllFilters}
-          >
-            Resetează filtre
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<AddRoundedIcon />}
-            onClick={() => {
-              if (!cashAccountId) return;
-              setEntryType("IN");
-              setEntryOpen(true);
-            }}
-          >
-            Adaugă intrare
-          </Button>
-        </Stack>
+        {cashAccountId && (
+          <Stack direction="row" spacing={2} justifyContent="center">
+            <Button
+              variant="outlined"
+              startIcon={<RestartAltIcon />}
+              onClick={resetAllFilters}
+            >
+              Resetează filtrele
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<AddRoundedIcon />}
+              onClick={() => {
+                setEntryType("IN");
+                setEntryOpen(true);
+              }}
+            >
+              Adaugă intrare
+            </Button>
+          </Stack>
+        )}
       </Box>
     ),
   });
 
   return (
     <Stack p={2} gap={2} height="100%" overflow="hidden">
-      <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Inventory2RoundedIcon color="primary" sx={{ fontSize: 32, mr: 1 }} />
-        Registru de Casă
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Stack direction="row" alignItems="center" gap={1}>
+          <AccountBalanceWalletIcon color="primary" sx={{ fontSize: 32 }} />
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            Registru de Casă
+          </Typography>
+          {entriesQ.isLoading && (
+            <CircularProgress size={20} sx={{ ml: 1 }} />
+          )}
+        </Stack>
+        <Chip
+          icon={<KeyboardIcon />}
+          label="Scurtături: / i o t r e"
+          variant="outlined"
+          size="small"
+          sx={{ cursor: 'help' }}
+        />
+      </Stack>
 
       {entriesQ.isError && (
         <Alert
