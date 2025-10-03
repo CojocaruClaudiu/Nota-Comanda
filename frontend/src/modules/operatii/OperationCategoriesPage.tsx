@@ -7,6 +7,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 
 import {
   MaterialReactTable,
@@ -20,6 +21,7 @@ import { rankItem } from '@tanstack/match-sorter-utils';
 import { unitSelectOptions, isValidUnit } from '../../utils/units';
 import { useConfirm } from '../common/confirm/ConfirmProvider';
 import useNotistack from '../orders/hooks/useNotistack';
+import { FisaOperatieModal } from '../projects/FisaOperatieModal';
 
 import {
   listOperationCategories,
@@ -164,6 +166,10 @@ export default function OperationCategoriesPage() {
 
   // where the creating row appears
   const [createPos, setCreatePos] = useState<'top' | 'bottom' | number>('top');
+
+  // Fișa Operație modal state
+  const [showFisaOperatie, setShowFisaOperatie] = useState(false);
+  const [selectedOperationName, setSelectedOperationName] = useState<string>('');
 
   // state persistence
   const persisted = loadPersist();
@@ -438,6 +444,22 @@ export default function OperationCategoriesPage() {
               </span>
             </Tooltip>
           )}
+          {row.original.type === 'item' && (
+            <Tooltip title="Vezi Fișa Operație">
+              <span>
+                <IconButton 
+                  size="small" 
+                  color="primary"
+                  onClick={() => {
+                    setSelectedOperationName(row.original.name);
+                    setShowFisaOperatie(true);
+                  }}
+                >
+                  <VisibilityOutlinedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip title="Editează">
             <span>
               <IconButton size="small" onClick={() => table.setEditingRow(row)}>
@@ -653,6 +675,16 @@ export default function OperationCategoriesPage() {
           <MaterialReactTable table={table} />
         </Box>
       </Paper>
+
+      {/* Fișa Operație Modal */}
+      <FisaOperatieModal
+        open={showFisaOperatie}
+        onClose={() => {
+          setShowFisaOperatie(false);
+          setSelectedOperationName('');
+        }}
+        operationName={selectedOperationName}
+      />
     </Box>
   );
 }

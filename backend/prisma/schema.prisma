@@ -18,6 +18,7 @@ model Company {
   cashAccounts CashAccount[]
   projects    Project[]     @relation("CompanyProjects")
   cashEntries CashEntry[]
+  leavePolicies LeavePolicy[]
 }
 
 model CashAccount {
@@ -117,18 +118,164 @@ model Employee {
   cars           Car[]
   leaves         Leave[]
   cashEntries    CashEntry[] @relation("EmployeeCashEntries")
+  policyOverride EmployeePolicyOverride?
 }
 
 model Leave {
-  id         String    @id @default(uuid())
-  employeeId String
-  startDate  DateTime
-  endDate    DateTime?
-  days       Int
-  note       String?
-  createdAt  DateTime  @default(now())
-  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  id                   String              @id @default(uuid())
+  employeeId           String
+  startDate            DateTime
+  endDate              DateTime?
+  days                 Int
+  note                 String?
+  
+  // Enhanced leave tracking
+  status               LeaveStatus         @default(APPROVED)
+  requestedAt          DateTime            @default(now())
+  approvedBy           String?
+  approvedAt           DateTime?
+  cancelledAt          DateTime?
+  cancellationReason   String?
+  
+  // Company shutdown tracking
+  isCompanyShutdown    Boolean             @default(false)
+  shutdownId           String?
+  
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @default(now()) @updatedAt
+  
+  employee             Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shutdown             CompanyShutdown?    @relation(fields: [shutdownId], references: [id])
+  
+  @@index([employeeId, startDate])
+  @@index([status])
 }
+
+// Leave Policy System
+model LeavePolicy {
+  id                    String              @id @default(uuid())
+  name                  String
+  isCompanyDefault      Boolean             @default(false)
+  companyId             String?
+  
+  // Base entitlement
+  baseAnnualDays        Int                 @default(21)
+  seniorityStepYears    Int                 @default(5)
+  bonusPerStep          Int                 @default(1)
+  
+  // Accrual method
+  accrualMethod         AccrualMethod       @default(PRO_RATA)
+  roundingMethod        RoundingMethod      @default(FLOOR)
+  
+  // Carryover rules
+  allowCarryover        Boolean             @default(true)
+  maxCarryoverDays      Int?
+  carryoverExpiryMonth  Int?                // 1-12
+  carryoverExpiryDay    Int?                // 1-31
+  
+  // Negative balance
+  maxNegativeBalance    Int                 @default(0)
+  
+  // Constraints
+  maxConsecutiveDays    Int?
+  minNoticeDays         Int?
+  
+  // Metadata
+  active                Boolean             @default(true)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  
+  // Relations
+  company               Company?            @relation(fields: [companyId], references: [id])
+  employeeOverrides     EmployeePolicyOverride[]
+  blackoutPeriods       BlackoutPeriod[]
+  companyShutdowns      CompanyShutdown[]
+  
+  @@unique([companyId, isCompanyDefault])
+  @@index([companyId, active])
+}
+
+model EmployeePolicyOverride {
+  id                    String         @id @default(uuid())
+  employeeId            String         @unique
+  policyId              String
+  
+  // Override fields (null = use policy default)
+  baseAnnualDays        Int?
+  seniorityStepYears    Int?
+  bonusPerStep          Int?
+  accrualMethod         AccrualMethod?
+  roundingMethod        RoundingMethod?
+  allowCarryover        Boolean?
+  maxCarryoverDays      Int?
+  maxNegativeBalance    Int?
+  maxConsecutiveDays    Int?
+  
+  reason                String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  
+  employee              Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  policy                LeavePolicy    @relation(fields: [policyId], references: [id])
+  
+  @@index([employeeId])
+}
+
+model BlackoutPeriod {
+  id              String       @id @default(uuid())
+  policyId        String
+  startDate       DateTime
+  endDate         DateTime
+  reason          String
+  allowExceptions Boolean      @default(false)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  policy          LeavePolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  
+  @@index([policyId, startDate, endDate])
+}
+
+model CompanyShutdown {
+  id                    String       @id @default(uuid())
+  policyId              String
+  startDate             DateTime
+  endDate               DateTime
+  days                  Int
+  reason                String
+  deductFromAllowance   Boolean      @default(true)
+  
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  
+  policy                LeavePolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  leaves                Leave[]
+  
+  @@index([policyId, startDate])
+}
+
+enum AccrualMethod {
+  DAILY
+  MONTHLY
+  AT_YEAR_START
+  PRO_RATA
+}
+
+enum RoundingMethod {
+  FLOOR
+  CEIL
+  ROUND
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
 
 model Car {
   id          String    @id @default(uuid())

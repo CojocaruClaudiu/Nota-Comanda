@@ -276,8 +276,8 @@ export const LandingPage: React.FC = () => {
         {
           label: "Materiale",
           icon: <Inventory2RoundedIcon />,
-          variant: "outlined",
-          soonLabel: "Materiale",
+          variant: "contained",
+          to: "/materials",
           minWidth: 160,
           keywords: ["materiale", "inventar", "stoc"],
         },

@@ -1,5 +1,4 @@
 // src/api/employees.ts
-import { ApiError } from './shared'; // optional if you have one; otherwise inline like in clients.ts
 
 export type Employee = {
   id: string;
@@ -25,11 +24,18 @@ export type EmployeeWithStats = Employee & {
   takenDays: number;
   remainingDays: number;
   age?: number | null;         // 👈 NEW (computed)
+  leaveBalance?: {             // 👈 NEW (leave policy breakdown)
+    accrued: number;           // Days accrued pro-rata
+    carriedOver: number;       // Days carried from previous year
+    companyShutdownDays: number; // Days taken for company shutdowns (Dec)
+    voluntaryDays: number;     // Days taken by choice
+    pendingDays: number;       // Days pending approval
+  };
 };
 
 export type EmployeePayload = {
   name: string;
-  cnp: string;
+  cnp?: string;
   qualifications?: string[];
   hiredAt: string;             // ISO
   birthDate?: string | null;   // NEW

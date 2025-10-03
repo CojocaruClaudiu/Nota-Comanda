@@ -11,8 +11,9 @@ import { RequireRole } from "./auth/RequireRole";
 
 import { LandingPage } from "./modules/LandingPage";
 import { ClientsTable } from "./modules/clients/ClientsTable";
-import TeamPage from "./modules/team/teamPage";
+import TeamPage from "./modules/team/teamPage.improved";
 import HolidayCalendarPage from "./modules/team/HolidayCalendarPage";
+import LeavePolicyPage from "./modules/team/LeavePolicyPage";
 import FlotaPage from "./modules/auto/carPage";
 import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
@@ -23,6 +24,7 @@ import OperationCategoriesPage from "./modules/operatii/OperationCategoriesPage"
 import ClientLocationsPage from "./modules/projects/clientLocations/ClientLocationsPage";
 import EquipmentPage from "./modules/equipment/EquipmentPage";
 import QualificationsTreePage from "./modules/qualifications/QualificationsTreePage";
+import MaterialsPage from "./modules/materials/MaterialsPage";
 import ProducersPage from "./modules/producers/ProducersPage";
 import ReceptionsPage from "./modules/receptii/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
@@ -86,6 +88,16 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <HolidayCalendarPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "leave-policy",
+        element: (
+          <RequireAuth>
+            <RequireRole roles={["ADMIN", "MANAGER"]}>
+              <LeavePolicyPage />
+            </RequireRole>
           </RequireAuth>
         ),
       },
@@ -176,6 +188,14 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <QualificationsTreePage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "materials",
+        element: (
+          <RequireAuth>
+            <MaterialsPage />
           </RequireAuth>
         ),
       },
