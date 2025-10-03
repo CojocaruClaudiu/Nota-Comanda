@@ -16,6 +16,7 @@
     "seed:suppliers": "tsx scripts/import-suppliers-from-json.ts",
     "seed:employees": "tsx scripts/import-employees.ts",
     "seed:materials": "tsx scripts/import-materials.ts",
+    "import:cnp": "tsx scripts/import-cnp.ts",
     "backfill:equipment-categories": "tsx scripts/backfill-equipment-categories.ts",
     "seed:operation-items": "tsx scripts/add-operation-items.ts",
     "backfill:item-units": "tsx scripts/backfill-operation-item-units.ts",

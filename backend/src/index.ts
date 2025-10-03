@@ -11,6 +11,7 @@ import clientLocationRoutes from "./routes/clientLocations";
 import cashRoutes from "./routes/cash/cashRoutes";
 import materialsRoutes from "./routes/materials";
 import jwt from 'jsonwebtoken';
+import { calculateLeaveBalance } from './services/leaveCalculations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -286,6 +287,15 @@ type EmployeePayload = {
   qualifications?: string[];
   hiredAt: string;            // ISO date
   birthDate?: string | null;  // ISO, optional
+  cnp?: string | null;
+  phone?: string | null;
+  idSeries?: string | null;
+  idNumber?: string | null;
+  idIssuer?: string | null;
+  idIssueDateISO?: string | null;
+  county?: string | null;
+  locality?: string | null;
+  address?: string | null;
 };
 type LeavePayload = {
   startDate: string; // ISO date for start
@@ -296,35 +306,60 @@ type LeavePayload = {
 /** GET /employees  -> list with computed {entitledDays, takenDays, remainingDays} for current year */
 app.get('/employees', async (_req, res) => {
   try {
-    const now = new Date();
-    const yearStart = new Date(now.getFullYear(), 0, 1);
-    const yearEnd = new Date(now.getFullYear() + 1, 0, 1);
-
-  const employees = await (prisma as any).employee.findMany({
+    const employees = await (prisma as any).employee.findMany({
       orderBy: { name: 'asc' },
       include: { qualifications: { select: { name: true } } },
     });
 
-    const sums = await prisma.leave.groupBy({
-      by: ['employeeId'],
-      where: { startDate: { gte: yearStart, lt: yearEnd } },
-      _sum: { days: true },
-    });
-
-    const takenMap = new Map<string, number>();
-    for (const s of sums) takenMap.set(s.employeeId, s._sum.days ?? 0);
-
-  const result = (employees as any[]).map((e: any) => {
-      const ent = entitledDays(e.hiredAt, now);
-      const taken = takenMap.get(e.id) ?? 0;
-      const remaining = Math.max(0, ent - taken);
-      const age = ageFrom(e.birthDate, now);
-      const qNames = Array.isArray((e as any).qualifications)
-        ? (e as any).qualifications.map((q: { name: string }) => q.name)
-        : [];
-      const { qualifications, ...rest } = e as any;
-      return { ...rest, qualifications: qNames, entitledDays: ent, takenDays: taken, remainingDays: remaining, age };
-    });
+    // Calculate leave balance for each employee using new service
+    const result = await Promise.all(
+      (employees as any[]).map(async (e: any) => {
+        const age = ageFrom(e.birthDate, new Date());
+        const qNames = Array.isArray((e as any).qualifications)
+          ? (e as any).qualifications.map((q: { name: string }) => q.name)
+          : [];
+        
+        // Use new leave calculation service
+        let leaveBalance;
+        try {
+          leaveBalance = await calculateLeaveBalance(e.id, e.hiredAt);
+        } catch (error) {
+          // Fallback to old calculation if service fails
+          console.warn(`Failed to calculate leave for ${e.name}, using fallback:`, error);
+          const ent = entitledDays(e.hiredAt, new Date());
+          const yearStart = new Date(new Date().getFullYear(), 0, 1);
+          const yearEnd = new Date(new Date().getFullYear() + 1, 0, 1);
+          const taken = await prisma.leave.aggregate({
+            where: { employeeId: e.id, startDate: { gte: yearStart, lt: yearEnd } },
+            _sum: { days: true },
+          });
+          leaveBalance = {
+            annualEntitlement: ent,
+            accrued: ent,
+            taken: taken._sum.days ?? 0,
+            available: Math.max(0, ent - (taken._sum.days ?? 0)),
+          };
+        }
+        
+        const { qualifications, ...rest } = e as any;
+        return {
+          ...rest,
+          qualifications: qNames,
+          entitledDays: leaveBalance.annualEntitlement,
+          takenDays: leaveBalance.taken,
+          remainingDays: leaveBalance.available,
+          age,
+          // Extended leave info for new UI
+          leaveBalance: {
+            accrued: leaveBalance.accrued,
+            carriedOver: leaveBalance.carriedOver,
+            companyShutdownDays: leaveBalance.companyShutdownDays,
+            voluntaryDays: leaveBalance.voluntaryDays,
+            pendingDays: leaveBalance.pendingDays,
+          },
+        };
+      })
+    );
 
     res.json(result);
   } catch (error: unknown) {
@@ -348,6 +383,15 @@ app.post('/employees', async (req, res) => {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        cnp: cleanOptional(req.body?.cnp),
+        phone: cleanOptional(req.body?.phone),
+        idSeries: cleanOptional(req.body?.idSeries),
+        idNumber: cleanOptional(req.body?.idNumber),
+        idIssuer: cleanOptional(req.body?.idIssuer),
+        idIssueDateISO: req.body?.idIssueDateISO ? toDate(req.body.idIssueDateISO) : null,
+        county: cleanOptional(req.body?.county),
+        locality: cleanOptional(req.body?.locality),
+        address: cleanOptional(req.body?.address),
         qualifications: {
           connectOrCreate: qualNames.map((n) => ({
             where: { name: n },
@@ -387,6 +431,15 @@ app.put('/employees/:id', async (req, res) => {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
+        cnp: cleanOptional(req.body?.cnp),
+        phone: cleanOptional(req.body?.phone),
+        idSeries: cleanOptional(req.body?.idSeries),
+        idNumber: cleanOptional(req.body?.idNumber),
+        idIssuer: cleanOptional(req.body?.idIssuer),
+        idIssueDateISO: req.body?.idIssueDateISO ? toDate(req.body.idIssueDateISO) : null,
+        county: cleanOptional(req.body?.county),
+        locality: cleanOptional(req.body?.locality),
+        address: cleanOptional(req.body?.address),
         qualifications: {
           set: [],
           connectOrCreate: qualNames.map((n) => ({ where: { name: n }, create: { name: n } })),
@@ -1630,6 +1683,210 @@ app.post('/invoices/:invoiceId/payments', async (req, res) => {
   } catch (error) {
     console.error('POST /invoices/:invoiceId/payments error:', error);
     res.status(500).json({ error: 'Nu am putut înregistra plata' });
+  }
+});
+
+/* ===================== LEAVE POLICY MANAGEMENT ===================== */
+
+// GET /leave-policy - Get company default leave policy
+app.get('/leave-policy', async (_req, res) => {
+  try {
+    const policy = await (prisma as any).leavePolicy.findFirst({
+      where: { isCompanyDefault: true },
+      include: {
+        blackoutPeriods: { orderBy: { startDate: 'asc' } },
+        companyShutdowns: { orderBy: { startDate: 'asc' } },
+      },
+    });
+    
+    if (!policy) {
+      return res.status(404).json({ error: 'No company policy found' });
+    }
+    
+    res.json(policy);
+  } catch (error: unknown) {
+    console.error('GET /leave-policy error:', error);
+    res.status(500).json({ error: 'Could not fetch leave policy' });
+  }
+});
+
+// PUT /leave-policy/:id - Update leave policy
+app.put('/leave-policy/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const {
+      name,
+      baseAnnualDays,
+      seniorityStepYears,
+      bonusPerStep,
+      accrualMethod,
+      roundingMethod,
+      allowCarryover,
+      maxCarryoverDays,
+      carryoverExpiryMonth,
+      carryoverExpiryDay,
+      maxNegativeBalance,
+      maxConsecutiveDays,
+      minNoticeDays,
+    } = req.body;
+
+    const updated = await (prisma as any).leavePolicy.update({
+      where: { id },
+      data: {
+        name: name || undefined,
+        baseAnnualDays: baseAnnualDays != null ? Number(baseAnnualDays) : undefined,
+        seniorityStepYears: seniorityStepYears != null ? Number(seniorityStepYears) : undefined,
+        bonusPerStep: bonusPerStep != null ? Number(bonusPerStep) : undefined,
+        accrualMethod: accrualMethod || undefined,
+        roundingMethod: roundingMethod || undefined,
+        allowCarryover: allowCarryover != null ? Boolean(allowCarryover) : undefined,
+        maxCarryoverDays: maxCarryoverDays != null ? Number(maxCarryoverDays) : undefined,
+        carryoverExpiryMonth: carryoverExpiryMonth != null ? Number(carryoverExpiryMonth) : undefined,
+        carryoverExpiryDay: carryoverExpiryDay != null ? Number(carryoverExpiryDay) : undefined,
+        maxNegativeBalance: maxNegativeBalance != null ? Number(maxNegativeBalance) : undefined,
+        maxConsecutiveDays: maxConsecutiveDays != null ? Number(maxConsecutiveDays) : undefined,
+        minNoticeDays: minNoticeDays != null ? Number(minNoticeDays) : undefined,
+      },
+      include: {
+        blackoutPeriods: true,
+        companyShutdowns: true,
+      },
+    });
+
+    res.json(updated);
+  } catch (error: unknown) {
+    console.error('PUT /leave-policy/:id error:', error);
+    res.status(500).json({ error: 'Could not update leave policy' });
+  }
+});
+
+/* ===================== BLACKOUT PERIODS ===================== */
+
+// POST /leave-policy/:policyId/blackout-periods
+app.post('/leave-policy/:policyId/blackout-periods', async (req, res) => {
+  const { policyId } = req.params;
+  try {
+    const { startDate, endDate, reason, allowExceptions } = req.body;
+    
+    if (!startDate || !endDate || !reason) {
+      return res.status(400).json({ error: 'startDate, endDate, and reason are required' });
+    }
+
+    const blackout = await (prisma as any).blackoutPeriod.create({
+      data: {
+        policyId,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        reason: String(reason),
+        allowExceptions: Boolean(allowExceptions ?? false),
+      },
+    });
+
+    res.status(201).json(blackout);
+  } catch (error: unknown) {
+    console.error('POST /leave-policy/:policyId/blackout-periods error:', error);
+    res.status(500).json({ error: 'Could not create blackout period' });
+  }
+});
+
+// PUT /blackout-periods/:id
+app.put('/blackout-periods/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { startDate, endDate, reason, allowExceptions } = req.body;
+
+    const updated = await (prisma as any).blackoutPeriod.update({
+      where: { id },
+      data: {
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : undefined,
+        reason: reason || undefined,
+        allowExceptions: allowExceptions != null ? Boolean(allowExceptions) : undefined,
+      },
+    });
+
+    res.json(updated);
+  } catch (error: unknown) {
+    console.error('PUT /blackout-periods/:id error:', error);
+    res.status(500).json({ error: 'Could not update blackout period' });
+  }
+});
+
+// DELETE /blackout-periods/:id
+app.delete('/blackout-periods/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await (prisma as any).blackoutPeriod.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error('DELETE /blackout-periods/:id error:', error);
+    res.status(500).json({ error: 'Could not delete blackout period' });
+  }
+});
+
+/* ===================== COMPANY SHUTDOWNS ===================== */
+
+// POST /leave-policy/:policyId/company-shutdowns
+app.post('/leave-policy/:policyId/company-shutdowns', async (req, res) => {
+  const { policyId } = req.params;
+  try {
+    const { startDate, endDate, days, reason, deductFromAllowance } = req.body;
+    
+    if (!startDate || !endDate || !reason || days == null) {
+      return res.status(400).json({ error: 'startDate, endDate, days, and reason are required' });
+    }
+
+    const shutdown = await (prisma as any).companyShutdown.create({
+      data: {
+        policyId,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        days: Number(days),
+        reason: String(reason),
+        deductFromAllowance: Boolean(deductFromAllowance ?? true),
+      },
+    });
+
+    res.status(201).json(shutdown);
+  } catch (error: unknown) {
+    console.error('POST /leave-policy/:policyId/company-shutdowns error:', error);
+    res.status(500).json({ error: 'Could not create company shutdown' });
+  }
+});
+
+// PUT /company-shutdowns/:id
+app.put('/company-shutdowns/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { startDate, endDate, days, reason, deductFromAllowance } = req.body;
+
+    const updated = await (prisma as any).companyShutdown.update({
+      where: { id },
+      data: {
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : undefined,
+        days: days != null ? Number(days) : undefined,
+        reason: reason || undefined,
+        deductFromAllowance: deductFromAllowance != null ? Boolean(deductFromAllowance) : undefined,
+      },
+    });
+
+    res.json(updated);
+  } catch (error: unknown) {
+    console.error('PUT /company-shutdowns/:id error:', error);
+    res.status(500).json({ error: 'Could not update company shutdown' });
+  }
+});
+
+// DELETE /company-shutdowns/:id
+app.delete('/company-shutdowns/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await (prisma as any).companyShutdown.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: unknown) {
+    console.error('DELETE /company-shutdowns/:id error:', error);
+    res.status(500).json({ error: 'Could not delete company shutdown' });
   }
 });
 

@@ -17,14 +17,14 @@ import BadgeIcon from '@mui/icons-material/Badge';
 import ContactMailIcon from '@mui/icons-material/ContactMail';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import dayjs from 'dayjs';
-import { updateEmployee, type EmployeeWithStats, type EmployeePayload } from '../../api/employees';
+import { updateEmployee, type EmployeeWithStats, type EmployeePayload, type Employee } from '../../api/employees';
 import useNotistack from '../orders/hooks/useNotistack';
 
 interface EditEmployeeModalProps {
   open: boolean;
   employee: EmployeeWithStats | null;
   onClose: () => void;
-  onEmployeeUpdated: (employee: EmployeeWithStats) => void;
+  onEmployeeUpdated: (employee: Employee) => void;
 }
 
 // Validation schema
@@ -149,7 +149,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   };
 
   // Utility functions
-  const ageFromBirth = (birthDate?: string): number | null => {
+  const ageFromBirth = (birthDate?: string | null): number | null => {
     if (!birthDate) return null;
     return dayjs().diff(dayjs(birthDate), 'year');
   };
