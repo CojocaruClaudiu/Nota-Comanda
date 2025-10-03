@@ -741,3 +741,38 @@ model LaborLine {
   @@index([qualificationId])
   @@unique([qualificationId, name])
 }
+
+// Material groups (Grupa Materiale - e.g., Adezivi, Vopsele, etc.)
+model MaterialGroup {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  materials   Material[]
+}
+
+// Material catalog (Materiale) - can have multiple entries from different suppliers
+model Material {
+  id              String         @id @default(uuid())
+  groupId         String?                         // Optional - can be added manually
+  group           MaterialGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  code            String                          // Cod material (not unique - same material from different suppliers)
+  description     String                          // Descriere (from denumire_produs)
+  supplierName    String?                         // Furnizor (from den_tert)
+  supplierId      String?                         // ID Tert
+  unit            String         @default("buc")  // UM
+  price           Decimal        @default(0)      // Preț
+  currency        Currency       @default(RON)
+  purchaseDate    DateTime?                       // Data achiziției (from data in Excel)
+  technicalSheet  String?                         // Path/URL to uploaded technical sheet document
+  notes           String?
+  active          Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([groupId])
+  @@index([code])
+  @@index([description])
+  @@index([supplierName])
+  @@index([code, createdAt])  // Composite index for optimized unique material queries
+}

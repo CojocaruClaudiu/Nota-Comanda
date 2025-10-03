@@ -2,18 +2,28 @@
 // <reference types="@prisma/client" />
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client'; // ensure `npx prisma generate` run after adding Producator model
 import authRoutes from "./auth/authRoutes";
 import projectRoutes from "./routes/projects";
 import clientLocationRoutes from "./routes/clientLocations";
 import cashRoutes from "./routes/cash/cashRoutes";
+import materialsRoutes from "./routes/materials";
 import jwt from 'jsonwebtoken';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient({ log: ['warn', 'error'] });
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Simple auth decode middleware (non-strict for now)
 app.use((req, _res, next) => {
   const auth = req.headers.authorization;
@@ -27,6 +37,7 @@ app.use("/auth", authRoutes);
 app.use("/projects", projectRoutes);
 app.use("/client-locations", clientLocationRoutes);
 app.use("/api", cashRoutes);
+app.use("/materials", materialsRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();
