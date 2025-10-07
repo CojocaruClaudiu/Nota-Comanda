@@ -412,6 +412,7 @@ model Project {
   company     Company?     @relation("CompanyProjects", fields: [companyId], references: [id])
   devizLines  ProjectDevizLine[]
   projectSheets ProjectSheet[] @relation("ProjectSheets")
+  operationSheets ProjectOperationSheet[] @relation("ProjectOperationSheets")
 
   @@index([status])
   @@index([clientId])
@@ -828,6 +829,7 @@ model Operation {
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
   items      OperationItem[]
+  projectSheets ProjectOperationSheet[] @relation("ProjectSheets")
 
   @@index([categoryId])
   @@unique([categoryId, name])
@@ -842,6 +844,7 @@ model OperationItem {
   unit        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  templates   OperationSheetTemplate[] @relation("OperationItemTemplates")
 
   @@index([operationId])
   @@unique([operationId, name])
@@ -922,4 +925,125 @@ model Material {
   @@index([description])
   @@index([supplierName])
   @@index([code, createdAt])  // Composite index for optimized unique material queries
+}
+
+// ================== OPERATION SHEET TEMPLATES ==================
+
+enum SheetItemType {
+  MATERIAL
+  CONSUMABLE
+  EQUIPMENT
+  LABOR
+}
+
+// Master templates for operation sheets
+model OperationSheetTemplate {
+  id              String        @id @default(uuid())
+  operationItemId String
+  operationItem   OperationItem @relation("OperationItemTemplates", fields: [operationItemId], references: [id], onDelete: Cascade)
+  
+  name        String                        // e.g., "Standard", "Premium", "Budget"
+  description String?
+  isDefault   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  version     Int       @default(1)
+  
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  items       OperationSheetItem[]
+  projectSheets ProjectOperationSheet[] @relation("BasedOnTemplate")
+
+  @@unique([operationItemId, name])
+  @@index([operationItemId])
+  @@index([isDefault])
+}
+
+// Project-specific operation sheets (can be based on a template)
+model ProjectOperationSheet {
+  id                  String    @id @default(uuid())
+  projectId           String
+  project             Project   @relation("ProjectOperationSheets", fields: [projectId], references: [id], onDelete: Cascade)
+  operationId         String
+  operation           Operation @relation("ProjectSheets", fields: [operationId], references: [id], onDelete: Cascade)
+  
+  templateId          String?
+  template            OperationSheetTemplate? @relation("BasedOnTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  templateVersion     Int?                    // Version of template when created
+  
+  name                String?
+  description         String?
+  
+  createdBy           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  items               OperationSheetItem[]
+  modifications       OperationSheetModification[]
+
+  @@unique([projectId, operationId])
+  @@index([projectId])
+  @@index([operationId])
+  @@index([templateId])
+}
+
+// Items in operation sheets (both templates and project-specific)
+model OperationSheetItem {
+  id          String        @id @default(uuid())
+  
+  // Polymorphic relation - can belong to template OR project sheet
+  templateId      String?
+  template        OperationSheetTemplate? @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  projectSheetId  String?
+  projectSheet    ProjectOperationSheet? @relation(fields: [projectSheetId], references: [id], onDelete: Cascade)
+  
+  itemType    SheetItemType             // MATERIAL, CONSUMABLE, EQUIPMENT, LABOR
+  
+  // Reference to source (optional - item might not exist in catalog anymore)
+  referenceId String?                   // ID from materials/equipment/laborLines tables
+  
+  // Item details (stored for historical purposes)
+  code        String
+  description String
+  unit        String
+  
+  quantity    Decimal       @db.Decimal(10, 2) @default(1)
+  unitPrice   Decimal       @db.Decimal(10, 2) @default(0)
+  // totalValue is computed: quantity * unitPrice
+  
+  notes       String?
+  
+  addedBy     String?
+  addedAt     DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([templateId])
+  @@index([projectSheetId])
+  @@index([itemType])
+  @@index([referenceId])
+}
+
+// Track modifications to project sheets (for comparison with template)
+model OperationSheetModification {
+  id              String    @id @default(uuid())
+  projectSheetId  String
+  projectSheet    ProjectOperationSheet @relation(fields: [projectSheetId], references: [id], onDelete: Cascade)
+  
+  userId          String?
+  userName        String?
+  timestamp       DateTime  @default(now())
+  
+  action          String                // 'added', 'removed', 'modified', 'quantity_changed', 'price_changed'
+  itemType        SheetItemType?
+  itemId          String?
+  itemDescription String?
+  
+  oldValue        Json?
+  newValue        Json?
+  
+  deviationFromTemplate Boolean @default(false)
+
+  @@index([projectSheetId])
+  @@index([timestamp])
 }

@@ -162,14 +162,14 @@ export function calculateAccrued(
     case 'DAILY': {
       // Accrue daily: (annualEntitlement / daysInYear) * days elapsed
       const daysInYear = getDaysInYear(currentYear); // 365 or 366 for leap years
-      const daysElapsed = Math.floor((asOf.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      const daysElapsed = Math.floor((asOf.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       return (annualEntitlement / daysInYear) * daysElapsed;
     }
     
     case 'MONTHLY': {
       // Accrue monthly: (annualEntitlement / 12) * months elapsed
       const monthsElapsed = (asOf.getFullYear() - startDate.getFullYear()) * 12 
-                           + (asOf.getMonth() - startDate.getMonth());
+                           + (asOf.getMonth() - startDate.getMonth()) + 1; // +1 to include current month
       return (annualEntitlement / 12) * monthsElapsed;
     }
     
@@ -179,10 +179,12 @@ export function calculateAccrued(
     }
     
     case 'PRO_RATA': {
-      // Pro-rata based on days employed (LEAP YEAR AWARE)
-      const totalDaysInPeriod = Math.floor((yearEnd.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      // Pro-rata based on days worked in the year (LEAP YEAR AWARE)
+      // Formula: (annualEntitlement / daysInYear) * daysElapsed
+      // This matches DAILY method - they should be identical
+      const daysInYear = getDaysInYear(currentYear); // 365 or 366 for leap years
       const daysElapsed = Math.floor((asOf.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      return (annualEntitlement * daysElapsed) / totalDaysInPeriod;
+      return (annualEntitlement / daysInYear) * daysElapsed;
     }
     
     default:

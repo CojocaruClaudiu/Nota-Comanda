@@ -1,6 +1,7 @@
 // src/modules/team/teamPage.improved.tsx
 import { useState, useMemo } from 'react';
 import { MaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
+import { MRT_Localization_RO } from 'material-react-table/locales/ro';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
   CircularProgress, Chip, Alert, Card, CardContent,
@@ -26,7 +27,6 @@ import HolidayHistoryModal from './HolidayHistoryModal';
 
 import { useConfirm } from '../common/confirm/ConfirmProvider';
 import { useEmployees, useDeleteEmployee, useCreateEmployee } from './hooks/useEmployees';
-import { useHolidayCalculations } from './hooks/useHolidayCalculations';
 import { useTenure, formatTenureRo, calculateTenure } from './hooks/useTenure';
 import type { EmployeeWithStats } from '../../api/employees';
 
@@ -115,63 +115,173 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
   {
     id: 'leaveStatus',
     header: 'Concediu',
-    accessorFn: (row) => row.remainingDays,
+    accessorFn: (row) => row.remainingDays ?? 0,
     sortingFn: 'basic',
-    size: 200,
+    size: 240,
     Cell: ({ row }) => {
       const employee = row.original;
-      const remaining = employee.remainingDays || 0;
-      const entitled = employee.entitledDays || 21;
-      const taken = employee.takenDays || 0;
-      const percentage = entitled > 0 ? (remaining / entitled) * 100 : 0;
+      const lb = employee.leaveBalance;
       
+      // Use leaveBalance if available (more accurate), fallback to legacy fields
+      const accrued = lb?.accrued ?? employee.entitledDays ?? 21;
+      const carriedOver = lb?.carriedOver ?? 0;
+      const pending = lb?.pendingDays ?? 0;
+      const companyShutdown = lb?.companyShutdownDays ?? 0;
+      const voluntary = lb?.voluntaryDays ?? 0;
+      
+      // Calculate taken and remaining
+      const taken = (companyShutdown + voluntary) || employee.takenDays || 0;
+      const remaining = employee.remainingDays ?? Math.max(0, accrued + carriedOver - taken);
+      
+      // Calculate total available (accrued + carryover) - this is the max possible
+      const totalAvailable = accrued + carriedOver;
+      
+      // Calculate percentage based on total available (accrued + carryover)
+      const percentage = totalAvailable > 0 ? Math.max(0, Math.min(100, (remaining / totalAvailable) * 100)) : 0;
+      
+      // Improved color logic
       let color: 'success' | 'warning' | 'error' = 'success';
-      if (percentage < 20) color = 'error';
+      if (remaining <= 0) color = 'error';
+      else if (percentage < 25) color = 'error';
       else if (percentage < 50) color = 'warning';
+
+      // Check for warnings
+      const hasWarnings = pending > 0 || remaining < 0;
 
       return (
         <Tooltip 
           title={
-            <Box>
-              <Typography variant="caption">Drept: {entitled} zile</Typography><br />
-              <Typography variant="caption">Folosite: {taken} zile</Typography><br />
-              <Typography variant="caption">Rămase: {remaining} zile</Typography>
-              {employee.leaveBalance?.carriedOver !== undefined && employee.leaveBalance.carriedOver > 0 && (
-                <>
-                  <br />
-                  <Typography variant="caption" color="info.light">
-                    ↪ Reportate: {employee.leaveBalance.carriedOver} zile
-                  </Typography>
-                </>
+            <Box sx={{ p: 0.5 }}>
+              <Typography variant="caption" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                📊 Detalii Concediu
+              </Typography>
+              <Divider sx={{ mb: 0.5, borderColor: 'rgba(255,255,255,0.2)' }} />
+              
+              <Typography variant="caption" display="block" color="primary.light" sx={{ mb: 0.5 }}>
+                📅 Drept anual: <strong>{employee.entitledDays || 21}</strong> zile/an
+              </Typography>
+              
+              <Typography variant="caption" display="block">
+                ✓ Acumulat (pro-rata): <strong>{accrued}</strong> zile
+              </Typography>
+              
+              {carriedOver > 0 && (
+                <Typography variant="caption" display="block" color="info.light">
+                  ↪ Reportate din {dayjs().year() - 1}: <strong>+{carriedOver}</strong> zile
+                </Typography>
               )}
+              
+              <Typography variant="caption" display="block" color="warning.light" sx={{ mt: 0.5 }}>
+                ✕ Folosite: <strong>{taken}</strong> zile
+                {companyShutdown > 0 && voluntary > 0 && ` (${voluntary} personale + ${companyShutdown} firmă)`}
+              </Typography>
+              
+              {pending > 0 && (
+                <Typography variant="caption" display="block" color="orange">
+                  ⏳ În așteptare: <strong>{pending}</strong> zile
+                </Typography>
+              )}
+              
+              <Divider sx={{ my: 0.5, borderColor: 'rgba(255,255,255,0.2)' }} />
+              <Typography variant="caption" display="block" fontWeight={700} color={remaining > 0 ? 'success.light' : 'error.light'}>
+                = Disponibile: <strong>{remaining}</strong> zile
+              </Typography>
             </Box>
           }
         >
           <Box sx={{ width: '100%' }}>
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+            <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" flexWrap="wrap">
               <Chip
-                label={`${remaining}/${entitled}`}
+                label={`${remaining}/${totalAvailable}`}
                 size="small"
                 color={color}
-                icon={remaining > 0 ? <CheckCircleIcon /> : <WarningAmberIcon />}
-                sx={{ fontWeight: 600 }}
+                icon={hasWarnings ? <WarningAmberIcon /> : remaining > 0 ? <CheckCircleIcon /> : <WarningAmberIcon />}
+                sx={{ fontWeight: 600, minWidth: 70 }}
               />
-              {employee.leaveBalance?.carriedOver !== undefined && employee.leaveBalance.carriedOver > 0 && (
-                <Chip
-                  label={`+${employee.leaveBalance.carriedOver}`}
-                  size="small"
-                  color="info"
-                  variant="outlined"
-                  sx={{ fontSize: '0.7rem' }}
-                />
+              
+              {carriedOver > 0 && (
+                <Tooltip title="Zile reportate din anul trecut (expiră 31 martie)">
+                  <Chip
+                    label={`+${carriedOver}`}
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                    sx={{ fontSize: '0.7rem', fontWeight: 600 }}
+                  />
+                </Tooltip>
+              )}
+              
+              {pending > 0 && (
+                <Tooltip title="Zile în așteptare aprobare">
+                  <Chip
+                    label={`⏳${pending}`}
+                    size="small"
+                    color="warning"
+                    variant="filled"
+                    sx={{ fontSize: '0.7rem', fontWeight: 600 }}
+                  />
+                </Tooltip>
               )}
             </Stack>
-            <LinearProgress
-              variant="determinate"
-              value={percentage}
-              color={color}
-              sx={{ mt: 0.5, height: 4, borderRadius: 2 }}
-            />
+            
+            {/* Multi-layer progress bar showing full year allocation */}
+            <Box sx={{ position: 'relative', mt: 0.5 }}>
+              {/* Background layer: Full annual entitlement (greyed out) */}
+              <Box
+                sx={{
+                  width: '100%',
+                  height: 5,
+                  bgcolor: 'action.hover',
+                  borderRadius: 2,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                {/* Layer 1: Total available (accrued + carryover) - lighter shade */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    height: '100%',
+                    width: `${Math.min(100, (totalAvailable / (employee.entitledDays || 21)) * 100)}%`,
+                    bgcolor: color === 'error' ? 'error.light' : color === 'warning' ? 'warning.light' : 'success.light',
+                    opacity: 0.3,
+                    borderRadius: 2,
+                  }}
+                />
+                
+                {/* Layer 2: Remaining days (solid color) */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    height: '100%',
+                    width: `${Math.min(100, (remaining / (employee.entitledDays || 21)) * 100)}%`,
+                    bgcolor: color === 'error' ? 'error.main' : color === 'warning' ? 'warning.main' : 'success.main',
+                    borderRadius: 2,
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </Box>
+              
+              {/* Carryover indicator bar (below main bar) */}
+              {carriedOver > 0 && (
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min(100, (carriedOver / (employee.entitledDays || 21)) * 100)}
+                  color="info"
+                  sx={{ 
+                    mt: 0.25, 
+                    height: 2, 
+                    borderRadius: 1,
+                    opacity: 0.6,
+                    bgcolor: 'transparent',
+                  }}
+                />
+              )}
+            </Box>
           </Box>
         </Tooltip>
       );
@@ -186,9 +296,15 @@ interface DetailPanelProps {
 }
 
 const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear }) => {
-  const stats = useHolidayCalculations(employee.hiredAt, employee.takenDays, currentYear);
-  const { formatted: tenureFormatted } = useTenure(employee.hiredAt);
   const leaveBalance = employee.leaveBalance;
+  const { formatted: tenureFormatted } = useTenure(employee.hiredAt);
+  
+  // Use backend calculations (source of truth) instead of frontend recalculation
+  // Backend uses proper leave calculation service with correct rounding
+  const annualEntitlement = employee.entitledDays || 21;
+  const accruedToday = leaveBalance?.accrued || 0;
+  const takenDays = leaveBalance ? (leaveBalance.voluntaryDays + leaveBalance.companyShutdownDays) : employee.takenDays || 0;
+  const remainingDays = employee.remainingDays || 0;
 
   return (
     <Box sx={{ p: 3, bgcolor: 'background.default', borderRadius: 2 }}>
@@ -218,7 +334,7 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
                   sx={{ fontWeight: 600 }}
                 />
                 <Chip label={`Angajat din: ${formatDate(employee.hiredAt)}`} />
-                {employee.age && (
+                {employee.age !== null && employee.age !== undefined && (
                   <Chip label={`Vârstă: ${employee.age} ani`} variant="outlined" />
                 )}
               </Stack>
@@ -239,18 +355,26 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
               <Stack spacing={1}>
                 <Chip
                   color="success"
-                  label={`Drept/an: ${stats.annualEntitlement} zile`}
+                  label={`Drept/an: ${annualEntitlement} zile`}
                   sx={{ fontWeight: 600 }}
                 />
+                {annualEntitlement > 21 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
+                    (21 zile bază + {annualEntitlement - 21} {annualEntitlement - 21 === 1 ? 'zi' : 'zile'} bonus vechime)
+                  </Typography>
+                )}
                 <Chip 
-                  label={`Drept ${currentYear}: ${stats.yearEntitlement} zile`}
-                  variant="outlined"
-                />
-                <Chip 
+                  label={`Acumulat până azi: ${accruedToday} zile`}
                   color="info"
-                  label={`Acumulat până azi: ${stats.accruedToday} zile`}
                   variant="outlined"
                 />
+                {leaveBalance?.carriedOver !== undefined && leaveBalance.carriedOver > 0 && (
+                  <Chip 
+                    label={`+ ${leaveBalance.carriedOver} reportate din ${currentYear - 1}`}
+                    color="info"
+                    variant="outlined"
+                  />
+                )}
               </Stack>
             </CardContent>
           </Card>
@@ -368,32 +492,32 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Box>
                   <Typography variant="caption" color="text.secondary" display="block">
-                    Total Folosite
-                  </Typography>
-                  <Typography variant="h5" color="warning.dark" fontWeight={700}>
-                    {stats.takenDays} zile
-                  </Typography>
-                </Box>
-
-                <Divider orientation="vertical" flexItem />
-
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Rămase Astăzi
-                  </Typography>
-                  <Typography variant="h5" color="success.dark" fontWeight={700}>
-                    {stats.remainingToday} zile
-                  </Typography>
-                </Box>
-
-                <Divider orientation="vertical" flexItem />
-
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Rămase pe An
+                    Acumulat Total
                   </Typography>
                   <Typography variant="h5" color="primary.dark" fontWeight={700}>
-                    {stats.remainingYear} zile
+                    {accruedToday + (leaveBalance?.carriedOver || 0)} zile
+                  </Typography>
+                </Box>
+
+                <Divider orientation="vertical" flexItem />
+
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Zile Folosite
+                  </Typography>
+                  <Typography variant="h5" color="warning.dark" fontWeight={700}>
+                    {takenDays} zile
+                  </Typography>
+                </Box>
+
+                <Divider orientation="vertical" flexItem />
+
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Disponibile Acum
+                  </Typography>
+                  <Typography variant="h5" color="success.dark" fontWeight={700}>
+                    {remainingDays} zile
                   </Typography>
                 </Box>
               </Stack>
@@ -405,8 +529,8 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
       {/* Info Footer */}
       <Alert severity="info" sx={{ mt: 2 }} icon={<CheckCircleIcon />}>
         <Typography variant="caption">
-          <strong>Politica concediu:</strong> 21 zile/an bază + 1 zi/5 ani vechime. 
-          Zilele se acumulează pro-rata pe parcursul anului. Maximum 5 zile reportate (expiră 31 martie).
+          <strong>Politica concediu:</strong> Fiecare angajat poate lua <strong>{annualEntitlement} zile/an</strong>{annualEntitlement > 21 && ` (21 bază + ${annualEntitlement - 21} bonus vechime)`}. 
+          Zilele se acumulează pro-rata pe parcursul anului (se calculează zilnic). Maximum 5 zile pot fi reportate din anul anterior (expiră 31 martie).
           {leaveBalance?.companyShutdownDays !== undefined && leaveBalance.companyShutdownDays > 0 && (
             <> Închiderile firmei (ex: Crăciun, Revelion) se deduc automat din dreptul de concediu.</>
           )}
@@ -505,6 +629,7 @@ export default function TeamPage() {
           columns={columns}
           data={employees}
           state={{ isLoading }}
+          localization={MRT_Localization_RO}
 
           // Row actions
           enableRowActions

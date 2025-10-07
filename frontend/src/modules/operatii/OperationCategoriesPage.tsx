@@ -170,6 +170,7 @@ export default function OperationCategoriesPage() {
   // Fișa Operație modal state
   const [showFisaOperatie, setShowFisaOperatie] = useState(false);
   const [selectedOperationName, setSelectedOperationName] = useState<string>('');
+  const [selectedOperationId, setSelectedOperationId] = useState<string>('');
 
   // state persistence
   const persisted = loadPersist();
@@ -452,6 +453,7 @@ export default function OperationCategoriesPage() {
                   color="primary"
                   onClick={() => {
                     setSelectedOperationName(row.original.name);
+                    setSelectedOperationId(row.original.id);
                     setShowFisaOperatie(true);
                   }}
                 >
@@ -682,8 +684,10 @@ export default function OperationCategoriesPage() {
         onClose={() => {
           setShowFisaOperatie(false);
           setSelectedOperationName('');
+          setSelectedOperationId('');
         }}
         operationName={selectedOperationName}
+        operationId={selectedOperationId}
       />
     </Box>
   );

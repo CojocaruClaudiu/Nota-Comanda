@@ -3,8 +3,9 @@ import React, { useState } from 'react';
 import {
   Dialog, DialogContent,
   TextField, Button, Stack, IconButton, Typography,
-  Box, Divider, CircularProgress, Fade, Collapse
+  Box, Divider, CircularProgress, Fade, Collapse, InputAdornment, useMediaQuery
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { DatePicker } from '@mui/x-date-pickers';
 import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
@@ -48,10 +49,8 @@ const validationSchema = Yup.object({
   idNumber: Yup.string()
     .matches(/^\d{6}$/, 'Numărul CI trebuie să aibă exact 6 cifre')
     .nullable(),
-  birthDate: Yup.string()
-    .nullable(),
-  idIssueDateISO: Yup.string()
-    .nullable(),
+  birthDate: Yup.string().nullable(),
+  idIssueDateISO: Yup.string().nullable(),
 });
 
 export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
@@ -63,6 +62,8 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   const [updating, setUpdating] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { successNotistack, errorNotistack } = useNotistack();
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Get initial values based on employee
   const getInitialValues = (): EmployeePayload & { qualificationsText: string } => {
@@ -104,10 +105,10 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
 
   const handleSubmit = async (values: any) => {
     if (!employee) return;
-    
+
     try {
       setUpdating(true);
-      
+
       // Parse qualifications from text
       const qualifications = values.qualificationsText
         .split(',')
@@ -152,8 +153,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   const ageFromBirth = (birthDate?: string | null): number | null => {
     if (!birthDate) return null;
     return dayjs().diff(dayjs(birthDate), 'year');
-  };
-
+    };
   const tenureParts = (hiredAt?: string) => {
     if (!hiredAt) return { years: 0, months: 0 };
     const hired = dayjs(hiredAt);
@@ -162,7 +162,6 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
     const months = now.diff(hired.add(years, 'year'), 'month');
     return { years, months };
   };
-
   const formatTenureRo = ({ years, months }: { years: number; months: number }): string => {
     if (years === 0 && months === 0) return 'nou angajat';
     if (years === 0) return `${months} luni`;
@@ -179,29 +178,39 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       key={employee?.id || 'none'} // Reset form when employee changes
     >
       {({ errors, touched, isValid, dirty, values, setFieldValue }) => (
-        <Dialog 
-          open={open} 
-          onClose={handleClose} 
-          fullWidth 
+        <Dialog
+          open={open}
+          onClose={handleClose}
+          fullWidth
           maxWidth="md"
+          fullScreen={fullScreen}
+          scroll="paper"
+          // Prevent body scrollbar from being removed (stops layout jump)
+          disableScrollLock
+          keepMounted
           PaperProps={{
             sx: {
               borderRadius: 3,
               boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: { xs: '100dvh', md: '90vh' },
             }
           }}
           TransitionComponent={Fade}
           transitionDuration={300}
         >
-          <Form>
-            {/* Header */}
+          <Form style={{ display: 'contents' }}>
+            {/* Header (sticky) */}
             <Box
               sx={{
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: 'white',
-                p: 3,
-                position: 'relative'
+                p: { xs: 2, md: 3 },
+                position: 'sticky',
+                top: 0,
+                zIndex: 1,
               }}
             >
               <Stack direction="row" alignItems="center" spacing={2}>
@@ -217,23 +226,23 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                 >
                   <EditIcon fontSize="large" />
                 </Box>
-                <Box>
-                  <Typography variant="h5" fontWeight="600">
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant={fullScreen ? 'h6' : 'h5'} fontWeight="600" noWrap>
                     Editează Angajat
                   </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                  <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }} noWrap>
                     Modifică informațiile angajatului: {employee?.name}
                   </Typography>
                 </Box>
               </Stack>
-              
+
               <IconButton
                 onClick={handleClose}
                 disabled={updating}
                 sx={{
                   position: 'absolute',
-                  top: 16,
-                  right: 16,
+                  top: 12,
+                  right: 12,
                   color: 'white',
                   bgcolor: 'rgba(255,255,255,0.1)',
                   '&:hover': {
@@ -245,9 +254,9 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
               </IconButton>
             </Box>
 
-            {/* Content */}
-            <DialogContent sx={{ p: 0 }}>
-              <Box sx={{ p: 3 }}>
+            {/* Content (scrolls) */}
+            <DialogContent sx={{ p: 0, flex: 1, overflow: 'auto' }}>
+              <Box sx={{ p: { xs: 2, md: 3 } }}>
                 <Stack spacing={3}>
                   {/* Required Fields Section */}
                   <Box>
@@ -255,6 +264,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       <PersonIcon color="primary" />
                       Informații Obligatorii
                     </Typography>
+
                     <Stack spacing={2.5}>
                       <Field name="name">
                         {({ field }: any) => (
@@ -268,18 +278,18 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                             error={touched.name && !!errors.name}
                             helperText={touched.name && errors.name}
                             InputProps={{
-                              startAdornment: <PersonIcon sx={{ color: 'action.active', mr: 1 }} />,
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <PersonIcon sx={{ color: 'action.active' }} />
+                                </InputAdornment>
+                              ),
                             }}
-                            sx={{
-                              '& .MuiOutlinedInput-root': {
-                                borderRadius: 2,
-                              }
-                            }}
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                           />
                         )}
                       </Field>
 
-                      <Stack direction="row" spacing={2}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         <Field name="cnp">
                           {({ field }: any) => (
                             <TextField
@@ -288,17 +298,17 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                               placeholder="1234567890123"
                               fullWidth
                               variant="outlined"
-                              inputProps={{ maxLength: 13 }}
+                              inputProps={{ maxLength: 13, inputMode: 'numeric' }}
                               error={touched.cnp && !!errors.cnp}
                               helperText={touched.cnp && errors.cnp}
                               InputProps={{
-                                startAdornment: <BadgeIcon sx={{ color: 'action.active', mr: 1 }} />,
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <BadgeIcon sx={{ color: 'action.active' }} />
+                                  </InputAdornment>
+                                ),
                               }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }}
+                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                             />
                           )}
                         </Field>
@@ -314,39 +324,39 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                               error={touched.phone && !!errors.phone}
                               helperText={touched.phone && errors.phone}
                               InputProps={{
-                                startAdornment: <PhoneIcon sx={{ color: 'action.active', mr: 1 }} />,
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <PhoneIcon sx={{ color: 'action.active' }} />
+                                  </InputAdornment>
+                                ),
                               }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }}
+                              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                             />
                           )}
                         </Field>
                       </Stack>
 
-                      <Stack direction="row" spacing={2}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         <DatePicker
                           label="Data Angajării"
                           format="DD/MM/YYYY"
                           value={values.hiredAt ? dayjs(values.hiredAt) : null}
                           onChange={(date) => setFieldValue('hiredAt', date?.format('YYYY-MM-DD') || '')}
-                          slotProps={{ 
-                            textField: { 
-                              required: true, 
-                              fullWidth: true, 
-                              error: touched.hiredAt && !!errors.hiredAt, 
+                          slotProps={{
+                            textField: {
+                              required: true,
+                              fullWidth: true,
+                              error: touched.hiredAt && !!errors.hiredAt,
                               helperText: touched.hiredAt && errors.hiredAt,
                               InputProps: {
-                                startAdornment: <WorkIcon sx={{ color: 'action.active', mr: 1 }} />,
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <WorkIcon sx={{ color: 'action.active' }} />
+                                  </InputAdornment>
+                                ),
                               },
-                              sx: {
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }
-                            } 
+                              sx: { '& .MuiOutlinedInput-root': { borderRadius: 2 } }
+                            }
                           }}
                         />
 
@@ -355,20 +365,20 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                           format="DD/MM/YYYY"
                           value={values.birthDate ? dayjs(values.birthDate) : null}
                           onChange={(date) => setFieldValue('birthDate', date?.format('YYYY-MM-DD') || '')}
-                          slotProps={{ 
-                            textField: { 
-                              fullWidth: true, 
-                              error: touched.birthDate && !!errors.birthDate, 
-                              helperText: touched.birthDate && errors.birthDate || 'Opțional',
+                          slotProps={{
+                            textField: {
+                              fullWidth: true,
+                              error: touched.birthDate && !!errors.birthDate,
+                              helperText: (touched.birthDate && errors.birthDate) || 'Opțional',
                               InputProps: {
-                                startAdornment: <PersonIcon sx={{ color: 'action.active', mr: 1 }} />,
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <PersonIcon sx={{ color: 'action.active' }} />
+                                  </InputAdornment>
+                                ),
                               },
-                              sx: {
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }
-                            } 
+                              sx: { '& .MuiOutlinedInput-root': { borderRadius: 2 } }
+                            }
                           }}
                         />
                       </Stack>
@@ -385,13 +395,13 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                             variant="outlined"
                             helperText="Separate prin virgulă (opțional)"
                             InputProps={{
-                              startAdornment: <WorkIcon sx={{ color: 'action.active', mr: 1, alignSelf: 'flex-start', mt: 1 }} />,
+                              startAdornment: (
+                                <InputAdornment position="start" sx={{ alignSelf: 'flex-start' }}>
+                                  <WorkIcon sx={{ color: 'action.active', mt: 1 }} />
+                                </InputAdornment>
+                              ),
                             }}
-                            sx={{
-                              '& .MuiOutlinedInput-root': {
-                                borderRadius: 2,
-                              }
-                            }}
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                           />
                         )}
                       </Field>
@@ -402,23 +412,23 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                           Previzualizare
                         </Typography>
                         <Stack direction="row" spacing={1} flexWrap="wrap">
-                          <Box component="span" sx={{ 
-                            fontSize: '0.75rem', 
-                            bgcolor: 'primary.main', 
-                            color: 'white', 
-                            px: 1, 
-                            py: 0.5, 
-                            borderRadius: 1 
+                          <Box component="span" sx={{
+                            fontSize: '0.75rem',
+                            bgcolor: 'primary.main',
+                            color: 'white',
+                            px: 1,
+                            py: 0.5,
+                            borderRadius: 1
                           }}>
                             Vârsta: {ageFromBirth(values.birthDate) ?? '—'}
                           </Box>
-                          <Box component="span" sx={{ 
-                            fontSize: '0.75rem', 
-                            bgcolor: 'secondary.main', 
-                            color: 'white', 
-                            px: 1, 
-                            py: 0.5, 
-                            borderRadius: 1 
+                          <Box component="span" sx={{
+                            fontSize: '0.75rem',
+                            bgcolor: 'secondary.main',
+                            color: 'white',
+                            px: 1,
+                            py: 0.5,
+                            borderRadius: 1
                           }}>
                             Vechime: {formatTenureRo(tenureParts(values.hiredAt))}
                           </Box>
@@ -429,146 +439,212 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
 
                   <Divider sx={{ my: 2 }} />
 
-                  {/* Optional Fields Section */}
+                  {/* Buletin Section */}
                   <Box>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
                       <ContactMailIcon color="secondary" />
-                      Informații Opționale
+                      Buletin (Carte de Identitate)
                     </Typography>
-                    
+
                     {/* Advanced section toggle */}
                     <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
                       <Button
                         size="small"
-                        startIcon={<ExpandMoreIcon sx={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />}
+                        startIcon={
+                          <ExpandMoreIcon
+                            sx={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: '0.2s' }}
+                          />
+                        }
                         onClick={() => setShowAdvanced(s => !s)}
-                        sx={{
-                          textTransform: 'none',
-                          fontWeight: 500,
-                        }}
+                        sx={{ textTransform: 'none', fontWeight: 500 }}
                       >
-                        {showAdvanced ? 'Ascunde detalii' : 'Detalii CI & adresă'}
+                        {showAdvanced ? 'Ascunde' : 'Arată'}
                       </Button>
                       <Typography variant="caption" color="text.secondary">(opțional)</Typography>
                     </Stack>
 
                     <Collapse in={showAdvanced} unmountOnExit>
-                      <Stack spacing={2.5}>
-                        {/* CI Section */}
-                        <Box>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            Carte de Identitate
-                          </Typography>
-                          <Stack direction="row" spacing={2}>
-                            <Field name="idSeries">
-                              {({ field }: any) => (
-                                <TextField
-                                  {...field}
-                                  label="Serie CI"
-                                  placeholder="AB"
-                                  inputProps={{ maxLength: 3 }}
-                                  error={touched.idSeries && !!errors.idSeries}
-                                  helperText={touched.idSeries && errors.idSeries}
-                                  sx={{ width: '120px', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                                />
-                              )}
-                            </Field>
-                            <Field name="idNumber">
-                              {({ field }: any) => (
-                                <TextField
-                                  {...field}
-                                  label="Număr CI"
-                                  placeholder="123456"
-                                  inputProps={{ maxLength: 6 }}
-                                  error={touched.idNumber && !!errors.idNumber}
-                                  helperText={touched.idNumber && errors.idNumber}
-                                  sx={{ width: '150px', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                                />
-                              )}
-                            </Field>
+                      {/* CI "Card" look */}
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          borderRadius: 2,
+                          p: { xs: 2, md: 3 },
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          background: 'linear-gradient(135deg, #eef6ff 0%, #ffffff 60%)',
+                          overflow: 'hidden',
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            inset: 0,
+                            pointerEvents: 'none',
+                            background:
+                              'repeating-linear-gradient(45deg, transparent, transparent 12px, rgba(0,112,243,0.05) 12px, rgba(0,112,243,0.05) 24px)',
+                          },
+                        }}
+                      >
+                        {/* top flag/bar */}
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: 6,
+                            background:
+                              'linear-gradient(90deg, #002b7f 0 33%, #fcd116 33% 66%, #ce1126 66% 100%)',
+                          }}
+                        />
+
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            display: 'grid',
+                            gridTemplateColumns: { xs: '1fr', md: '140px 1fr' },
+                            gap: 2.5,
+                          }}
+                        >
+                          {/* Photo placeholder */}
+                          <Box
+                            sx={{
+                              border: '1px dashed',
+                              borderColor: 'divider',
+                              borderRadius: 1.5,
+                              aspectRatio: '4 / 5',
+                              minHeight: 180,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 12,
+                              color: 'text.secondary',
+                              bgcolor: 'rgba(255,255,255,0.6)',
+                            }}
+                          >
+                            FOTO
+                          </Box>
+
+                          {/* Fields laid out like a card */}
+                          <Stack spacing={2}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                              <Field name="idSeries">
+                                {({ field }: any) => (
+                                  <TextField
+                                    {...field}
+                                    onChange={(e) => {
+                                      const v = (e.target.value || '').toUpperCase();
+                                      e.target.value = v;
+                                      field.onChange(e);
+                                    }}
+                                    label="Serie"
+                                    placeholder="AB"
+                                    inputProps={{ maxLength: 3, style: { letterSpacing: '2px' } }}
+                                    error={touched.idSeries && !!errors.idSeries}
+                                    helperText={touched.idSeries && errors.idSeries}
+                                    sx={{ width: { xs: '100%', sm: 120 }, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                                  />
+                                )}
+                              </Field>
+                              <Field name="idNumber">
+                                {({ field }: any) => (
+                                  <TextField
+                                    {...field}
+                                    label="Număr"
+                                    placeholder="123456"
+                                    inputProps={{ maxLength: 6, inputMode: 'numeric' }}
+                                    error={touched.idNumber && !!errors.idNumber}
+                                    helperText={touched.idNumber && errors.idNumber}
+                                    sx={{ width: { xs: '100%', sm: 160 }, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                                  />
+                                )}
+                              </Field>
+                              <DatePicker
+                                label="Data Eliberării"
+                                format="DD/MM/YYYY"
+                                value={values.idIssueDateISO ? dayjs(values.idIssueDateISO) : null}
+                                onChange={(date) =>
+                                  setFieldValue('idIssueDateISO', date?.format('YYYY-MM-DD') || '')
+                                }
+                                slotProps={{
+                                  textField: {
+                                    fullWidth: true,
+                                    error: touched.idIssueDateISO && !!errors.idIssueDateISO,
+                                    helperText: touched.idIssueDateISO && errors.idIssueDateISO,
+                                    sx: { '& .MuiOutlinedInput-root': { borderRadius: 2 } },
+                                  },
+                                }}
+                              />
+                            </Stack>
+
                             <Field name="idIssuer">
                               {({ field }: any) => (
                                 <TextField
                                   {...field}
-                                  label="Emitent CI"
+                                  label="Emitent"
                                   placeholder="SPCLEP București"
                                   fullWidth
                                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                                 />
                               )}
                             </Field>
-                          </Stack>
-                          <DatePicker
-                            label="Data Eliberării CI"
-                            format="DD/MM/YYYY"
-                            value={values.idIssueDateISO ? dayjs(values.idIssueDateISO) : null}
-                            onChange={(date) => setFieldValue('idIssueDateISO', date?.format('YYYY-MM-DD') || '')}
-                            slotProps={{ 
-                              textField: { 
-                                fullWidth: true, 
-                                error: touched.idIssueDateISO && !!errors.idIssueDateISO, 
-                                helperText: touched.idIssueDateISO && errors.idIssueDateISO,
-                                sx: { mt: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }
-                              } 
-                            }}
-                          />
-                        </Box>
 
-                        {/* Address Section */}
-                        <Box>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            Adresă Domiciliu
-                          </Typography>
-                          <Stack direction="row" spacing={2}>
-                            <Field name="county">
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                              <Field name="county">
+                                {({ field }: any) => (
+                                  <TextField
+                                    {...field}
+                                    label="Județ"
+                                    placeholder="Prahova"
+                                    fullWidth
+                                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                                  />
+                                )}
+                              </Field>
+                              <Field name="locality">
+                                {({ field }: any) => (
+                                  <TextField
+                                    {...field}
+                                    label="Localitate"
+                                    placeholder="Băicoi"
+                                    fullWidth
+                                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                                  />
+                                )}
+                              </Field>
+                            </Stack>
+
+                            <Field name="address">
                               {({ field }: any) => (
                                 <TextField
                                   {...field}
-                                  label="Județ"
-                                  placeholder="București"
-                                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                                />
-                              )}
-                            </Field>
-                            <Field name="locality">
-                              {({ field }: any) => (
-                                <TextField
-                                  {...field}
-                                  label="Localitate"
-                                  placeholder="Sectorul 1"
+                                  label="Adresă (domiciliu)"
+                                  placeholder="Str. Exemplar nr. 10, bl. A, sc. 1, et. 3, ap. 12"
+                                  fullWidth
+                                  multiline
+                                  rows={2}
                                   sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                                 />
                               )}
                             </Field>
                           </Stack>
-                          <Field name="address">
-                            {({ field }: any) => (
-                              <TextField
-                                {...field}
-                                label="Adresă Completă"
-                                placeholder="Str. Aviatorilor Nr. 10, Bl. A1, Sc. B, Et. 3, Ap. 15"
-                                fullWidth
-                                multiline
-                                rows={2}
-                                sx={{ mt: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                              />
-                            )}
-                          </Field>
                         </Box>
-                      </Stack>
+                      </Box>
                     </Collapse>
                   </Box>
                 </Stack>
               </Box>
             </DialogContent>
-
-            {/* Actions */}
+            
+            {/* Actions (sticky) */}
             <Box
               sx={{
                 bgcolor: 'grey.50',
                 borderTop: '1px solid',
                 borderColor: 'divider',
-                p: 3
+                p: { xs: 2, md: 3 },
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 1,
               }}
             >
               <Stack direction="row" spacing={2} justifyContent="flex-end">
