@@ -251,7 +251,7 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
   const [standardRecipe, setStandardRecipe] = useState<RecipeData | null>(null);
   const [standardTemplateId, setStandardTemplateId] = useState<string | null>(null);
   const [isProjectRecipeLoaded, setIsProjectRecipeLoaded] = useState(false);
-  const [templateCache, setTemplateCache] = useState<Record<string, RecipeData>>({});
+  const templateCacheRef = useRef<Record<string, RecipeData>>({});
   const applyingRecipeRef = useRef(false);
   const activeVersionRef = useRef<RecipeVersion>('STANDARD');
   const projectRecipeRef = useRef<RecipeData | null>(null);
@@ -355,7 +355,7 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         return;
       }
 
-      const cached = templateCache[selectedTemplate];
+      const cached = templateCacheRef.current[selectedTemplate];
       if (cached) {
         applyRecipeData(cached);
         return;
@@ -383,10 +383,7 @@ const [newTemplateDescription, setNewTemplateDescription] = useState('');
 const [makeDefault, setMakeDefault] = useState(false);
 
 const cacheTemplate = (templateId: string, data: RecipeData) => {
-  setTemplateCache(prev => ({
-    ...prev,
-    [templateId]: cloneRecipe(data),
-  }));
+  templateCacheRef.current[templateId] = cloneRecipe(data);
 };
 
 const buildRecipeFromCurrentState = (): RecipeData => ({
@@ -685,9 +682,11 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
 
       let defaultRecipe: RecipeData | null = null;
       if (defaultTemplate) {
-        const cached = templateCache[defaultTemplate.id];
+        const cached = templateCacheRef.current[defaultTemplate.id];
         defaultRecipe = cached ?? (await refreshTemplateData(defaultTemplate));
-        cacheTemplate(defaultTemplate.id, defaultRecipe);
+        if (defaultRecipe) {
+          cacheTemplate(defaultTemplate.id, defaultRecipe);
+        }
       }
       setStandardRecipe(defaultRecipe);
 
@@ -707,7 +706,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
       } else if (currentVersion === 'TEMPLATE' && nextSelected) {
         const selected = convertedTemplates.find(t => t.id === nextSelected);
         if (selected) {
-          const cachedTemplate = templateCache[nextSelected];
+          const cachedTemplate = templateCacheRef.current[nextSelected];
           const recipe =
             cachedTemplate ?? (await refreshTemplateData(selected));
           cacheTemplate(nextSelected, recipe);
@@ -819,7 +818,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
       setActiveVersion('TEMPLATE');
     }
 
-    const cached = templateCache[id];
+    const cached = templateCacheRef.current[id];
     const recipe = cached ?? (await refreshTemplateData(template));
     cacheTemplate(id, recipe);
     applyRecipeData(recipe);
@@ -2435,28 +2434,39 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
                         items,
                       }
                     );
+                    // Clear cache for this template to force reload from API
+                    delete templateCacheRef.current[selectedTemplate];
                     enqueueSnackbar(`Template "${currentTemplate.name}" actualizat`, { variant: 'success' });
                     await loadTemplates();
                   }
                 } else {
-                  // No template selected - check if a "Rețeta Standard" exists
-                  const standardTemplate = templates.find(t => t.name === 'Rețeta Standard');
+                  // No template selected - save/update the standard template
+                  // Use standardTemplateId if we have it, otherwise find by name or isDefault
+                  let templateIdToUpdate = standardTemplateId;
                   
-                  if (standardTemplate) {
+                  if (!templateIdToUpdate) {
+                    // Try to find by isDefault first, then by name
+                    const standardTemplate = templates.find(t => t.isDefault) || templates.find(t => t.name === 'Rețeta Standard');
+                    templateIdToUpdate = standardTemplate?.id ?? null;
+                  }
+                  
+                  if (templateIdToUpdate) {
                     // Update existing standard template
                     await operationSheetsApi.updateOperationTemplate(
                       operationId,
-                      standardTemplate.id,
+                      templateIdToUpdate,
                       {
                         items,
                         isDefault: true,
                       }
                     );
+                    // Clear cache for this template to force reload from API
+                    delete templateCacheRef.current[templateIdToUpdate!];
                     enqueueSnackbar('Rețeta Standard actualizată', { variant: 'success' });
                     await loadTemplates();
                   } else {
                     // Create new standard template
-                    await operationSheetsApi.createOperationTemplate(
+                    const created = await operationSheetsApi.createOperationTemplate(
                       operationId,
                       {
                         name: 'Rețeta Standard',
@@ -2465,6 +2475,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
                         items,
                       }
                     );
+                    setStandardTemplateId(created.id);
                     enqueueSnackbar('Rețeta Standard salvată', { variant: 'success' });
                     await loadTemplates();
                   }

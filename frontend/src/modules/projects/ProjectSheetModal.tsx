@@ -25,7 +25,7 @@ import 'dayjs/locale/ro';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { tableLocalization } from '../../localization/tableLocalization';
 import type { ProjectDevizLine } from '../../api/projectDeviz';
-import { fetchProjectDevizMaterials, saveProjectDevizMaterials } from '../../api/projectDevize';
+import { saveProjectDevizMaterials } from '../../api/projectDevize';
 import { fetchProjectSheet } from '../../api/projectSheet';
 import { fetchUniqueMaterials, type Material } from '../../api/materials';
 import SelectOperationModal from './SelectOperationModal';
@@ -176,15 +176,10 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
       if (!devizLine.projectId) return;
 
       try {
-        // First, try to load saved materials from database
-        const savedMaterials = await fetchProjectDevizMaterials(devizLine.projectId, devizLine.id);
+        // Always aggregate from operation sheets (ignore saved materials)
+        // This ensures the devize always reflects current recipe data
         
-        if (savedMaterials && savedMaterials.length > 0) {
-          setDevizeMaterials(savedMaterials);
-          return; // Use saved data, don't aggregate
-        }
-        
-        // No saved materials - fetch materials catalog and aggregate from operation sheets
+        // Fetch materials catalog for supplier and packaging info
         const allMaterials = await fetchUniqueMaterials();
         const materialsByCode = new Map<string, Material>();
         for (const m of allMaterials) {

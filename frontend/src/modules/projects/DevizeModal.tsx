@@ -178,8 +178,9 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   // Seed materials when parent provides initial list
   React.useEffect(() => {
     if (!open) return;
+    
     if (!initialMaterials || initialMaterials.length === 0) {
-      if (!open) setMaterials([]);
+      setMaterials([]);
       return;
     }
     
@@ -394,9 +395,6 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
 
     // Totals section
     wsData.push(['', '', '', '', '', '', '', '', 'TOTAL MATERIALE:', materialsTotal]);
-    wsData.push(['', '', '', '', '', '', '', '', `Adaos (${stdMarkup}%):`, (materialsTotal * stdMarkup) / 100]);
-    wsData.push(['', '', '', '', '', '', '', '', `Discount (${stdDiscount}%):`, -((materialsTotal * (1 + stdMarkup / 100)) * stdDiscount) / 100]);
-    wsData.push(['', '', '', '', '', '', '', '', 'TOTAL FINAL:', materials.reduce((sum, m) => sum + (m.finalValue || 0), 0)]);
 
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
