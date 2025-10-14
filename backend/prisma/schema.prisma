@@ -862,13 +862,23 @@ model OperationItem {
 
 // Tools & Equipment catalog
 model Equipment {
-  id          String   @id @default(uuid())
-  category    String
-  code        String   @unique // internal ID / inventory code
-  description String
-  hourlyCost  Float
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  category        String
+  code            String   @unique // internal ID / inventory code
+  description     String
+  status          String   // Status Unealtă (ex: "Activ", "Inactiv")
+  serialNumber    String?  // Serie
+  referenceNumber String?  // Număr referință
+  lastRepairDate  DateTime? // Ultima Reparație
+  repairCost      Float?   // Cost Reparație
+  repairCount     Int?     // Număr Reparații
+  warranty        String?  // Garanție
+  equipmentNumber String?  // Număr Echipament
+  generation      String?  // Generație
+  purchasePrice   Float?   // Pret Achizitie
+  hourlyCost      Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([category])
   @@index([code])
