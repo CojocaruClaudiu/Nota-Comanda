@@ -2,6 +2,7 @@ import { api } from './axios';
 
 export interface ProjectSheetOperation {
   id?: string;
+  operationItemId?: string; // Reference to OperationItem for templates
   orderNum: number;
   operationName: string;
   unit: string;

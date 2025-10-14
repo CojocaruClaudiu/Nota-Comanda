@@ -252,7 +252,40 @@ async function main() {
       }
     }
     
-    // Create the material (allow all entries, even duplicates)
+    // Extract invoice number
+    const invoiceNumber = norm(r.nr_fact || r.nr_factura || r.factura || r.invoice);
+    
+    // Extract received quantity (cant field)
+    let receivedQuantity: number | null = null;
+    const cantStr = norm(r.cant || r.cantitate || r.quantity);
+    if (cantStr) {
+      const cantValue = parseFloat(cantStr.replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(cantValue) && cantValue > 0) {
+        receivedQuantity = cantValue;
+      }
+    }
+    
+    // Check if this exact material entry already exists in database
+    const existing = await (prisma as any).material.findFirst({
+      where: {
+        code: code,
+        description: description,
+        supplierName: supplierName || null,
+        price: price,
+        purchaseDate: purchaseDate,
+        invoiceNumber: invoiceNumber || null,
+      },
+    });
+    
+    if (existing) {
+      totalSkipped++;
+      if (totalSkipped <= 5) {
+        console.log(`  ⊘ Row ${rowNumber}: Already exists - ${code} - ${description.substring(0, 40)}...`);
+      }
+      continue;
+    }
+    
+    // Create the material
     try {
       await (prisma as any).material.create({
         data: {
@@ -264,6 +297,8 @@ async function main() {
           price: price,
           currency: 'RON',
           purchaseDate: purchaseDate,
+          invoiceNumber: invoiceNumber || null,
+          receivedQuantity: receivedQuantity,
           active: true,
         },
       });

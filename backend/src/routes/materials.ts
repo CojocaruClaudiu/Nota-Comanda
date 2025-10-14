@@ -58,6 +58,18 @@ const cleanOptional = (v?: string | null) => {
   return s || null;
 };
 
+const parsePackQuantity = (value: unknown): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+};
+
+const parsePackUnit = (value: unknown): string | null => {
+  const s = String(value ?? '').trim();
+  return s ? s.toUpperCase() : null;
+};
+
 /* ===================== MATERIAL GROUPS ===================== */
 
 type MaterialGroupPayload = {
@@ -172,7 +184,7 @@ router.get('/unique', async (_req, res) => {
         SELECT DISTINCT ON (code) 
           m.id, m."groupId", m.code, m.description, m."supplierName", m."supplierId",
           m.unit, m.price, m.currency, m."purchaseDate", m."technicalSheet", 
-          m.notes, m.active, m."createdAt", m."updatedAt"
+          m.notes, m.active, m."packQuantity", m."packUnit", m."createdAt", m."updatedAt"
         FROM "Material" m
         ORDER BY m.code, m."createdAt" DESC
       ),
@@ -288,6 +300,8 @@ router.post('/', async (req, res) => {
         technicalSheet: cleanOptional(p.technicalSheet),
         notes: cleanOptional(p.notes),
         active: p.active == null ? true : Boolean(p.active),
+        packQuantity: parsePackQuantity(p.packQuantity),
+        packUnit: parsePackUnit(p.packUnit),
       },
     });
     res.status(201).json(created);
@@ -318,6 +332,8 @@ router.post('/groups/:groupId/materials', async (req, res) => {
         technicalSheet: cleanOptional(p.technicalSheet),
         notes: cleanOptional(p.notes),
         active: p.active == null ? true : Boolean(p.active),
+        packQuantity: parsePackQuantity(p.packQuantity),
+        packUnit: parsePackUnit(p.packUnit),
       },
     });
     res.status(201).json(created);
@@ -340,18 +356,28 @@ router.put('/:id', async (req, res) => {
   }
   
   try {
+    const packQuantityValue =
+      p.packQuantity !== undefined ? parsePackQuantity(p.packQuantity) : undefined;
+    const packUnitValue =
+      p.packUnit !== undefined ? parsePackUnit(p.packUnit) : undefined;
+
+    const updateData: any = {
+      code: cleanRequired(p.code),
+      description: cleanRequired(p.description),
+      unit: cleanOptional(p.unit) ?? 'buc',
+      price: p.price != null ? Number(p.price) : 0,
+      currency: (p.currency as any) ?? 'RON',
+      technicalSheet: cleanOptional(p.technicalSheet),
+      notes: cleanOptional(p.notes),
+      active: p.active == null ? true : Boolean(p.active),
+    };
+
+    if (packQuantityValue !== undefined) updateData.packQuantity = packQuantityValue;
+    if (packUnitValue !== undefined) updateData.packUnit = packUnitValue;
+
     const updated = await (prisma as any).material.update({
       where: { id },
-      data: {
-        code: cleanRequired(p.code),
-        description: cleanRequired(p.description),
-        unit: cleanOptional(p.unit) ?? 'buc',
-        price: p.price != null ? Number(p.price) : 0,
-        currency: (p.currency as any) ?? 'RON',
-        technicalSheet: cleanOptional(p.technicalSheet),
-        notes: cleanOptional(p.notes),
-        active: p.active == null ? true : Boolean(p.active),
-      },
+      data: updateData,
     });
     res.json(updated);
   } catch (error: any) {

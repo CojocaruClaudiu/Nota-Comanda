@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -11,12 +11,29 @@ import {
   Stack,
   Tabs,
   Tab,
+  TextField,
+  Paper,
+  Tooltip,
+  InputAdornment,
+  Alert,
+  Chip,
+  Divider,
+  alpha,
 } from '@mui/material';
 import { Close as CloseIcon, Add as AddIcon } from '@mui/icons-material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
+import DiscountRoundedIcon from '@mui/icons-material/DiscountRounded';
+import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { tableLocalization } from '../../localization/tableLocalization';
 import type { ProjectDevizLine } from '../../api/projectDeviz';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import * as XLSX from 'xlsx';
+import { fetchUniqueMaterials, type Material } from '../../api/materials';
 
 // Material List Types
 export type MaterialItem = {
@@ -34,6 +51,9 @@ export type MaterialItem = {
   valueWithMarkup: number | null;
   discountPercent: number | null;
   finalValue: number | null;
+  supplier?: string; // Furnizor
+  packageSize?: number | null; // Mărime pachet (ex: 25 kg/buc)
+  packageUnit?: string; // Unitate pachet (ex: kg, buc)
 };
 
 // Labor (Manopera) Types
@@ -58,8 +78,12 @@ interface DevizeModalProps {
   projectName: string;
   standardMarkup: number;
   standardDiscount: number;
+  standardIndirectCosts?: number;
   onClose: () => void;
   onSave: (materials: MaterialItem[], labor: LaborItem[]) => void;
+  initialMaterials?: MaterialItem[]; // optional seed from ProjectSheet
+  initialLabor?: LaborItem[]; // optional seed from ProjectSheet
+  onUpdateParameters?: (p: { standardMarkup: number; standardDiscount: number; indirectCosts: number }) => void;
 }
 
 const DevizeModal: React.FC<DevizeModalProps> = ({
@@ -68,20 +92,76 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   projectName,
   standardMarkup,
   standardDiscount,
+  standardIndirectCosts,
   onClose,
   onSave,
+  initialMaterials,
+  initialLabor,
+  onUpdateParameters,
 }) => {
+  const confirm = useConfirm();
   const [tabIndex, setTabIndex] = useState(0);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [labor, setLabor] = useState<LaborItem[]>([]);
+  const [materialsByCode, setMaterialsByCode] = useState<Map<string, Material>>(new Map());
+  const [materialsByDesc, setMaterialsByDesc] = useState<Map<string, Material>>(new Map());
+  // Financial parameters moved into Devize
+  const [stdMarkup, setStdMarkup] = useState<number>(standardMarkup || 0);
+  const [stdDiscount, setStdDiscount] = useState<number>(standardDiscount || 0);
+  const [stdIndirect, setStdIndirect] = useState<number>(standardIndirectCosts || 0);
+
+  // Sync incoming props when Devize opens
+  useEffect(() => {
+    if (!open) return;
+    setStdMarkup(standardMarkup || 0);
+    setStdDiscount(standardDiscount || 0);
+    setStdIndirect(standardIndirectCosts || 0);
+  }, [open, standardMarkup, standardDiscount, standardIndirectCosts]);
+
+  // Load materials index for autocomplete when modal opens
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!open) return;
+      try {
+        const list = await fetchUniqueMaterials();
+        if (cancelled) return;
+        const byCode = new Map<string, Material>();
+        const byDesc = new Map<string, Material>();
+        for (const m of list) {
+          const codeKey = (m.code || '').trim().toUpperCase();
+          const descKey = (m.description || '').trim().toUpperCase();
+          
+          // For materials with same code, prefer most recent purchase date
+          if (codeKey) {
+            const existing = byCode.get(codeKey);
+            if (!existing || (m.purchaseDate && (!existing.purchaseDate || new Date(m.purchaseDate) > new Date(existing.purchaseDate)))) {
+              byCode.set(codeKey, m);
+            }
+          }
+          
+          // For descriptions, only set if not already present (first wins)
+          if (descKey && !byDesc.has(descKey)) byDesc.set(descKey, m);
+        }
+        setMaterialsByCode(byCode);
+        setMaterialsByDesc(byDesc);
+      } catch (e) {
+        console.warn('Failed to load materials for autocomplete', e);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // Helper function to calculate values
   const calculateMaterialValues = (item: Partial<MaterialItem>): Partial<MaterialItem> => {
     const qty = item.quantity || 0;
     const price = item.unitPrice || 0;
     const baseValue = qty * price;
-    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : standardMarkup;
-    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : standardDiscount;
+    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
+    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
     const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
     const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
 
@@ -94,13 +174,51 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       finalValue,
     };
   };
+
+  // Seed materials when parent provides initial list
+  React.useEffect(() => {
+    if (!open) return;
+    if (!initialMaterials || initialMaterials.length === 0) {
+      if (!open) setMaterials([]);
+      return;
+    }
+    
+    // Ensure order numbers and totals are consistent
+    const seeded = initialMaterials
+      .map((m, idx) => ({
+        ...m,
+        orderNum: idx + 1,
+      }))
+      .map((m) => calculateMaterialValues(m) as MaterialItem);
+    
+    setMaterials(seeded);
+  }, [open, initialMaterials, stdMarkup, stdDiscount]);
+
+  // Seed labor when parent provides initial list
+  React.useEffect(() => {
+    if (!open) return;
+    if (!initialLabor || initialLabor.length === 0) {
+      if (!open) setLabor([]);
+      return;
+    }
+    
+    // Ensure order numbers and totals are consistent
+    const seeded = initialLabor
+      .map((l, idx) => ({
+        ...l,
+        orderNum: idx + 1,
+      }))
+      .map((l) => calculateLaborValues(l) as LaborItem);
+    
+    setLabor(seeded);
+  }, [open, initialLabor, stdMarkup, stdDiscount]);
 
   const calculateLaborValues = (item: Partial<LaborItem>): Partial<LaborItem> => {
     const qty = item.quantity || 0;
     const price = item.unitPrice || 0;
     const baseValue = qty * price;
-    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : standardMarkup;
-    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : standardDiscount;
+    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
+    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
     const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
     const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
 
@@ -113,6 +231,17 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       finalValue,
     };
   };
+
+  // Recompute rows when standard parameters change
+  useEffect(() => {
+    setMaterials(prev => prev.map(m => calculateMaterialValues(m) as MaterialItem));
+    setLabor(prev => prev.map(l => calculateLaborValues(l) as LaborItem));
+  }, [stdMarkup, stdDiscount]);
+
+  // Bubble parameter updates to parent
+  useEffect(() => {
+    onUpdateParameters?.({ standardMarkup: stdMarkup, standardDiscount: stdDiscount, indirectCosts: stdIndirect });
+  }, [stdMarkup, stdDiscount, stdIndirect, onUpdateParameters]);
 
   // Materials handlers
   const handleAddMaterial = () => {
@@ -129,10 +258,13 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       quantity: null,
       unitPrice: null,
       baseValue: null,
-      markupPercent: standardMarkup,
+      markupPercent: stdMarkup,
       valueWithMarkup: null,
-      discountPercent: standardDiscount,
+      discountPercent: stdDiscount,
       finalValue: null,
+      supplier: '',
+      packageSize: null,
+      packageUnit: '',
     };
     setMaterials([...materials, newMaterial]);
   };
@@ -145,10 +277,6 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       }
       return m;
     }));
-  };
-
-  const handleDeleteMaterial = (id: string) => {
-    setMaterials(prev => prev.filter(m => m.id !== id));
   };
 
   // Labor handlers
@@ -164,9 +292,9 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       quantity: null,
       unitPrice: null,
       baseValue: null,
-      markupPercent: standardMarkup,
+      markupPercent: stdMarkup,
       valueWithMarkup: null,
-      discountPercent: standardDiscount,
+      discountPercent: stdDiscount,
       finalValue: null,
     };
     setLabor([...labor, newLabor]);
@@ -183,8 +311,246 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   };
 
   const handleDeleteLabor = (id: string) => {
-    setLabor(prev => prev.filter(l => l.id !== id));
+    (async () => {
+      const ok = await confirm({
+        title: 'Ștergere manoperă',
+        description: 'Ești sigur că vrei să ștergi această linie de manoperă? Operația nu poate fi anulată.',
+        confirmText: 'Șterge',
+        cancelText: 'Anulează',
+        danger: true,
+      });
+      if (ok) setLabor(prev => prev.filter(l => l.id !== id));
+    })();
   };
+
+  // Generate "Necesar Aprovizionare" document
+  const handleGenerateNecesarAprovizionare = () => {
+    if (materials.length === 0) {
+      alert('Nu există materiale pentru a genera documentul.');
+      return;
+    }
+
+    // Create worksheet data
+    const wsData: any[][] = [];
+    
+    // Header rows
+    wsData.push(['NECESAR APROVIZIONARE']);
+    wsData.push([`Proiect: ${projectName}`]);
+    wsData.push([`Operație: ${devizLine?.code} - ${devizLine?.description}`]);
+    wsData.push([`Data: ${new Date().toLocaleDateString('ro-RO')}`]);
+    wsData.push([]); // Empty row
+    
+    // Table headers
+    wsData.push([
+      'Nr. Crt.',
+      'Cod Material',
+      'Descriere Material',
+      'Furnizor',
+      'UM',
+      'Cantitate Necesară',
+      'Mărime Pachet',
+      'Nr. Pachete Necesare',
+      'Preț Unitar (LEI)',
+      'Valoare Totală (LEI)',
+    ]);
+
+    // Material rows
+    materials.forEach((material, index) => {
+      const quantity = material.quantity || 0;
+      const packageSize = material.packageSize || 0;
+      const packageUnit = material.packageUnit || '';
+      
+      // Calculate number of packages needed
+      let packagesNeeded = '—';
+      if (packageSize > 0 && quantity > 0) {
+        const calculated = quantity / packageSize;
+        packagesNeeded = calculated.toLocaleString('ro-RO', { 
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2 
+        });
+      }
+
+      // Format package size display
+      const packageSizeDisplay = packageSize > 0 
+        ? `${packageSize.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} ${packageUnit || material.unit}`
+        : '—';
+
+      wsData.push([
+        index + 1,
+        material.materialCode || '-',
+        material.materialDescription || '-',
+        material.supplier || '-',
+        material.unit || '-',
+        quantity,
+        packageSizeDisplay,
+        packagesNeeded,
+        material.unitPrice || 0,
+        material.baseValue || 0,
+      ]);
+    });
+
+    // Add empty row before totals
+    wsData.push([]);
+
+    // Totals section
+    wsData.push(['', '', '', '', '', '', '', '', 'TOTAL MATERIALE:', materialsTotal]);
+    wsData.push(['', '', '', '', '', '', '', '', `Adaos (${stdMarkup}%):`, (materialsTotal * stdMarkup) / 100]);
+    wsData.push(['', '', '', '', '', '', '', '', `Discount (${stdDiscount}%):`, -((materialsTotal * (1 + stdMarkup / 100)) * stdDiscount) / 100]);
+    wsData.push(['', '', '', '', '', '', '', '', 'TOTAL FINAL:', materials.reduce((sum, m) => sum + (m.finalValue || 0), 0)]);
+
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 8 },  // Nr. Crt.
+      { wch: 12 }, // Cod Material
+      { wch: 35 }, // Descriere Material
+      { wch: 20 }, // Furnizor
+      { wch: 8 },  // UM
+      { wch: 15 }, // Cantitate Necesară
+      { wch: 15 }, // Mărime Pachet
+      { wch: 18 }, // Nr. Pachete Necesare
+      { wch: 16 }, // Preț Unitar
+      { wch: 18 }, // Valoare Totală
+    ];
+
+    // Style the header row (row 6, index 5)
+    const headerRowIndex = 6;
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c: col });
+      if (!ws[cellAddress]) continue;
+      ws[cellAddress].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: 'CCCCCC' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      };
+    }
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, ws, 'Necesar Aprovizionare');
+
+    // Generate filename with date
+    const filename = `Necesar_Aprovizionare_${devizLine?.code}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    // Download file
+    XLSX.writeFile(wb, filename);
+  };
+
+  const handleGenerateManoperaProiect = () => {
+    if (labor.length === 0) {
+      alert('Nu există manoperă pentru a genera documentul.');
+      return;
+    }
+
+    // Create worksheet data
+    const wsData: any[][] = [];
+    
+    // Header rows
+    wsData.push(['MANOPERĂ PROIECT']);
+    wsData.push([`Proiect: ${projectName}`]);
+    wsData.push([`Operație: ${devizLine?.code} - ${devizLine?.description}`]);
+    wsData.push([`Data: ${new Date().toLocaleDateString('ro-RO')}`]);
+    wsData.push([]); // Empty row
+    
+    // Table headers
+    wsData.push([
+      'Nr. Crt.',
+      'Cod Operație',
+      'Descriere Operație',
+      'Descriere Manoperă',
+      'UM',
+      'Cantitate',
+      'Preț Unitar (LEI)',
+      'Valoare de Bază (LEI)',
+      'Adaos (%)',
+      'Valoare cu Adaos (LEI)',
+      'Discount (%)',
+      'Valoare Finală (LEI)',
+    ]);
+
+    // Labor rows
+    labor.forEach((item, index) => {
+      wsData.push([
+        index + 1,
+        item.operationCode || '-',
+        item.operationDescription || '-',
+        item.laborDescription || '-',
+        'ore', // Default unit for labor
+        item.quantity || 0,
+        item.unitPrice || 0,
+        item.baseValue || 0,
+        item.markupPercent || 0,
+        item.valueWithMarkup || 0,
+        item.discountPercent || 0,
+        item.finalValue || 0,
+      ]);
+    });
+
+    // Add empty row before totals
+    wsData.push([]);
+
+    // Totals section
+    const totalBase = labor.reduce((sum, l) => sum + (l.baseValue || 0), 0);
+    const totalWithMarkup = labor.reduce((sum, l) => sum + (l.valueWithMarkup || 0), 0);
+    const totalMarkupAmount = totalWithMarkup - totalBase;
+    const totalDiscountAmount = totalWithMarkup - labor.reduce((sum, l) => sum + (l.finalValue || 0), 0);
+    
+    wsData.push(['', '', '', '', '', '', '', 'TOTAL BAZĂ:', totalBase]);
+    wsData.push(['', '', '', '', '', '', '', `Adaos Mediu (${stdMarkup}%):`, totalMarkupAmount]);
+    wsData.push(['', '', '', '', '', '', '', `Discount Mediu (${stdDiscount}%):`, -totalDiscountAmount]);
+    wsData.push(['', '', '', '', '', '', '', 'TOTAL MANOPERĂ:', laborTotal]);
+
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 8 },  // Nr. Crt.
+      { wch: 12 }, // Cod Operație
+      { wch: 30 }, // Descriere Operație
+      { wch: 35 }, // Descriere Manoperă
+      { wch: 8 },  // UM
+      { wch: 12 }, // Cantitate
+      { wch: 16 }, // Preț Unitar
+      { wch: 18 }, // Valoare de Bază
+      { wch: 12 }, // Adaos (%)
+      { wch: 18 }, // Valoare cu Adaos
+      { wch: 12 }, // Discount (%)
+      { wch: 18 }, // Valoare Finală
+    ];
+
+    // Style the header row (row 6, index 5)
+    const headerRowIndex = 6;
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex - 1, c: col });
+      if (!ws[cellAddress]) continue;
+      ws[cellAddress].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: 'CCCCCC' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      };
+    }
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, ws, 'Manoperă Proiect');
+
+    // Generate filename with date
+    const filename = `Manopera_Proiect_${devizLine?.code}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    // Download file
+    XLSX.writeFile(wb, filename);
+  };
+
+  // Totals
+  const materialsTotal = useMemo(() => materials.reduce((sum, m) => sum + (m.finalValue || 0), 0), [materials]);
+  const laborTotal = useMemo(() => labor.reduce((sum, l) => sum + (l.finalValue || 0), 0), [labor]);
+  const indirectAmount = useMemo(() => ((materialsTotal + laborTotal) * (stdIndirect || 0)) / 100, [materialsTotal, laborTotal, stdIndirect]);
+  const grandTotal = useMemo(() => materialsTotal + laborTotal + indirectAmount, [materialsTotal, laborTotal, indirectAmount]);
 
   // Materials Table Columns
   const materialsColumns = useMemo<MRT_ColumnDef<MaterialItem>[]>(
@@ -210,6 +576,48 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         accessorKey: 'materialDescription',
         header: 'Descriere Material',
         size: 200,
+      },
+      {
+        accessorKey: 'supplier',
+        header: 'Furnizor',
+        size: 150,
+      },
+      {
+        accessorKey: 'packageSize',
+        header: 'Mărime Pachet',
+        size: 120,
+        muiEditTextFieldProps: {
+          type: 'number',
+          inputProps: { step: 0.01, min: 0 },
+        },
+        Cell: ({ cell, row }) => {
+          const val = cell.getValue<number | null>();
+          const unit = row.original.packageUnit;
+          if (val != null && unit) {
+            return `${val.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} ${unit}`;
+          }
+          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+        },
+      },
+      {
+        id: 'packagesNeeded',
+        header: 'Nr. Pachete Necesare',
+        size: 150,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const qty = row.original.quantity ?? 0;
+          const pkg = row.original.packageSize ?? 0;
+          if (qty > 0 && pkg > 0) {
+            const calc = qty / pkg;
+            return calc.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+          return '—';
+        },
+      },
+      {
+        accessorKey: 'packageUnit',
+        header: 'UM Pachet',
+        size: 100,
       },
       {
         accessorKey: 'unit',
@@ -403,6 +811,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const materialsTable = useMaterialReactTable({
     columns: materialsColumns,
     data: materials,
+    getRowId: (row) => row.id,
     localization: tableLocalization,
     enablePagination: true,
     enableBottomToolbar: true,
@@ -412,8 +821,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     enableSorting: true,
     enableEditing: true,
     editDisplayMode: 'table',
-    enableRowActions: true,
-    positionActionsColumn: 'last',
+    enableRowActions: false,
     initialState: {
       pagination: { pageIndex: 0, pageSize: 10 },
       density: 'compact',
@@ -422,36 +830,70 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       onBlur: (e) => {
         const target = e.target as HTMLInputElement;
         const value = target.value;
-        handleUpdateMaterial(row.original.id, {
-          [column.id]: ['quantity', 'unitPrice', 'markupPercent', 'discountPercent'].includes(column.id)
+        const numericCols = ['quantity', 'unitPrice', 'markupPercent', 'discountPercent', 'packageSize'];
+        const basePatch: any = {
+          [column.id]: numericCols.includes(column.id)
             ? (value ? parseFloat(value) : null)
             : value,
-        });
+        };
+
+        // If user edited code/description, merge auto-fill into the same update to avoid UI flicker
+        if (column.id === 'materialCode' || column.id === 'materialDescription') {
+          const key = (value ?? '').toString().trim().toUpperCase();
+          let src: Material | undefined;
+          if (column.id === 'materialCode') src = materialsByCode.get(key);
+          else src = materialsByDesc.get(key);
+          if (src) {
+            const current = row.original;
+            const autofillPatch: Partial<MaterialItem> = {};
+            // Identification (normalize what user typed)
+            if (column.id === 'materialCode') autofillPatch.materialCode = src.code || current.materialCode;
+            if (column.id === 'materialDescription') autofillPatch.materialDescription = src.description || current.materialDescription;
+            // Supplier
+            if (!current.supplier) autofillPatch.supplier = src.supplierName || '';
+            // Packaging
+            if (current.packageSize == null || Number(current.packageSize) <= 0) {
+              autofillPatch.packageSize = src.packQuantity != null ? Number(src.packQuantity) : null;
+            }
+            if (!current.packageUnit || !current.packageUnit.trim()) {
+              autofillPatch.packageUnit = src.packUnit || '';
+            }
+            // Unit: Use packUnit if available (for quantity measurement), otherwise base unit
+            if (!current.unit || !current.unit.trim()) {
+              // If material has packaging info, use packUnit for quantity measurement
+              if (src.packUnit && src.packUnit.trim()) {
+                autofillPatch.unit = src.packUnit.toLowerCase();
+              } else {
+                autofillPatch.unit = src.unit || current.unit;
+              }
+            }
+            // Price
+            if (current.unitPrice == null && src.price != null) {
+              autofillPatch.unitPrice = Number(src.price);
+            }
+            Object.assign(basePatch, autofillPatch);
+          }
+        }
+
+        handleUpdateMaterial(row.original.id, basePatch);
       },
     }),
-    renderRowActions: ({ row }) => (
-      <Stack direction="row" gap={0.5}>
-        <IconButton
-          size="small"
-          color="error"
-          onClick={() => handleDeleteMaterial(row.original.id)}
-        >
-          <DeleteOutlineIcon fontSize="small" />
-        </IconButton>
-      </Stack>
-    ),
     renderTopToolbarCustomActions: () => (
-      <Button
-        variant="contained"
-        size="small"
-        startIcon={<AddIcon />}
-        onClick={handleAddMaterial}
-      >
-        Adaugă Material
-      </Button>
+      <Tooltip title="Generează document Necesar Aprovizionare (Excel)" arrow>
+        <Button
+          variant="outlined"
+          size="small"
+          color="success"
+          startIcon={<DescriptionRoundedIcon />}
+          onClick={handleGenerateNecesarAprovizionare}
+          disabled={materials.length === 0}
+        >
+          Necesar Aprovizionare
+        </Button>
+      </Tooltip>
     ),
     renderBottomToolbarCustomActions: () => {
-      const total = materials.reduce((sum, m) => sum + (m.finalValue || 0), 0);
+      const total = materialsTotal;
       return (
         <Box sx={{ p: 1 }}>
           <Typography variant="subtitle1" fontWeight="bold" color="primary">
@@ -465,6 +907,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const laborTable = useMaterialReactTable({
     columns: laborColumns,
     data: labor,
+    getRowId: (row) => row.id,
     localization: tableLocalization,
     enablePagination: true,
     enableBottomToolbar: true,
@@ -474,8 +917,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     enableSorting: true,
     enableEditing: true,
     editDisplayMode: 'table',
-    enableRowActions: true,
-    positionActionsColumn: 'last',
+    enableRowActions: false, // No action column for auto-aggregated labor
     initialState: {
       pagination: { pageIndex: 0, pageSize: 10 },
       density: 'compact',
@@ -491,29 +933,22 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         });
       },
     }),
-    renderRowActions: ({ row }) => (
-      <Stack direction="row" gap={0.5}>
-        <IconButton
-          size="small"
-          color="error"
-          onClick={() => handleDeleteLabor(row.original.id)}
-        >
-          <DeleteOutlineIcon fontSize="small" />
-        </IconButton>
-      </Stack>
-    ),
     renderTopToolbarCustomActions: () => (
-      <Button
-        variant="contained"
-        size="small"
-        startIcon={<AddIcon />}
-        onClick={handleAddLabor}
-      >
-        Adaugă Manoperă
-      </Button>
+      <Tooltip title="Generează document Manoperă Proiect (Excel)" arrow>
+        <Button
+          variant="outlined"
+          size="small"
+          color="success"
+          startIcon={<DescriptionRoundedIcon />}
+          onClick={handleGenerateManoperaProiect}
+          disabled={labor.length === 0}
+        >
+          Manoperă Proiect
+        </Button>
+      </Tooltip>
     ),
     renderBottomToolbarCustomActions: () => {
-      const total = labor.reduce((sum, l) => sum + (l.finalValue || 0), 0);
+      const total = laborTotal;
       return (
         <Box sx={{ p: 1 }}>
           <Typography variant="subtitle1" fontWeight="bold" color="primary">
@@ -529,20 +964,399 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
       <DialogTitle>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
           <Box>
             <Typography variant="h5">Devize - {devizLine.code}</Typography>
             <Typography variant="subtitle2" color="text.secondary">
               {projectName} | {devizLine.description}
             </Typography>
           </Box>
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Chip label={`Materiale: ${materialsTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="default" />
+            <Chip label={`Manoperă: ${laborTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="default" />
+            {stdIndirect > 0 && (
+              <Chip label={`Indirecte (${stdIndirect}%): ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="warning" />
+            )}
+            <IconButton onClick={onClose} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
         </Stack>
       </DialogTitle>
 
       <DialogContent dividers>
+        {/* Financial Parameters inside Devize - UPGRADED UI */}
+        <Paper 
+          elevation={0} 
+          sx={(theme) => ({ 
+            p: 3, 
+            mb: 3, 
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.04)}, ${alpha(theme.palette.primary.main, 0.01)})`,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: 2,
+          })}
+        >
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2.5 }}>
+            <Box 
+              sx={(theme) => ({
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: alpha(theme.palette.primary.main, 0.1),
+                color: theme.palette.primary.main,
+              })}
+            >
+              <SettingsRoundedIcon sx={{ fontSize: 24 }} />
+            </Box>
+            <Box>
+              <Typography variant="h6" fontWeight={700} color="primary">
+                Parametri Financiari
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Configurare adaos, discount și cheltuieli indirecte
+              </Typography>
+            </Box>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2.5}>
+            {/* Adaos Standard */}
+            <Box sx={{ flex: 1 }}>
+              <Paper
+                elevation={0}
+                sx={(theme) => ({
+                  p: 2.5,
+                  borderRadius: 2,
+                  border: `2px solid ${alpha(theme.palette.success.main, 0.2)}`,
+                  bgcolor: alpha(theme.palette.success.main, 0.04),
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    borderColor: alpha(theme.palette.success.main, 0.4),
+                    boxShadow: `0 4px 12px ${alpha(theme.palette.success.main, 0.15)}`,
+                  },
+                })}
+              >
+                <Stack spacing={1.5}>
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box
+                      sx={(theme) => ({
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: alpha(theme.palette.success.main, 0.15),
+                        color: theme.palette.success.main,
+                      })}
+                    >
+                      <TrendingUpRoundedIcon sx={{ fontSize: 22 }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={700} color="success.dark">
+                        Adaos Standard
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Marjă profit adăugată
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <TextField
+                    fullWidth
+                    size="medium"
+                    type="number"
+                    value={stdMarkup}
+                    onChange={(e) => setStdMarkup(parseFloat(e.target.value) || 0)}
+                    inputProps={{ step: '0.5', min: '0', max: '100' }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <TrendingUpRoundedIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Chip 
+                            label="%" 
+                            size="small" 
+                            color="success" 
+                            sx={{ fontWeight: 700, minWidth: 36 }}
+                          />
+                        </InputAdornment>
+                      ),
+                      sx: { 
+                        fontWeight: 600,
+                        fontSize: '1.125rem',
+                        '& input': { textAlign: 'center' }
+                      }
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        bgcolor: 'background.paper',
+                        '&:hover': {
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: 'success.main',
+                          },
+                        },
+                      },
+                    }}
+                  />
+                  <Alert 
+                    severity="success" 
+                    icon={<InfoOutlinedIcon fontSize="small" />}
+                    sx={{ 
+                      py: 0.5,
+                      '& .MuiAlert-message': { fontSize: '0.75rem' }
+                    }}
+                  >
+                    Se aplică tuturor liniilor; poate fi personalizat per linie
+                  </Alert>
+                </Stack>
+              </Paper>
+            </Box>
+
+            {/* Discount Standard */}
+            <Box sx={{ flex: 1 }}>
+              <Paper
+                elevation={0}
+                sx={(theme) => ({
+                  p: 2.5,
+                  borderRadius: 2,
+                  border: `2px solid ${alpha(theme.palette.warning.main, 0.2)}`,
+                  bgcolor: alpha(theme.palette.warning.main, 0.04),
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    borderColor: alpha(theme.palette.warning.main, 0.4),
+                    boxShadow: `0 4px 12px ${alpha(theme.palette.warning.main, 0.15)}`,
+                  },
+                })}
+              >
+                <Stack spacing={1.5}>
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box
+                      sx={(theme) => ({
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: alpha(theme.palette.warning.main, 0.15),
+                        color: theme.palette.warning.main,
+                      })}
+                    >
+                      <DiscountRoundedIcon sx={{ fontSize: 22 }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={700} color="warning.dark">
+                        Discount Standard
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Reducere aplicată clientului
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <TextField
+                    fullWidth
+                    size="medium"
+                    type="number"
+                    value={stdDiscount}
+                    onChange={(e) => setStdDiscount(parseFloat(e.target.value) || 0)}
+                    inputProps={{ step: '0.5', min: '0', max: '100' }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <DiscountRoundedIcon sx={{ color: 'warning.main', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Chip 
+                            label="%" 
+                            size="small" 
+                            color="warning" 
+                            sx={{ fontWeight: 700, minWidth: 36 }}
+                          />
+                        </InputAdornment>
+                      ),
+                      sx: { 
+                        fontWeight: 600,
+                        fontSize: '1.125rem',
+                        '& input': { textAlign: 'center' }
+                      }
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        bgcolor: 'background.paper',
+                        '&:hover': {
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: 'warning.main',
+                          },
+                        },
+                      },
+                    }}
+                  />
+                  <Alert 
+                    severity="warning" 
+                    icon={<InfoOutlinedIcon fontSize="small" />}
+                    sx={{ 
+                      py: 0.5,
+                      '& .MuiAlert-message': { fontSize: '0.75rem' }
+                    }}
+                  >
+                    Se aplică după adaos; poate fi personalizat per linie
+                  </Alert>
+                </Stack>
+              </Paper>
+            </Box>
+
+            {/* Cheltuieli Indirecte */}
+            <Box sx={{ flex: 1 }}>
+              <Paper
+                elevation={0}
+                sx={(theme) => ({
+                  p: 2.5,
+                  borderRadius: 2,
+                  border: `2px solid ${alpha(theme.palette.info.main, 0.2)}`,
+                  bgcolor: alpha(theme.palette.info.main, 0.04),
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    borderColor: alpha(theme.palette.info.main, 0.4),
+                    boxShadow: `0 4px 12px ${alpha(theme.palette.info.main, 0.15)}`,
+                  },
+                })}
+              >
+                <Stack spacing={1.5}>
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box
+                      sx={(theme) => ({
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: alpha(theme.palette.info.main, 0.15),
+                        color: theme.palette.info.main,
+                      })}
+                    >
+                      <AccountBalanceRoundedIcon sx={{ fontSize: 22 }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={700} color="info.dark">
+                        Cheltuieli Indirecte
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Costuri suplimentare (general)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <TextField
+                    fullWidth
+                    size="medium"
+                    type="number"
+                    value={stdIndirect}
+                    onChange={(e) => setStdIndirect(parseFloat(e.target.value) || 0)}
+                    inputProps={{ step: '0.5', min: '0', max: '100' }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <AccountBalanceRoundedIcon sx={{ color: 'info.main', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Chip 
+                            label="%" 
+                            size="small" 
+                            color="info" 
+                            sx={{ fontWeight: 700, minWidth: 36 }}
+                          />
+                        </InputAdornment>
+                      ),
+                      sx: { 
+                        fontWeight: 600,
+                        fontSize: '1.125rem',
+                        '& input': { textAlign: 'center' }
+                      }
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        bgcolor: 'background.paper',
+                        '&:hover': {
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: 'info.main',
+                          },
+                        },
+                      },
+                    }}
+                  />
+                  <Alert 
+                    severity="info" 
+                    icon={<InfoOutlinedIcon fontSize="small" />}
+                    sx={{ 
+                      py: 0.5,
+                      '& .MuiAlert-message': { fontSize: '0.75rem' }
+                    }}
+                  >
+                    Aplicat la totalul (materiale + manoperă)
+                  </Alert>
+                </Stack>
+              </Paper>
+            </Box>
+          </Stack>
+
+          <Divider sx={{ my: 2.5 }} />
+
+          {/* Real-time Impact Summary */}
+          <Box 
+            sx={(theme) => ({ 
+              p: 2, 
+              borderRadius: 2, 
+              bgcolor: alpha(theme.palette.primary.main, 0.06),
+              border: `1px dashed ${alpha(theme.palette.primary.main, 0.3)}`,
+            })}
+          >
+            <Stack direction="row" spacing={3} alignItems="center" justifyContent="center" flexWrap="wrap">
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Impact Adaos:
+                </Typography>
+                <Chip 
+                  label={`+${((materialsTotal + laborTotal) * stdMarkup / 100).toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`}
+                  size="small"
+                  color="success"
+                  sx={{ fontWeight: 700 }}
+                />
+              </Stack>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Impact Discount:
+                </Typography>
+                <Chip 
+                  label={`-${(((materialsTotal + laborTotal) * (1 + stdMarkup / 100)) * stdDiscount / 100).toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`}
+                  size="small"
+                  color="warning"
+                  sx={{ fontWeight: 700 }}
+                />
+              </Stack>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Impact Indirecte:
+                </Typography>
+                <Chip 
+                  label={`+${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`}
+                  size="small"
+                  color="info"
+                  sx={{ fontWeight: 700 }}
+                />
+              </Stack>
+            </Stack>
+          </Box>
+        </Paper>
+
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={tabIndex} onChange={(_, newValue) => setTabIndex(newValue)}>
             <Tab label="Lista Necesar Materiale Proiect" />
@@ -552,30 +1366,52 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
 
         {tabIndex === 0 && (
           <Box>
+            {materials.length === 0 ? (
+              <Alert severity="info" icon={<InfoOutlinedIcon />} sx={{ borderRadius: 1, mb: 2 }}>
+                Nu există materiale în listă. Folosește butonul „Adaugă Material” pentru a începe.
+              </Alert>
+            ) : null}
             <MaterialReactTable table={materialsTable} />
           </Box>
         )}
 
         {tabIndex === 1 && (
           <Box>
+            {labor.length === 0 ? (
+              <Alert severity="info" icon={<InfoOutlinedIcon />} sx={{ borderRadius: 1, mb: 2 }}>
+                Nu există linii de manoperă. Folosește butonul „Adaugă Manoperă” pentru a adăuga.
+              </Alert>
+            ) : null}
             <MaterialReactTable table={laborTable} />
           </Box>
         )}
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} variant="outlined">
-          Anulează
-        </Button>
-        <Button
-          onClick={() => {
-            onSave(materials, labor);
-            onClose();
-          }}
-          variant="contained"
-        >
-          Salvează Devize
-        </Button>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} sx={{ flex: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              <Chip size="small" label={`Total materiale: ${materialsTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
+              <Chip size="small" label={`Total manoperă: ${laborTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
+              {stdIndirect > 0 && (
+                <Chip size="small" color="warning" label={`Indirecte ${stdIndirect}%: ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
+              )}
+              <Chip size="small" color="success" label={`Total general: ${grandTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
+            </Stack>
+          </Box>
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button onClick={onClose} variant="outlined">Anulează</Button>
+            <Button
+              onClick={() => {
+                onSave(materials, labor);
+                onClose();
+              }}
+              variant="contained"
+            >
+              Salvează Devize
+            </Button>
+          </Stack>
+        </Stack>
       </DialogActions>
     </Dialog>
   );

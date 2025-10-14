@@ -11,7 +11,8 @@ export interface OperationSheetItemDTO {
   unit: string;
   quantity: number;
   unitPrice: number;
-  totalPrice: number;
+  packQuantity?: number | null;
+  packUnit?: string | null;
   addedAt?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -40,6 +41,8 @@ export interface CreateTemplateRequest {
     unit: string;
     quantity: number;
     price: number;
+    packQuantity?: number | null;
+    packUnit?: string | null;
   }>;
 }
 
@@ -55,6 +58,8 @@ export interface UpdateTemplateRequest {
     unit: string;
     quantity: number;
     price: number;
+    packQuantity?: number | null;
+    packUnit?: string | null;
   }>;
 }
 
@@ -141,6 +146,7 @@ export interface ProjectOperationSheetDTO {
   id: string | null;
   projectId: string;
   operationId: string;
+  operationItemId?: string | null;
   templateId?: string | null;
   templateVersion?: number;
   name?: string;
@@ -163,6 +169,8 @@ export interface SaveProjectSheetRequest {
     unit: string;
     quantity: number;
     price: number;
+    packQuantity?: number | null;
+    packUnit?: string | null;
   }>;
 }
 

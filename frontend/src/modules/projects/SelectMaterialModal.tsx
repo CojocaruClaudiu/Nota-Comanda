@@ -7,6 +7,7 @@ import {
   Button,
   CircularProgress,
   Alert,
+  Chip,
 } from '@mui/material';
 import { MaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import type { Material } from '../../api/materials';
@@ -65,6 +66,28 @@ export const SelectMaterialModal: React.FC<SelectMaterialModalProps> = ({
         accessorKey: 'unit',
         header: 'UM',
         size: 80,
+      },
+      {
+        id: 'packaging',
+        header: 'Ambalaj',
+        size: 140,
+        accessorFn: (row) => (row.packQuantity != null ? row.packQuantity : null),
+        Cell: ({ row }) => {
+          const quantity = row.original.packQuantity;
+          const unitValue = row.original.packUnit;
+          if (quantity == null || !unitValue) {
+            return '-';
+          }
+          const formatted = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 4 }).format(quantity);
+          return (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="primary"
+              label={`${formatted} ${unitValue}`}
+            />
+          );
+        },
       },
       {
         accessorKey: 'price',

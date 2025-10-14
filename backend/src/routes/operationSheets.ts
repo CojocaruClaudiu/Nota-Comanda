@@ -138,16 +138,22 @@ router.post('/operations/:operationId/templates', async (req, res) => {
         isActive: true,
         version: 1,
         items: {
-          create: body.items.map((item: any) => ({
-            itemType: item.type || item.itemType,
-            referenceId: item.referenceId || null,
-            code: item.code || '',
-            description: item.description || item.name || '',
-            unit: item.unit,
-            quantity: new Prisma.Decimal(item.quantity),
-            unitPrice: new Prisma.Decimal(item.price || item.unitPrice),
-            notes: item.notes || null,
-          })),
+          create: body.items.map((item: any) => {
+            const price = item.price ?? item.unitPrice;
+            if (price === undefined || price === null) {
+              throw new Error(`Item price is required for item: ${JSON.stringify(item)}`);
+            }
+            return {
+              itemType: item.type || item.itemType,
+              referenceId: item.referenceId || null,
+              code: item.code || '',
+              description: item.description || item.name || '',
+              unit: item.unit,
+              quantity: new Prisma.Decimal(item.quantity),
+              unitPrice: new Prisma.Decimal(price),
+              notes: item.notes || null,
+            };
+          }),
         },
       },
       include: {
@@ -221,22 +227,28 @@ router.put('/operations/:operationId/templates/:templateId', async (req, res) =>
     const updatedTemplate = await prisma.operationSheetTemplate.update({
       where: { id: templateId },
       data: {
-        name: body.name,
-        description: body.description,
-        isDefault: body.isDefault,
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.isDefault !== undefined && { isDefault: body.isDefault }),
         version: { increment: 1 },
         ...(body.items && {
           items: {
-            create: body.items.map((item: any) => ({
-              itemType: item.type || item.itemType,
-              referenceId: item.referenceId || null,
-              code: item.code || '',
-              description: item.description || item.name || '',
-              unit: item.unit,
-              quantity: new Prisma.Decimal(item.quantity),
-              unitPrice: new Prisma.Decimal(item.price || item.unitPrice),
-              notes: item.notes || null,
-            })),
+            create: body.items.map((item: any) => {
+              const price = item.price ?? item.unitPrice;
+              if (price === undefined || price === null) {
+                throw new Error(`Item price is required for item: ${JSON.stringify(item)}`);
+              }
+              return {
+                itemType: item.type || item.itemType,
+                referenceId: item.referenceId || null,
+                code: item.code || '',
+                description: item.description || item.name || '',
+                unit: item.unit,
+                quantity: new Prisma.Decimal(item.quantity),
+                unitPrice: new Prisma.Decimal(price),
+                notes: item.notes || null,
+              };
+            }),
           },
         }),
       },
@@ -300,7 +312,7 @@ router.post('/operations/:operationId/templates/:templateId/set-default', async 
     // Unset all other defaults
     await prisma.operationSheetTemplate.updateMany({
       where: {
-        operationId,
+        operationItemId: operationId,
         isDefault: true,
       },
       data: {
@@ -319,7 +331,7 @@ router.post('/operations/:operationId/templates/:templateId/set-default', async 
 
     const templateDTO: OperationSheetTemplateDTO = {
       id: template.id,
-      operationId: template.operationId,
+      operationId: template.operationItemId,
       name: template.name,
       description: template.description || undefined,
       isDefault: template.isDefault,
@@ -349,10 +361,16 @@ router.post('/operations/:operationId/templates/:templateId/set-default', async 
 
 // ==================== PROJECT OPERATION SHEET ENDPOINTS ====================
 
-// Get operation sheet for a specific project and operation
+// Get operation sheet for a specific project and operation (accepts Operation OR OperationItem id)
 router.get('/projects/:projectId/operations/:operationId/sheet', async (req, res) => {
   try {
-    const { projectId, operationId } = req.params;
+    const { projectId, operationId: rawOperationId } = req.params;
+
+    const resolved = await resolveOperationContext(rawOperationId);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Operation or operation item not found' });
+    }
+    const { operationId, operationItemId } = resolved;
 
     const sheet = await prisma.projectOperationSheet.findUnique({
       where: {
@@ -362,19 +380,17 @@ router.get('/projects/:projectId/operations/:operationId/sheet', async (req, res
         },
       },
       include: {
-        items: {
-          orderBy: { addedAt: 'asc' },
-        },
+        items: { orderBy: { addedAt: 'asc' } },
         template: true,
       },
     });
 
     if (!sheet) {
-      // Return empty sheet if not found
       return res.json({
         id: null,
         projectId,
         operationId,
+        operationItemId,
         templateId: null,
         items: [],
       });
@@ -384,6 +400,7 @@ router.get('/projects/:projectId/operations/:operationId/sheet', async (req, res
       id: sheet.id,
       projectId: sheet.projectId,
       operationId: sheet.operationId,
+      operationItemId,
       templateId: sheet.templateId,
       templateVersion: sheet.templateVersion,
       name: sheet.name,
@@ -397,7 +414,6 @@ router.get('/projects/:projectId/operations/:operationId/sheet', async (req, res
         unit: item.unit,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
-        totalPrice: Number(item.totalPrice),
         addedAt: item.addedAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
@@ -410,18 +426,63 @@ router.get('/projects/:projectId/operations/:operationId/sheet', async (req, res
   }
 });
 
-// Save operation sheet for a specific project and operation
+// Helper to resolve provided ID (could be an Operation ID or an OperationItem ID)
+async function resolveOperationContext(
+  rawId: string
+): Promise<{ operationItemId: string; operationId: string; source: 'operation' | 'item' } | null> {
+  // If rawId is already an OperationItem ID
+  const item = await prisma.operationItem.findUnique({ where: { id: rawId } });
+  if (item) {
+    return {
+      operationItemId: item.id,
+      operationId: item.operationId,
+      source: 'item',
+    };
+  }
+
+  // Otherwise try to resolve it as an Operation ID by picking its latest item
+  const op = await prisma.operation.findUnique({
+    where: { id: rawId },
+    include: {
+      items: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+  });
+
+  if (op?.items?.length) {
+    const latestItem = op.items[0];
+    return {
+      operationItemId: latestItem.id,
+      operationId: op.id,
+      source: 'operation',
+    };
+  }
+
+  return null;
+}
+
+// Save operation sheet for a specific project and operation (accepts Operation OR OperationItem id in :operationId)
 router.post('/projects/:projectId/operations/:operationId/sheet', async (req, res) => {
   try {
-    const { projectId, operationId } = req.params;
+    const { projectId, operationId: rawOperationId } = req.params;
     const { templateId, items, name, description } = req.body;
+
+    // Resolve to actual operation id (FK)
+    const resolved = await resolveOperationContext(rawOperationId);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Operation or operation item not found' });
+    }
+    const { operationId, operationItemId, source } = resolved;
+    console.log('Saving project operation sheet', { projectId, operationId, operationItemId, source });
 
     // Validate items
     if (!Array.isArray(items)) {
       return res.status(400).json({ error: 'Items must be an array' });
     }
 
-    // Upsert the project operation sheet
+    // Upsert the project operation sheet (one per project+operation for now)
     const sheet = await prisma.projectOperationSheet.upsert({
       where: {
         projectId_operationId: {
@@ -453,17 +514,24 @@ router.post('/projects/:projectId/operations/:operationId/sheet', async (req, re
     // Create new items
     if (items.length > 0) {
       await prisma.operationSheetItem.createMany({
-        data: items.map((item: any) => ({
-          projectSheetId: sheet.id,
-          itemType: item.type || item.itemType,
-          referenceId: item.referenceId || null,
-          code: item.code || '',
-          description: item.description || item.name || '',
-          unit: item.unit,
-          quantity: item.quantity,
-          unitPrice: item.price || item.unitPrice,
-          totalPrice: item.quantity * (item.price || item.unitPrice),
-        })),
+        data: items.map((item: any) => {
+          const price = item.price !== undefined ? item.price : item.unitPrice;
+          if (price === undefined || price === null) {
+            throw new Error(`Item "${item.code}" is missing price. Item: ${JSON.stringify(item)}`);
+          }
+          const quantity = item.quantity ?? 0;
+          
+          return {
+            projectSheetId: sheet.id,
+            itemType: item.type || item.itemType,
+            referenceId: item.referenceId || null,
+            code: item.code || '',
+            description: item.description || item.name || '',
+            unit: item.unit,
+            quantity: new Prisma.Decimal(quantity),
+            unitPrice: new Prisma.Decimal(price), // Allow 0 price
+          };
+        }),
       });
     }
 
@@ -471,9 +539,7 @@ router.post('/projects/:projectId/operations/:operationId/sheet', async (req, re
     const completeSheet = await prisma.projectOperationSheet.findUnique({
       where: { id: sheet.id },
       include: {
-        items: {
-          orderBy: { addedAt: 'asc' },
-        },
+        items: { orderBy: { addedAt: 'asc' } },
       },
     });
 
@@ -481,8 +547,9 @@ router.post('/projects/:projectId/operations/:operationId/sheet', async (req, re
       id: completeSheet!.id,
       projectId: completeSheet!.projectId,
       operationId: completeSheet!.operationId,
+      operationItemId,
       templateId: completeSheet!.templateId,
-      items: completeSheet!.items.map((item) => ({
+      items: completeSheet!.items.map((item: any) => ({
         id: item.id,
         itemType: item.itemType,
         referenceId: item.referenceId,
@@ -491,7 +558,6 @@ router.post('/projects/:projectId/operations/:operationId/sheet', async (req, re
         unit: item.unit,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
-        totalPrice: Number(item.totalPrice),
         addedAt: item.addedAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
@@ -500,7 +566,13 @@ router.post('/projects/:projectId/operations/:operationId/sheet', async (req, re
     });
   } catch (error) {
     console.error('Error saving project operation sheet:', error);
-    res.status(500).json({ error: 'Failed to save operation sheet' });
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'Unknown error';
+    res.status(500).json({ error: 'Failed to save operation sheet', details: message });
   }
 });
 

@@ -198,12 +198,12 @@ export const LandingPage: React.FC = () => {
           keywords: ["producatori", "manufacturers"],
         },
         {
-          label: "Recepții",
+          label: "Registru Recepții",
           icon: <Inventory2RoundedIcon />,
-          variant: "outlined",
-          to: "/receptii",
-          minWidth: 160,
-          keywords: ["receptii", "receptie", "intrari", "aprovizionare"],
+          variant: "contained",
+          to: "/registru-receptii",
+          minWidth: 200,
+          keywords: ["registru", "receptii", "receptie", "intrari", "nir", "materiale"],
         },
         {
           label: "Comenzi",

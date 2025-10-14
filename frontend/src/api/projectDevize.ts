@@ -15,6 +15,9 @@ export interface MaterialItem {
   valueWithMarkup: number;
   discountPercent: number | null;
   finalValue: number;
+  supplier?: string | null;
+  packageSize?: number | null;
+  packageUnit?: string | null;
 }
 
 export interface LaborItem {

@@ -43,7 +43,13 @@ interface TreeRow {
 interface SelectOperationModalProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (item: { name: string; unit: string; categoryName: string; operationName: string }) => void;
+  onSelect: (item: { 
+    id: string; // OperationItem ID
+    name: string; 
+    unit: string; 
+    categoryName: string; 
+    operationName: string;
+  }) => void;
 }
 
 function numberize(tree: TreeRow[]): TreeRow[] {
@@ -245,6 +251,7 @@ const SelectOperationModal: React.FC<SelectOperationModalProps> = ({ open, onClo
         const rowData = row.original;
         if (rowData.type === 'item') {
           onSelect({
+            id: rowData.id, // OperationItem ID
             name: rowData.name,
             unit: rowData.unit || 'mp',
             categoryName: rowData.categoryName || '',

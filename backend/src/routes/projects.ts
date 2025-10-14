@@ -346,6 +346,7 @@ router.post('/:projectId/deviz/:lineId/sheet', async (req, res) => {
       await prisma.projectSheetOperation.createMany({
         data: operations.map((op: any) => ({
           projectSheetId: sheet.id,
+          operationItemId: op.operationItemId || null,
           orderNum: op.orderNum,
           operationName: op.operationName,
           unit: op.unit,
@@ -415,6 +416,9 @@ router.post('/:projectId/deviz/:lineId/materials', async (req, res) => {
           materialCode: mat.materialCode,
           materialDescription: mat.materialDescription,
           unit: mat.unit,
+          supplier: mat.supplier || null,
+          packageSize: mat.packageSize || null,
+          packageUnit: mat.packageUnit || null,
           quantity: mat.quantity,
           unitPrice: mat.unitPrice,
           baseValue: mat.baseValue,

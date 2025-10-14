@@ -11,6 +11,8 @@ import clientLocationRoutes from "./routes/clientLocations";
 import cashRoutes from "./routes/cash/cashRoutes";
 import materialsRoutes from "./routes/materials";
 import operationSheetsRoutes from "./routes/operationSheets";
+import exchangeRateRoutes from "./routes/exchangeRates";
+import receptionsRoutes from "./routes/receptions";
 import jwt from 'jsonwebtoken';
 import { calculateLeaveBalance } from './services/leaveCalculations.js';
 
@@ -41,6 +43,8 @@ app.use("/client-locations", clientLocationRoutes);
 app.use("/api", cashRoutes);
 app.use("/materials", materialsRoutes);
 app.use("/operation-sheets", operationSheetsRoutes);
+app.use("/exchange-rates", exchangeRateRoutes);
+app.use("/receptions", receptionsRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();

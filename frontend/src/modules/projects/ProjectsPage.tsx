@@ -40,6 +40,7 @@ import {
   deleteProjectDevizLine,
   type ProjectDevizLine,
 } from '../../api/projectDeviz';
+import { saveProjectSheet } from '../../api/projectSheet';
 import ProjectSheetModal, { type ProjectSheetData } from './ProjectSheetModal';
 
 const getStatusColor = (status: ProjectStatus) => {
@@ -91,6 +92,178 @@ const ProjectsPage: React.FC = () => {
   
   const { errorNotistack, successNotistack } = useNotistack();
   const confirm = useConfirm();
+
+  // Component for the detail panel
+  const DevizDetailPanel: React.FC<{ projectId: string; projectName: string; isExpanded: boolean }> = ({ projectId, projectName, isExpanded }) => {
+    const lines = devizLines[projectId] || [];
+    const isLoading = loadingDeviz[projectId];
+
+    // Load deviz when panel is expanded
+    useEffect(() => {
+      if (isExpanded && !devizLines[projectId] && !loadingDeviz[projectId]) {
+        loadDevizForProject(projectId);
+      }
+    }, [isExpanded, projectId]);
+
+    if (isLoading) {
+      return (
+        <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
+          <CircularProgress size={24} />
+        </Box>
+      );
+    }
+
+    return (
+      <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+          <Typography variant="h6" color="primary">
+            Deviz - Lucrări de construcții
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleAddDevizLine(projectId)}
+          >
+            Adaugă linie
+          </Button>
+        </Stack>
+
+        {lines.length === 0 ? (
+          <Alert severity="info">Nicio linie în deviz. Adaugă prima linie!</Alert>
+        ) : (
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'primary.main' }}>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '60px' }}>Cod</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', minWidth: '250px' }}>Descriere</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">LEI</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">EURO</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">TVA %</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">LEI cu TVA</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">EURO cu TVA</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">Acțiuni</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {lines.map((line) => (
+                  <TableRow key={line.id} hover>
+                    <TableCell>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => handleOpenProjectSheet(line, projectName)}
+                        sx={{ 
+                          minWidth: '50px',
+                          fontWeight: 'bold',
+                          textDecoration: 'underline',
+                          '&:hover': { bgcolor: 'primary.light', color: 'primary.contrastText' }
+                        }}
+                      >
+                        {line.code}
+                      </Button>
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        multiline
+                        value={line.description}
+                        onChange={(e) => handleUpdateDevizLine(projectId, line.id, { description: e.target.value })}
+                        placeholder="Ex: LUCRĂRI DE TENCUIELI"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={line.priceLei || ''}
+                        onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceLei: e.target.value ? parseFloat(e.target.value) : null })}
+                        sx={{ width: '110px' }}
+                        inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={line.priceEuro || ''}
+                        onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceEuro: e.target.value ? parseFloat(e.target.value) : null })}
+                        sx={{ width: '110px' }}
+                        inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={line.vatPercent || ''}
+                        onChange={(e) => handleUpdateDevizLine(projectId, line.id, { vatPercent: e.target.value ? parseFloat(e.target.value) : null })}
+                        sx={{ width: '70px' }}
+                        inputProps={{ style: { textAlign: 'center' }, step: '1', min: '0', max: '100' }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight="bold" color="success.main">
+                        {line.priceWithVatLei
+                          ? line.priceWithVatLei.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight="bold" color="success.main">
+                        {line.priceWithVatEuro
+                          ? line.priceWithVatEuro.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleDeleteDevizLine(projectId, line.id, line.description)}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {/* Summary Row */}
+                <TableRow sx={{ bgcolor: 'action.hover', borderTop: '2px solid', borderColor: 'primary.main' }}>
+                  <TableCell colSpan={2} align="right">
+                    <Typography variant="subtitle1" fontWeight="bold">TOTAL:</Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {lines.reduce((sum, l) => sum + (l.priceLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {lines.reduce((sum, l) => sum + (l.priceEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </TableCell>
+                  <TableCell />
+                  <TableCell align="right">
+                    <Typography variant="subtitle1" fontWeight="bold" color="success.main">
+                      {lines.reduce((sum, l) => sum + (l.priceWithVatLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="subtitle1" fontWeight="bold" color="success.main">
+                      {lines.reduce((sum, l) => sum + (l.priceWithVatEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+      </Box>
+    );
+  };
 
   // Memoized columns with enhanced features
   const columns = useMemo<MRT_ColumnDef<Project>[]>(
@@ -303,9 +476,25 @@ const ProjectsPage: React.FC = () => {
   // Save project sheet data
   const handleSaveProjectSheet = async (data: ProjectSheetData) => {
     try {
-      // TODO: Implement API call to save project sheet
-      console.log('Saving project sheet:', data);
-      successNotistack('Fișa proiect salvată');
+      await saveProjectSheet(data.projectId, data.devizLineId, {
+        initiationDate: data.initiationDate ? data.initiationDate.toISOString() : null,
+        estimatedStartDate: data.estimatedStartDate ? data.estimatedStartDate.toISOString() : null,
+        estimatedEndDate: data.estimatedEndDate ? data.estimatedEndDate.toISOString() : null,
+        standardMarkupPercent: data.standardMarkupPercent ?? null,
+        standardDiscountPercent: data.standardDiscountPercent ?? null,
+        indirectCostsPercent: data.indirectCostsPercent ?? null,
+        operations: data.operations.map(op => ({
+          operationItemId: op.operationItemId, // Include OperationItem ID for templates
+          orderNum: op.orderNum,
+          operationName: op.operationName,
+          unit: op.unit,
+          quantity: op.quantity ?? 0,
+          unitPrice: op.unitPrice ?? 0,
+          totalPrice: op.totalPrice ?? 0,
+          notes: op.notes ?? undefined,
+        })),
+      });
+      successNotistack('Fișa proiect salvată cu succes');
     } catch (e: any) {
       errorNotistack(e?.message || 'Eroare la salvarea fișei proiect');
       throw e;
@@ -414,177 +603,13 @@ const ProjectsPage: React.FC = () => {
     ),
 
     // Render detail panel for deviz lines
-    renderDetailPanel: ({ row }) => {
-      const projectId = row.original.id;
-      const lines = devizLines[projectId] || [];
-      const isLoading = loadingDeviz[projectId];
-
-      // Load on expand
-      React.useEffect(() => {
-        if (row.getIsExpanded()) {
-          loadDevizForProject(projectId);
-        }
-      }, [row.getIsExpanded()]);
-
-      if (isLoading) {
-        return (
-          <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
-            <CircularProgress size={24} />
-          </Box>
-        );
-      }
-
-      return (
-        <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-            <Typography variant="h6" color="primary">
-              Deviz - Lucrări de construcții
-            </Typography>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => handleAddDevizLine(projectId)}
-            >
-              Adaugă linie
-            </Button>
-          </Stack>
-
-          {lines.length === 0 ? (
-            <Alert severity="info">Nicio linie în deviz. Adaugă prima linie!</Alert>
-          ) : (
-            <Box sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'primary.main' }}>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '60px' }}>Cod</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', minWidth: '250px' }}>Descriere</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">LEI</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">EURO</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">TVA %</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">LEI cu TVA</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">EURO cu TVA</TableCell>
-                    <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">Acțiuni</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {lines.map((line) => (
-                    <TableRow key={line.id} hover>
-                      <TableCell>
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => handleOpenProjectSheet(line, row.original.name)}
-                          sx={{ 
-                            minWidth: '50px',
-                            fontWeight: 'bold',
-                            textDecoration: 'underline',
-                            '&:hover': { bgcolor: 'primary.light', color: 'primary.contrastText' }
-                          }}
-                        >
-                          {line.code}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          fullWidth
-                          multiline
-                          value={line.description}
-                          onChange={(e) => handleUpdateDevizLine(projectId, line.id, { description: e.target.value })}
-                          placeholder="Ex: LUCRĂRI DE TENCUIELI"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={line.priceLei || ''}
-                          onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceLei: e.target.value ? parseFloat(e.target.value) : null })}
-                          sx={{ width: '110px' }}
-                          inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={line.priceEuro || ''}
-                          onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceEuro: e.target.value ? parseFloat(e.target.value) : null })}
-                          sx={{ width: '110px' }}
-                          inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={line.vatPercent || ''}
-                          onChange={(e) => handleUpdateDevizLine(projectId, line.id, { vatPercent: e.target.value ? parseFloat(e.target.value) : null })}
-                          sx={{ width: '70px' }}
-                          inputProps={{ style: { textAlign: 'center' }, step: '1', min: '0', max: '100' }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" fontWeight="bold" color="success.main">
-                          {line.priceWithVatLei
-                            ? line.priceWithVatLei.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            : '—'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" fontWeight="bold" color="success.main">
-                          {line.priceWithVatEuro
-                            ? line.priceWithVatEuro.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                            : '—'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteDevizLine(projectId, line.id, line.description)}
-                        >
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {/* Summary Row */}
-                  <TableRow sx={{ bgcolor: 'action.hover', borderTop: '2px solid', borderColor: 'primary.main' }}>
-                    <TableCell colSpan={2} align="right">
-                      <Typography variant="subtitle1" fontWeight="bold">TOTAL:</Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="subtitle1" fontWeight="bold">
-                        {lines.reduce((sum, l) => sum + (l.priceLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="subtitle1" fontWeight="bold">
-                        {lines.reduce((sum, l) => sum + (l.priceEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                    <TableCell />
-                    <TableCell align="right">
-                      <Typography variant="subtitle1" fontWeight="bold" color="success.main">
-                        {lines.reduce((sum, l) => sum + (l.priceWithVatLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="subtitle1" fontWeight="bold" color="success.main">
-                        {lines.reduce((sum, l) => sum + (l.priceWithVatEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </Box>
-          )}
-        </Box>
-      );
-    },
+    renderDetailPanel: ({ row }) => (
+      <DevizDetailPanel 
+        projectId={row.original.id} 
+        projectName={row.original.name}
+        isExpanded={row.getIsExpanded()}
+      />
+    ),
   });
 
   return (

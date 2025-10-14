@@ -475,6 +475,8 @@ model ProjectSheetOperation {
   id              String        @id @default(uuid())
   projectSheetId  String
   projectSheet    ProjectSheet  @relation(fields: [projectSheetId], references: [id], onDelete: Cascade)
+  operationItemId String?       // Reference to OperationItem for templates
+  operationItem   OperationItem? @relation(fields: [operationItemId], references: [id], onDelete: SetNull)
   orderNum        Int           // Display order
   operationName   String        // e.g., "Tencuieli int. var cu mortar var-ciment"
   unit            String        // e.g., "mp", "mc"
@@ -486,6 +488,7 @@ model ProjectSheetOperation {
   updatedAt       DateTime      @updatedAt
 
   @@index([projectSheetId])
+  @@index([operationItemId])
 }
 
 // Materials for deviz (Lista Necesar Materiale)
@@ -504,6 +507,11 @@ model ProjectDevizMaterial {
   materialDescription   String
   unit                  String   // UM (unitate masura)
   
+  // Supplier and packaging information (for Necesar Aprovizionare)
+  supplier              String?  // Furnizor
+  packageSize           Float?   // Mărime pachet (e.g., 25 for 25kg bag)
+  packageUnit           String?  // Unitate pachet (e.g., kg, buc, m²)
+  
   // Pricing and calculations
   quantity              Float    // Cantitate
   unitPrice             Float    // Preț unitar
@@ -517,6 +525,7 @@ model ProjectDevizMaterial {
   updatedAt             DateTime @updatedAt
 
   @@index([devizLineId])
+  @@index([supplier])
 }
 
 // Labor for deviz (Manopera proiect)
@@ -829,7 +838,6 @@ model Operation {
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
   items      OperationItem[]
-  projectSheets ProjectOperationSheet[] @relation("ProjectSheets")
 
   @@index([categoryId])
   @@unique([categoryId, name])
@@ -837,14 +845,16 @@ model Operation {
 
 // Third-level items under operations
 model OperationItem {
-  id          String    @id @default(uuid())
-  operationId String
-  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
-  name        String
-  unit        String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  templates   OperationSheetTemplate[] @relation("OperationItemTemplates")
+  id                    String                     @id @default(uuid())
+  operationId           String
+  operation             Operation                  @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  name                  String
+  unit                  String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  templates             OperationSheetTemplate[]   @relation("OperationItemTemplates")
+  projectSheetOperations ProjectSheetOperation[]
+  projectOperationSheets ProjectOperationSheet[]   @relation("ProjectOperationSheets")
 
   @@index([operationId])
   @@unique([operationId, name])
@@ -910,12 +920,18 @@ model Material {
   description     String                          // Descriere (from denumire_produs)
   supplierName    String?                         // Furnizor (from den_tert)
   supplierId      String?                         // ID Tert
+  manufacturer    String?                         // Producător (for reception registry)
   unit            String         @default("buc")  // UM
   price           Decimal        @default(0)      // Preț
   currency        Currency       @default(RON)
   purchaseDate    DateTime?                       // Data achiziției (from data in Excel)
+  invoiceNumber   String?                         // Nr. Factură (ex: "ANR TGV 56836")
+  receptionType   ReceptionType? // Tip Recepție: SANTIER or MAGAZIE
+  receivedQuantity Decimal?      @db.Decimal(12, 4) // Cantitate recepționată (different from pack quantity)
   technicalSheet  String?                         // Path/URL to uploaded technical sheet document
   notes           String?
+  packQuantity    Decimal?        @db.Decimal(12, 4) // Cantitate per ambalaj (ex: 25)
+  packUnit        String?                          // Unitatea ambalajului (ex: KG, L, BUC)
   active          Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -924,7 +940,14 @@ model Material {
   @@index([code])
   @@index([description])
   @@index([supplierName])
+  @@index([invoiceNumber])
+  @@index([receptionType])
   @@index([code, createdAt])  // Composite index for optimized unique material queries
+}
+
+enum ReceptionType {
+  SANTIER
+  MAGAZIE
 }
 
 // ================== OPERATION SHEET TEMPLATES ==================
@@ -965,8 +988,8 @@ model ProjectOperationSheet {
   id                  String    @id @default(uuid())
   projectId           String
   project             Project   @relation("ProjectOperationSheets", fields: [projectId], references: [id], onDelete: Cascade)
-  operationId         String
-  operation           Operation @relation("ProjectSheets", fields: [operationId], references: [id], onDelete: Cascade)
+  operationId         String    // References OperationItem.id (naming kept for DB compatibility)
+  operationItem       OperationItem @relation("ProjectOperationSheets", fields: [operationId], references: [id], onDelete: Cascade)
   
   templateId          String?
   template            OperationSheetTemplate? @relation("BasedOnTemplate", fields: [templateId], references: [id], onDelete: SetNull)

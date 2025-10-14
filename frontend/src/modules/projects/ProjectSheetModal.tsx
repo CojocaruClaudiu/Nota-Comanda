@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -11,6 +11,8 @@ import {
   IconButton,
   Paper,
   Stack,
+  CircularProgress,
+  Tooltip,
 } from '@mui/material';
 import { Close as CloseIcon, Add as AddIcon } from '@mui/icons-material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -23,9 +25,16 @@ import 'dayjs/locale/ro';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { tableLocalization } from '../../localization/tableLocalization';
 import type { ProjectDevizLine } from '../../api/projectDeviz';
+import { fetchProjectDevizMaterials, saveProjectDevizMaterials } from '../../api/projectDevize';
+import { fetchProjectSheet } from '../../api/projectSheet';
+import { fetchUniqueMaterials, type Material } from '../../api/materials';
 import SelectOperationModal from './SelectOperationModal';
 import DevizeModal, { type MaterialItem, type LaborItem } from './DevizeModal';
+import * as operationSheetsApi from '../../api/operationSheets';
+import type { OperationSheetItemDTO, ProjectOperationSheetDTO } from '../../api/operationSheets';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
 import { FisaOperatieModal } from './FisaOperatieModal';
+import dayjs from 'dayjs';
 
 export type ProjectSheetData = {
   id?: string;
@@ -42,6 +51,7 @@ export type ProjectSheetData = {
 
 export type ProjectSheetOperation = {
   id: string; // Required for MRT
+  operationItemId?: string; // OperationItem ID for templates (optional for backward compatibility)
   orderNum: number;
   operationName: string;
   unit: string;
@@ -66,6 +76,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const confirm = useConfirm();
   const [initiationDate, setInitiationDate] = useState<Dayjs | null>(null);
   const [estimatedStartDate, setEstimatedStartDate] = useState<Dayjs | null>(null);
   const [estimatedEndDate, setEstimatedEndDate] = useState<Dayjs | null>(null);
@@ -76,31 +87,66 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   const [showSelectOperation, setShowSelectOperation] = useState(false);
   const [editingOperation, setEditingOperation] = useState<ProjectSheetOperation | null>(null);
   const [showDevize, setShowDevize] = useState(false);
+  const [devizeMaterials, setDevizeMaterials] = useState<MaterialItem[] | null>(null);
+  const [devizeLabor, setDevizeLabor] = useState<LaborItem[] | null>(null);
   const [showFisaOperatie, setShowFisaOperatie] = useState(false);
   const [selectedOperationForFisa, setSelectedOperationForFisa] = useState<ProjectSheetOperation | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
 
+  // Load existing project sheet data when modal opens
   useEffect(() => {
-    if (devizLine) {
-      // Reset form when modal opens
-      setInitiationDate(null);
-      setEstimatedStartDate(null);
-      setEstimatedEndDate(null);
-      setStandardMarkup(0);
-      setStandardDiscount(0);
-      setIndirectCosts(0);
-      setOperations([]);
+    if (open && devizLine) {
+      const loadData = async () => {
+        try {
+          setLoading(true);
+          const sheet = await fetchProjectSheet(devizLine.projectId, devizLine.id);
+          
+          // Populate form with existing data
+          setInitiationDate(sheet.initiationDate ? dayjs(sheet.initiationDate) : null);
+          setEstimatedStartDate(sheet.estimatedStartDate ? dayjs(sheet.estimatedStartDate) : null);
+          setEstimatedEndDate(sheet.estimatedEndDate ? dayjs(sheet.estimatedEndDate) : null);
+          setStandardMarkup(sheet.standardMarkupPercent ?? 0);
+          setStandardDiscount(sheet.standardDiscountPercent ?? 0);
+          setIndirectCosts(sheet.indirectCostsPercent ?? 0);
+          setOperations(sheet.operations?.map(op => ({
+            ...op,
+            id: op.id || `temp_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+          })) || []);
+        } catch (error: unknown) {
+          // If 404, it means no sheet exists yet - that's OK, start fresh
+          if (error && typeof error === 'object' && 'response' in error) {
+            const axiosError = error as { response?: { status?: number } };
+            if (axiosError.response?.status !== 404) {
+              console.error('Error loading project sheet:', error);
+            }
+          } else {
+            console.error('Unexpected error loading project sheet:', error);
+          }
+          // Reset to empty state
+          setInitiationDate(null);
+          setEstimatedStartDate(null);
+          setEstimatedEndDate(null);
+          setStandardMarkup(0);
+          setStandardDiscount(0);
+          setIndirectCosts(0);
+          setOperations([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadData();
     }
-  }, [devizLine]);
+  }, [open, devizLine]);
 
-  const handleAddOperation = (item: { name: string; unit: string; categoryName: string; operationName: string }) => {
-    const newOrderNum = operations.length > 0 ? Math.max(...operations.map(op => op.orderNum)) + 1 : 1;
+  const handleAddOperation = (item: { id: string; name: string; unit: string; categoryName: string; operationName: string }) => {
     const newId = `temp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    setOperations([
-      ...operations,
+    setOperations((prev) => [
+      ...prev,
       {
         id: newId,
-        orderNum: newOrderNum,
+        operationItemId: item.id, // Store the OperationItem ID
+        orderNum: prev.length + 1,
         operationName: item.name,
         unit: item.unit,
         quantity: null,
@@ -111,10 +157,203 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
     ]);
   };
 
-  const handleSaveDevize = (materials: MaterialItem[], labor: LaborItem[]) => {
-    console.log('Saving devize:', { materials, labor });
-    // TODO: Implement devize save logic
+  const handleSaveDevize = async (materials: MaterialItem[], labor: LaborItem[]) => {
+    if (!devizLine?.projectId || !devizLine?.id) return;
+    
+    try {
+      await saveProjectDevizMaterials(devizLine.projectId, devizLine.id, materials);
+    } catch (error) {
+      console.error('Failed to save devize materials:', error);
+      alert('Eroare la salvare materiale');
+    }
   };
+
+  // Load or build materials list for Devize modal
+  useEffect(() => {
+    const load = async () => {
+      if (!showDevize) return;
+      if (!devizLine) return;
+      if (!devizLine.projectId) return;
+
+      try {
+        // First, try to load saved materials from database
+        const savedMaterials = await fetchProjectDevizMaterials(devizLine.projectId, devizLine.id);
+        
+        if (savedMaterials && savedMaterials.length > 0) {
+          setDevizeMaterials(savedMaterials);
+          return; // Use saved data, don't aggregate
+        }
+        
+        // No saved materials - fetch materials catalog and aggregate from operation sheets
+        const allMaterials = await fetchUniqueMaterials();
+        const materialsByCode = new Map<string, Material>();
+        for (const m of allMaterials) {
+          const codeKey = (m.code || '').trim().toUpperCase();
+          if (codeKey) {
+            const existing = materialsByCode.get(codeKey);
+            if (!existing || (m.purchaseDate && (!existing.purchaseDate || new Date(m.purchaseDate) > new Date(existing.purchaseDate)))) {
+              materialsByCode.set(codeKey, m);
+            }
+          }
+        }
+        
+        const ops = operations.filter(op => !!op.operationItemId && (op.quantity || 0) > 0);
+        if (ops.length === 0) {
+          setDevizeMaterials([]);
+          return;
+        }
+
+        // Fetch all project operation sheets in parallel
+      const sheets: Array<{ opId: string; qty: number; sheet: ProjectOperationSheetDTO | null }> = await Promise.all(
+        ops.map(async (op) => {
+          try {
+            const sheet = await operationSheetsApi.fetchProjectOperationSheet(devizLine.projectId, op.operationItemId!);
+            return { opId: op.operationItemId!, qty: op.quantity || 0, sheet };
+          } catch (err: any) {
+            if (err?.response?.status === 404) {
+              return { opId: op.operationItemId!, qty: op.quantity || 0, sheet: null };
+            }
+            console.error('Failed to fetch operation sheet', op.operationItemId, err);
+            return { opId: op.operationItemId!, qty: op.quantity || 0, sheet: null };
+          }
+        })
+      );
+
+      type Agg = {
+        key: string;
+        materialCode: string;
+        materialDescription: string;
+        unit: string;
+        totalQty: number;
+        totalBase: number;
+        weightedPriceAccum: number; // sum(price * qty)
+        packQuantity?: number | null;
+        packUnit?: string | null;
+      };
+      const map = new Map<string, Agg>();
+
+      type LaborAgg = {
+        key: string;
+        laborDescription: string;
+        totalQty: number;
+        totalBase: number;
+        weightedPriceAccum: number;
+      };
+      const laborMap = new Map<string, LaborAgg>();
+
+      const addItem = (item: OperationSheetItemDTO, qtyMultiplier: number) => {
+        const perUnitQty = Number(item.quantity || 0);
+        const totalQty = perUnitQty * qtyMultiplier;
+        if (!Number.isFinite(totalQty) || totalQty <= 0) return;
+        const unitPrice = Number(item.unitPrice || 0);
+        const base = totalQty * (Number.isFinite(unitPrice) ? unitPrice : 0);
+        
+        if (item.itemType === 'MATERIAL') {
+          const key = item.referenceId || item.code || `${item.description}|${item.unit}`;
+          const prev = map.get(key);
+          const packQuantity = item.packQuantity ?? null;
+          const packUnit = item.packUnit ?? null;
+          if (prev) {
+            prev.totalQty += totalQty;
+            prev.totalBase += base;
+            prev.weightedPriceAccum += unitPrice * totalQty;
+          } else {
+            map.set(key, {
+              key,
+              materialCode: item.code || '',
+              materialDescription: item.description,
+              unit: item.unit,
+              totalQty,
+              totalBase: base,
+              weightedPriceAccum: unitPrice * totalQty,
+              packQuantity,
+              packUnit,
+            });
+          }
+        } else if (item.itemType === 'LABOR') {
+          const key = item.description || `labor_${item.id}`;
+          const prev = laborMap.get(key);
+          if (prev) {
+            prev.totalQty += totalQty;
+            prev.totalBase += base;
+            prev.weightedPriceAccum += unitPrice * totalQty;
+          } else {
+            laborMap.set(key, {
+              key,
+              laborDescription: item.description,
+              totalQty,
+              totalBase: base,
+              weightedPriceAccum: unitPrice * totalQty,
+            });
+          }
+        }
+      };
+
+      sheets.forEach(({ qty, sheet }) => {
+        const items = sheet?.items || [];
+        items.forEach((it) => addItem(it, qty));
+      });
+
+      const result: MaterialItem[] = Array.from(map.values()).map((agg, idx) => {
+        const avgPrice = agg.totalQty > 0 ? agg.weightedPriceAccum / agg.totalQty : 0;
+        
+        // Look up material from catalog to get supplier and package info
+        const codeKey = (agg.materialCode || '').trim().toUpperCase();
+        const catalogMaterial = codeKey ? materialsByCode.get(codeKey) : undefined;
+        
+        const packsText = agg.packQuantity && agg.packQuantity > 0 && agg.packUnit
+          ? ` (~${(agg.totalQty / agg.packQuantity).toFixed(2)} x ${agg.packQuantity} ${agg.packUnit})`
+          : '';
+        return {
+          id: `agg_${idx}_${agg.key}`,
+          orderNum: idx + 1,
+          operationCode: devizLine.code,
+          operationDescription: devizLine.description,
+          materialCode: agg.materialCode,
+          materialDescription: agg.materialDescription + packsText,
+          unit: agg.unit,
+          quantity: Number(agg.totalQty.toFixed(2)),
+          unitPrice: Number(avgPrice.toFixed(4)),
+          baseValue: null,
+          markupPercent: null,
+          valueWithMarkup: null,
+          discountPercent: null,
+          finalValue: null,
+          // Get supplier and package info from materials catalog
+          supplier: catalogMaterial?.supplierName || undefined,
+          packageSize: catalogMaterial?.packQuantity != null ? Number(catalogMaterial.packQuantity) : null,
+          packageUnit: catalogMaterial?.packUnit || undefined,
+        } as MaterialItem;
+      });
+
+      const laborResult: LaborItem[] = Array.from(laborMap.values()).map((agg, idx) => {
+        const avgPrice = agg.totalQty > 0 ? agg.weightedPriceAccum / agg.totalQty : 0;
+        return {
+          id: `labor_agg_${idx}_${agg.key}`,
+          orderNum: idx + 1,
+          operationCode: devizLine.code,
+          operationDescription: devizLine.description,
+          laborDescription: agg.laborDescription,
+          quantity: Number(agg.totalQty.toFixed(2)),
+          unitPrice: Number(avgPrice.toFixed(4)),
+          baseValue: null,
+          markupPercent: null,
+          valueWithMarkup: null,
+          discountPercent: null,
+          finalValue: null,
+        } as LaborItem;
+      });
+
+      setDevizeMaterials(result);
+      setDevizeLabor(laborResult);
+      } catch (error) {
+        console.error('Error loading/building materials:', error);
+        setDevizeMaterials([]);
+        setDevizeLabor([]);
+      }
+    };
+    load();
+  }, [showDevize, devizLine, operations]);
 
   const handleUpdateOperation = (id: string, updates: Partial<ProjectSheetOperation>) => {
     setOperations(prev => prev.map((op) => {
@@ -134,9 +373,35 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
     }));
   };
 
-  const handleDeleteOperation = (id: string) => {
-    setOperations(prev => prev.filter(op => op.id !== id));
+  const handleDeleteOperation = async (id: string, operationName: string) => {
+    const ok = await confirm({
+      title: 'Confirmare Ștergere',
+      bodyTitle: 'Ștergi această operație?',
+      description: (
+        <>
+          Operația <strong>{operationName}</strong> va fi ștearsă din fișa de proiect.
+        </>
+      ),
+      confirmText: 'Șterge',
+      cancelText: 'Anulează',
+      danger: true,
+    });
+    
+    if (!ok) return;
+    
+    setOperations(prev => {
+      const filtered = prev.filter(op => op.id !== id);
+      // Reindex orderNum to keep 1..n sequence
+      return filtered.map((op, idx) => ({ ...op, orderNum: idx + 1 }));
+    });
   };
+
+  // Callback for when recipe is calculated in FisaOperatieModal
+  const handleRecipeCalculated = useCallback((unitPrice: number) => {
+    if (selectedOperationForFisa) {
+      handleUpdateOperation(selectedOperationForFisa.id, { unitPrice });
+    }
+  }, [selectedOperationForFisa]);
 
   const handleSave = async () => {
     if (!devizLine) return;
@@ -206,15 +471,25 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
       },
       {
         accessorKey: 'unitPrice',
-        header: 'Preț unitar',
-        size: 120,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.01, min: 0 },
-        },
-        Cell: ({ cell }) => {
+        header: 'Preț unitar (din rețetă)',
+        size: 150,
+        enableEditing: false, // Read-only - calculated from recipe
+        Cell: ({ cell, row }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          const hasRecipe = row.original.operationItemId; // Has recipe if operationItemId exists
+          return (
+            <Tooltip title={hasRecipe ? "Calculat din Fișa Operație" : "Fără rețetă definită"}>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  color: hasRecipe ? 'success.main' : 'text.secondary',
+                  fontStyle: hasRecipe ? 'normal' : 'italic'
+                }}
+              >
+                {val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—'}
+              </Typography>
+            </Tooltip>
+          );
         },
       },
       {
@@ -272,23 +547,35 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
     }),
     renderRowActions: ({ row }) => (
       <Stack direction="row" gap={0.5}>
-        <IconButton
-          size="small"
-          onClick={() => {
-            setSelectedOperationForFisa(row.original);
-            setShowFisaOperatie(true);
-          }}
-          title="Fișa Operație"
+        <Tooltip 
+          title={
+            row.original.operationItemId 
+              ? "Editează Fișa Operație" 
+              : "Fișa Operație disponibilă doar pentru operații din catalog"
+          }
         >
-          <EditOutlinedIcon fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          color="error"
-          onClick={() => handleDeleteOperation(row.original.id)}
-        >
-          <DeleteOutlineIcon fontSize="small" />
-        </IconButton>
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setSelectedOperationForFisa(row.original);
+                setShowFisaOperatie(true);
+              }}
+              disabled={!row.original.operationItemId}
+            >
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Șterge operație">
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => handleDeleteOperation(row.original.id, row.original.operationName)}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Stack>
     ),
     renderBottomToolbarCustomActions: () => (
@@ -334,11 +621,17 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
         </DialogTitle>
 
         <DialogContent dividers>
-          {/* Project Timeline Section */}
-          <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-            <Typography variant="h6" gutterBottom color="primary">
-              Date Proiect
-            </Typography>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              {/* Project Timeline Section */}
+              <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Date Proiect
+                </Typography>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <DatePicker
                 label="Data inițiere proiect"
@@ -376,41 +669,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
             </Stack>
           </Paper>
 
-          {/* Financial Parameters Section */}
-          <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-            <Typography variant="h6" gutterBottom color="primary">
-              Parametri Financiari
-            </Typography>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Adaos standard %"
-                type="number"
-                value={standardMarkup}
-                onChange={(e) => setStandardMarkup(parseFloat(e.target.value) || 0)}
-                inputProps={{ step: '0.1', min: '0' }}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Discount standard %"
-                type="number"
-                value={standardDiscount}
-                onChange={(e) => setStandardDiscount(parseFloat(e.target.value) || 0)}
-                inputProps={{ step: '0.1', min: '0' }}
-              />
-              <TextField
-                fullWidth
-                size="small"
-                label="Cheltuieli indirecte %"
-                type="number"
-                value={indirectCosts}
-                onChange={(e) => setIndirectCosts(parseFloat(e.target.value) || 0)}
-                inputProps={{ step: '0.1', min: '0' }}
-              />
-            </Stack>
-          </Paper>
+          {/* Financial Parameters moved to Devize modal */}
 
           {/* Operations Table Section */}
           <Paper elevation={1} sx={{ p: 2 }}>
@@ -435,6 +694,8 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
 
             <MaterialReactTable table={operationsTable} />
           </Paper>
+            </>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>
@@ -529,19 +790,31 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
         projectName={projectName}
         standardMarkup={standardMarkup}
         standardDiscount={standardDiscount}
+        standardIndirectCosts={indirectCosts}
+        initialMaterials={devizeMaterials || []}
+        initialLabor={devizeLabor || []}
         onClose={() => setShowDevize(false)}
         onSave={handleSaveDevize}
+        onUpdateParameters={({ standardMarkup: m, standardDiscount: d, indirectCosts: i }) => {
+          setStandardMarkup(m);
+          setStandardDiscount(d);
+          setIndirectCosts(i);
+        }}
       />
 
       {/* Fisa Operatie Modal */}
-      {selectedOperationForFisa && (
+      {showFisaOperatie && selectedOperationForFisa && (
         <FisaOperatieModal
           open={showFisaOperatie}
           onClose={() => {
+            // Unmount first to avoid intermediate state flicker
             setShowFisaOperatie(false);
             setSelectedOperationForFisa(null);
           }}
+          operationId={selectedOperationForFisa.operationItemId}
           operationName={selectedOperationForFisa.operationName}
+          projectId={devizLine?.projectId}
+          onRecipeCalculated={handleRecipeCalculated}
         />
       )}
     </LocalizationProvider>

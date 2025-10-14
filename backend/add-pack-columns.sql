@@ -1,0 +1,3 @@
+ALTER TABLE "Material"
+  ADD COLUMN IF NOT EXISTS "packQuantity" DECIMAL(12,4),
+  ADD COLUMN IF NOT EXISTS "packUnit" TEXT;

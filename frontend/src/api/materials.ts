@@ -20,9 +20,16 @@ export interface Material {
   purchaseDate?: string | null;
   technicalSheet?: string | null;
   notes?: string | null;
+  packQuantity?: number | null;
+  packUnit?: string | null;
   active: boolean;
   createdAt?: string;
   updatedAt?: string;
+  // Reception fields
+  invoiceNumber?: string | null;
+  receivedQuantity?: number | null;
+  receptionType?: string | null; // Can be 'MAGAZIE', 'SANTIER', or project ID
+  manufacturer?: string | null;
   // Enriched fields from aggregation
   purchaseCount?: number;
   avgPrice?: number;
@@ -49,6 +56,9 @@ export interface MaterialPayload {
   technicalSheet?: string | null;
   notes?: string | null;
   active?: boolean | null;
+  packQuantity?: number | null;
+  packUnit?: string | null;
+  receptionType?: string | null;
 }
 
 export interface MaterialGroupPayload {
@@ -87,7 +97,7 @@ export const fetchSuppliers = async (): Promise<Supplier[]> => {
 };
 
 export const fetchMaterialHistory = async (code: string): Promise<Material[]> => {
-  const response = await api.get<Material[]>(`/materials/history/${encodeURIComponent(code)}`);
+  const response = await api.get<Material[]>(`/materials/history/${code}`);
   return response.data;
 };
 
@@ -116,7 +126,7 @@ export const createMaterial = async (groupId: string, payload: MaterialPayload):
   return response.data;
 };
 
-export const updateMaterial = async (id: string, payload: MaterialPayload): Promise<Material> => {
+export const updateMaterial = async (id: string, payload: Partial<MaterialPayload>): Promise<Material> => {
   const response = await api.put<Material>(`/materials/${id}`, payload);
   return response.data;
 };

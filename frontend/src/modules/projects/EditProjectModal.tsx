@@ -104,7 +104,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
     if (!project) return;
     try {
       setSaving(true);
-      const updated = await projectsApi.update(project.id, {
+      const updated = await projectsApi.update(Number(project.id), {
         name: values.name.trim(),
         description: values.description.trim() || undefined,
         status: values.status,

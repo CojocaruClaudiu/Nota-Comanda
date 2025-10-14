@@ -18,9 +18,14 @@ import {
   FormControl,
   InputLabel,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Alert,
+  InputAdornment,
 } from '@mui/material';
 import { MaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import type { MouseEvent } from 'react';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -30,16 +35,22 @@ import ConstructionIcon from '@mui/icons-material/Construction';
 import SaveIcon from '@mui/icons-material/Save';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import HistoryIcon from '@mui/icons-material/History';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import { tableLocalization } from '../../localization/tableLocalization';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { SelectEquipmentModal } from './SelectEquipmentModal';
 import { SelectLaborModal } from './SelectLaborModal';
 import { SelectMaterialModal } from './SelectMaterialModal';
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useConfirm } from '../common/confirm/ConfirmProvider';
 import { useSnackbar } from 'notistack';
 import type { Equipment } from '../../api/equipment';
 import type { LaborLine } from '../../api/laborLines';
 import type { Material } from '../../api/materials';
 import * as operationSheetsApi from '../../api/operationSheets';
+import { listEquipment } from '../../api/equipment';
+import { fetchUniqueMaterials } from '../../api/materials';
 
 interface FisaOperatieModalProps {
   open: boolean;
@@ -47,6 +58,7 @@ interface FisaOperatieModalProps {
   operationName: string;
   operationId?: string; // For template management
   projectId?: string; // For project-specific sheets
+  onRecipeCalculated?: (unitPrice: number) => void; // Callback with calculated unit price from recipe
 }
 
 // Template type
@@ -69,9 +81,14 @@ interface MaterialItem {
   cod: string;
   denumire: string;
   um: string;
-  cantitate: number;
-  pretUnitar: number;
-  valoare: number;
+  packQuantity?: number | null; // Cantitate per ambalaj (ex: 25 KG)
+  packUnit?: string | null; // Unitate ambalaj (ex: KG)
+  packPrice?: number | null; // Preț per ambalaj (ex: 62.25 RON for 25 KG)
+  consumNormat: number; // Consum normat (editable)
+  marjaConsum: number; // Marjă consum % (can be +/-)
+  cantitate: number; // Calculated: consumNormat * (1 + marjaConsum/100)
+  costUnitar: number; // Calculated: packPrice / packQuantity
+  valoare: number; // Calculated: cantitate * costUnitar
 }
 
 // Consumabile item type
@@ -80,6 +97,8 @@ interface ConsumabilItem {
   cod: string;
   denumire: string;
   um: string;
+  packQuantity?: number | null;
+  packUnit?: string | null;
   cantitate: number;
   pretUnitar: number;
   valoare: number;
@@ -91,9 +110,11 @@ interface EchipamentItem {
   cod: string;
   denumire: string;
   um: string;
-  cantitate: number;
+  consumNormat: number; // Consum normat (editable)
+  marjaConsum: number; // Marjă consum % (can be +/-)
+  cantitate: number; // Calculated: consumNormat * (1 + marjaConsum/100)
   pretUnitar: number;
-  valoare: number;
+  valoare: number; // Calculated: cantitate * pretUnitar
 }
 
 // Manopera item type
@@ -102,39 +123,321 @@ interface ManoperaItem {
   cod: string;
   denumire: string;
   um: string;
-  cantitate: number;
+  consumNormat: number; // Consum normat (editable)
+  marjaConsum: number; // Marjă consum % (can be +/-)
+  cantitate: number; // Calculated: consumNormat * (1 + marjaConsum/100)
   pretUnitar: number;
-  valoare: number;
+  valoare: number; // Calculated: cantitate * pretUnitar
 }
+
+type RecipeData = {
+  materiale: MaterialItem[];
+  consumabile: ConsumabilItem[];
+  echipamente: EchipamentItem[];
+  manopera: ManoperaItem[];
+};
+
+type RecipeVersion = 'STANDARD' | 'TEMPLATE' | 'PROJECT';
 
 // Helper function to format currency safely
 const formatCurrency = (value: number | null | undefined): string => {
   return value != null ? `${value.toFixed(2)} LEI` : '0.00 LEI';
 };
 
+const toNumber = (value: unknown): number => {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const cloneRecipe = (recipe: RecipeData): RecipeData => ({
+  materiale: recipe.materiale.map(item => ({ ...item })),
+  consumabile: recipe.consumabile.map(item => ({ ...item })),
+  echipamente: recipe.echipamente.map(item => ({ ...item })),
+  manopera: recipe.manopera.map(item => ({ ...item })),
+});
+
+const computeUnitCost = (price?: number | null, packQuantity?: number | null): number => {
+  const priceNumber = Number(price ?? 0);
+  const quantityNumber = Number(packQuantity ?? 0);
+  if (!Number.isFinite(priceNumber)) return 0;
+  if (!quantityNumber || !Number.isFinite(quantityNumber) || quantityNumber <= 0) {
+    return priceNumber;
+  }
+  return priceNumber / quantityNumber;
+};
+
+const normalizeMaterialItem = (item: MaterialItem): MaterialItem => {
+  const packQuantity = item.packQuantity ?? null;
+  let packPrice = item.packPrice ?? null;
+  
+  let costUnitar = 0;
+  if (packPrice != null && Number.isFinite(packPrice) && packQuantity && packQuantity > 0) {
+    costUnitar = packPrice / packQuantity;
+  } else {
+    costUnitar = item.costUnitar ?? 0;
+    if ((packPrice == null || !Number.isFinite(packPrice)) && packQuantity && packQuantity > 0 && Number.isFinite(costUnitar)) {
+      packPrice = costUnitar * packQuantity;
+    }
+  }
+
+  // Get consum normat and marja
+  const consumNormatRaw = item.consumNormat ?? 0;
+  const marjaConsumRaw = item.marjaConsum ?? 0;
+
+  const consumNormat = Number.isFinite(consumNormatRaw) && consumNormatRaw >= 0 ? consumNormatRaw : 0;
+  const marjaConsum = Number.isFinite(marjaConsumRaw) ? marjaConsumRaw : 0;
+
+  // Calculate total quantity with margin
+  const cantitate = consumNormat * (1 + marjaConsum / 100);
+  
+  // Calculate total value
+  const valoare = cantitate * costUnitar;
+
+  return {
+    ...item,
+    packPrice: packPrice != null && Number.isFinite(packPrice) ? packPrice : null,
+    packQuantity,
+    consumNormat,
+    marjaConsum,
+    costUnitar: Number.isFinite(costUnitar) ? costUnitar : 0,
+    cantitate: Number.isFinite(cantitate) ? cantitate : 0,
+    valoare: Number.isFinite(valoare) ? valoare : 0,
+  };
+};
+
+const normalizeMaterialItems = (items: MaterialItem[]): MaterialItem[] =>
+  items.map(normalizeMaterialItem);
+
 export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
   open,
   onClose,
   operationName,
-  operationId,
+  operationId, // NOTE: This is the OperationItem ID (templates are per operation item after migration)
   projectId,
+  onRecipeCalculated,
 }) => {
   const confirm = useConfirm();
   const { enqueueSnackbar } = useSnackbar();
   
+  // Debug: Log the operationItem ID when modal opens
+  useEffect(() => {
+    if (open && operationId) {
+      console.log('🔍 FisaOperatieModal opened with operationItemId:', operationId);
+    }
+  }, [open, operationId]);
+
+  // Avoid resetting internal state when closing to prevent flicker.
+  // We'll hydrate fresh data on open via dedicated effects.
+  useEffect(() => {
+    if (!open) return;
+    // Optional: reset transient flags when opening
+    applyingRecipeRef.current = false;
+  }, [open]);
+
   // State for each table
   const [materiale, setMateriale] = useState<MaterialItem[]>([]);
   const [consumabile, setConsumabile] = useState<ConsumabilItem[]>([]);
   const [echipamente, setEchipamente] = useState<EchipamentItem[]>([]);
   const [manopera, setManopera] = useState<ManoperaItem[]>([]);
 
-  // Template management state
-  const [templates, setTemplates] = useState<OperationTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateDescription, setNewTemplateDescription] = useState('');
-  const [makeDefault, setMakeDefault] = useState(false);
+  const [activeVersion, setActiveVersion] = useState<RecipeVersion>('STANDARD');
+  const [projectRecipe, setProjectRecipe] = useState<RecipeData | null>(null);
+  const [standardRecipe, setStandardRecipe] = useState<RecipeData | null>(null);
+  const [standardTemplateId, setStandardTemplateId] = useState<string | null>(null);
+  const [isProjectRecipeLoaded, setIsProjectRecipeLoaded] = useState(false);
+  const [templateCache, setTemplateCache] = useState<Record<string, RecipeData>>({});
+  const applyingRecipeRef = useRef(false);
+  const activeVersionRef = useRef<RecipeVersion>('STANDARD');
+  const projectRecipeRef = useRef<RecipeData | null>(null);
+
+  const updateMaterialItem = useCallback(
+    (id: string, patch: Partial<MaterialItem> | ((item: MaterialItem) => Partial<MaterialItem>)) => {
+      setMateriale((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const patchValue = typeof patch === 'function' ? patch(item) : patch;
+          return normalizeMaterialItem({ ...item, ...patchValue });
+        }),
+      );
+    },
+    [],
+  );
+
+  const handleMaterialConsumNormChange = useCallback(
+    (id: string, rawValue: string) => {
+      const parsed = rawValue === '' ? 0 : Number(rawValue);
+      if (Number.isNaN(parsed)) return;
+      updateMaterialItem(id, { consumNormat: parsed });
+    },
+    [updateMaterialItem],
+  );
+
+  const handleMaterialMarjaChange = useCallback(
+    (id: string, rawValue: string) => {
+      if (rawValue === '' || rawValue === '-') {
+        updateMaterialItem(id, { marjaConsum: 0 });
+        return;
+      }
+      const parsed = Number(rawValue);
+      if (Number.isNaN(parsed)) return;
+      updateMaterialItem(id, { marjaConsum: parsed });
+    },
+    [updateMaterialItem],
+  );
+
+  useEffect(() => {
+    activeVersionRef.current = activeVersion;
+  }, [activeVersion]);
+
+  useEffect(() => {
+    projectRecipeRef.current = projectRecipe;
+  }, [projectRecipe]);
+
+  const applyRecipeData = (recipe: RecipeData | null) => {
+    applyingRecipeRef.current = true;
+
+    if (!recipe) {
+      setMateriale([]);
+      setConsumabile([]);
+      setEchipamente([]);
+      setManopera([]);
+    } else {
+      const copy = cloneRecipe(recipe);
+      setMateriale(normalizeMaterialItems(copy.materiale));
+      setConsumabile(copy.consumabile);
+      setEchipamente(copy.echipamente);
+      setManopera(copy.manopera);
+    }
+
+    Promise.resolve().then(() => {
+      applyingRecipeRef.current = false;
+    });
+  };
+
+  const handleVersionChange = async (_event: MouseEvent<HTMLElement>, value: RecipeVersion | null) => {
+    if (!value || value === activeVersion) {
+      return;
+    }
+
+    if (value === 'PROJECT' && !projectId) {
+      return;
+    }
+
+    if (activeVersion === 'PROJECT') {
+      const snapshot = buildRecipeFromCurrentState();
+      projectRecipeRef.current = snapshot;
+      setProjectRecipe(snapshot);
+    }
+
+    setActiveVersion(value);
+
+    if (value === 'PROJECT') {
+      const recipe = projectRecipe ?? buildRecipeFromCurrentState();
+      setProjectRecipe(recipe);
+      applyRecipeData(recipe);
+    } else if (value === 'STANDARD') {
+      applyRecipeData(standardRecipe);
+    } else if (value === 'TEMPLATE') {
+      if (!selectedTemplate) {
+        applyRecipeData(null);
+        return;
+      }
+
+      const template = templates.find(t => t.id === selectedTemplate);
+      if (!template) {
+        applyRecipeData(null);
+        return;
+      }
+
+      const cached = templateCache[selectedTemplate];
+      if (cached) {
+        applyRecipeData(cached);
+        return;
+      }
+
+      const recipe = await refreshTemplateData(template);
+      cacheTemplate(selectedTemplate, recipe);
+      applyRecipeData(recipe);
+    }
+  };
+
+const handleApplyPriceToProject = () => {
+  if (!onRecipeCalculated) {
+    return;
+  }
+  onRecipeCalculated(totalRecipeCost);
+};
+
+// Template management state
+const [templates, setTemplates] = useState<OperationTemplate[]>([]);
+const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+const [newTemplateName, setNewTemplateName] = useState('');
+const [newTemplateDescription, setNewTemplateDescription] = useState('');
+const [makeDefault, setMakeDefault] = useState(false);
+
+const cacheTemplate = (templateId: string, data: RecipeData) => {
+  setTemplateCache(prev => ({
+    ...prev,
+    [templateId]: cloneRecipe(data),
+  }));
+};
+
+const buildRecipeFromCurrentState = (): RecipeData => ({
+  materiale: materiale.map(item => ({ ...item })),
+  consumabile: consumabile.map(item => ({ ...item })),
+  echipamente: echipamente.map(item => ({ ...item })),
+  manopera: manopera.map(item => ({ ...item })),
+});
+
+  const renderTemplateMeta = (templateId: string) => {
+    const template = templates.find(t => t.id === templateId);
+
+    if (!template) {
+      return (
+        <Alert severity="warning" variant="outlined">
+          Template-ul selectat nu mai este disponibil. Reimprospatati lista de template-uri.
+        </Alert>
+      );
+    }
+
+    const createdDate = new Date(template.createdAt).toLocaleDateString('ro-RO', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+    const updatedDate = new Date(template.updatedAt).toLocaleDateString('ro-RO', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    return (
+      <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+        <HistoryIcon color="action" />
+        <Stack spacing={0.25}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            {template.name}
+            {template.isDefault ? ' (Standard)' : ''}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Creat: {createdDate} | Actualizat: {updatedDate}
+          </Typography>
+          {template.description && (
+            <Typography variant="caption" color="text.secondary">
+              {template.description}
+            </Typography>
+          )}
+        </Stack>
+      </Stack>
+    );
+  };
 
   // State for equipment selection modal
   const [showSelectEquipment, setShowSelectEquipment] = useState(false);
@@ -144,6 +447,29 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
   const [showSelectMaterial, setShowSelectMaterial] = useState(false);
   // State for consumable selection modal
   const [showSelectConsumable, setShowSelectConsumable] = useState(false);
+
+  // Calculate total recipe cost (sum of all items)
+  const totalRecipeCost = useMemo(() => {
+    const materialTotal = materiale.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+    const consumableTotal = consumabile.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+    const equipmentTotal = echipamente.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+    const laborTotal = manopera.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+    return materialTotal + consumableTotal + equipmentTotal + laborTotal;
+  }, [materiale, consumabile, echipamente, manopera]);
+
+  useEffect(() => {
+    if (activeVersion === 'PROJECT' && !applyingRecipeRef.current) {
+      setProjectRecipe({
+        materiale: materiale.map(item => ({ ...item })),
+        consumabile: consumabile.map(item => ({ ...item })),
+        echipamente: echipamente.map(item => ({ ...item })),
+        manopera: manopera.map(item => ({ ...item })),
+      });
+    }
+  }, [materiale, consumabile, echipamente, manopera, activeVersion]);
+
+  // Notify parent component when recipe total changes (for project sheet unit price)
+  // Only update when items actually change, not on every render
 
   // Load templates on mount
   useEffect(() => {
@@ -165,20 +491,30 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
 
     try {
       const sheet = await operationSheetsApi.fetchProjectOperationSheet(projectId, operationId);
-      
+
       if (sheet.items && sheet.items.length > 0) {
-        // Convert API items to frontend format
         const materials = sheet.items
           .filter(item => item.itemType === 'MATERIAL')
-          .map(item => ({
-            id: String(item.id),
-            cod: item.code || '',
-            denumire: item.description,
-            um: item.unit,
-            cantitate: item.quantity,
-            pretUnitar: item.unitPrice,
-            valoare: item.totalPrice,
-          }));
+          .map(item => {
+            const packQty = item.packQuantity ?? null;
+            const costUnitar = item.unitPrice;
+            const packPrice = (packQty && packQty > 0) ? costUnitar * packQty : null;
+            
+            return {
+              id: String(item.id),
+              cod: item.code || '',
+              denumire: item.description,
+              um: item.unit,
+              packQuantity: packQty,
+              packUnit: item.packUnit ?? null,
+              packPrice: packPrice,
+              consumNormat: item.quantity, // Initialize from loaded quantity
+              marjaConsum: 0, // Default to 0, no way to reverse-engineer this
+              cantitate: item.quantity,
+              costUnitar: costUnitar,
+              valoare: item.quantity * costUnitar,
+            };
+          });
 
         const consumables = sheet.items
           .filter(item => item.itemType === 'CONSUMABLE')
@@ -187,9 +523,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            packQuantity: item.packQuantity ?? null,
+            packUnit: item.packUnit ?? null,
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice,
+            valoare: item.quantity * item.unitPrice,
           }));
 
         const equipment = sheet.items
@@ -199,9 +537,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            consumNormat: item.quantity, // Initialize from loaded quantity
+            marjaConsum: 0, // Default to 0
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice,
+            valoare: item.quantity * item.unitPrice,
           }));
 
         const labor = sheet.items
@@ -211,19 +551,51 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            consumNormat: item.quantity, // Initialize from loaded quantity
+            marjaConsum: 0, // Default to 0
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice,
+            valoare: item.quantity * item.unitPrice,
           }));
 
-        setMateriale(materials as MaterialItem[]);
-        setConsumabile(consumables as ConsumabilItem[]);
-        setEchipamente(equipment as EchipamentItem[]);
-        setManopera(labor as ManoperaItem[]);
+        const recipe: RecipeData = {
+          materiale: materials as MaterialItem[],
+          consumabile: consumables as ConsumabilItem[],
+          echipamente: equipment as EchipamentItem[],
+          manopera: labor as ManoperaItem[],
+        };
+
+        projectRecipeRef.current = recipe;
+        setProjectRecipe(recipe);
+        setIsProjectRecipeLoaded(true);
+
+        const currentVersion = activeVersionRef.current;
+        if (currentVersion === 'STANDARD') {
+          applyRecipeData(recipe);
+          setActiveVersion('PROJECT');
+        } else if (currentVersion === 'PROJECT') {
+          applyRecipeData(recipe);
+        }
+      } else {
+        projectRecipeRef.current = null;
+        setProjectRecipe(null);
+        setIsProjectRecipeLoaded(true);
+        const currentVersion = activeVersionRef.current;
+        if (currentVersion === 'PROJECT') {
+          applyRecipeData(null);
+          setActiveVersion('STANDARD');
+        }
       }
     } catch (error) {
       console.error('Failed to load project operation sheet:', error);
-      // If no existing data, just start with empty tables
+      projectRecipeRef.current = null;
+      setProjectRecipe(null);
+      setIsProjectRecipeLoaded(true);
+      const currentVersion = activeVersionRef.current;
+      if (currentVersion === 'PROJECT') {
+        applyRecipeData(null);
+        setActiveVersion('STANDARD');
+      }
     }
   };
 
@@ -233,8 +605,7 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
 
     try {
       const apiTemplates = await operationSheetsApi.fetchOperationTemplates(operationId);
-      
-      // Convert API format to frontend format
+
       const convertedTemplates: OperationTemplate[] = apiTemplates.map(apiTemplate => ({
         id: apiTemplate.id,
         name: apiTemplate.name,
@@ -242,15 +613,26 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         isDefault: apiTemplate.isDefault,
         materials: apiTemplate.items
           .filter(item => item.itemType === 'MATERIAL')
-          .map(item => ({
-            id: String(item.id),
-            cod: item.code || '',
-            denumire: item.description,
-            um: item.unit,
-            cantitate: item.quantity,
-            pretUnitar: item.unitPrice,
-            valoare: item.totalPrice || (item.quantity * item.unitPrice),
-          })),
+          .map(item => {
+            const packQty = item.packQuantity ?? null;
+            const costUnitar = item.unitPrice;
+            const packPrice = (packQty && packQty > 0) ? costUnitar * packQty : null;
+            
+            return {
+              id: String(item.id),
+              cod: item.code || '',
+              denumire: item.description,
+              um: item.unit,
+              packQuantity: packQty,
+              packUnit: item.packUnit ?? null,
+              packPrice: packPrice,
+              consumNormat: item.quantity, // Initialize from loaded quantity
+              marjaConsum: 0, // Default to 0
+              cantitate: item.quantity,
+              costUnitar: costUnitar,
+              valoare: item.quantity * costUnitar,
+            };
+          }),
         consumables: apiTemplate.items
           .filter(item => item.itemType === 'CONSUMABLE')
           .map(item => ({
@@ -258,9 +640,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            packQuantity: item.packQuantity ?? null,
+            packUnit: item.packUnit ?? null,
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice || (item.quantity * item.unitPrice),
+            valoare: item.quantity * item.unitPrice,
           })),
         equipment: apiTemplate.items
           .filter(item => item.itemType === 'EQUIPMENT')
@@ -269,9 +653,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            consumNormat: item.quantity, // Initialize from loaded quantity
+            marjaConsum: 0, // Default to 0
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice || (item.quantity * item.unitPrice),
+            valoare: item.quantity * item.unitPrice,
           })),
         labor: apiTemplate.items
           .filter(item => item.itemType === 'LABOR')
@@ -280,52 +666,163 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
+            consumNormat: item.quantity, // Initialize from loaded quantity
+            marjaConsum: 0, // Default to 0
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
-            valoare: item.totalPrice || (item.quantity * item.unitPrice),
+            valoare: item.quantity * item.unitPrice,
           })),
         createdAt: apiTemplate.createdAt,
         updatedAt: apiTemplate.updatedAt,
       }));
 
       setTemplates(convertedTemplates);
-      const defaultTemplate = convertedTemplates.find(t => t.isDefault);
+
+      const defaultTemplate =
+        convertedTemplates.find(t => t.isDefault) ?? convertedTemplates[0] ?? null;
+
+      setStandardTemplateId(defaultTemplate?.id ?? null);
+
+      let defaultRecipe: RecipeData | null = null;
       if (defaultTemplate) {
-        setSelectedTemplate(defaultTemplate.id);
-        loadTemplate(defaultTemplate);
+        const cached = templateCache[defaultTemplate.id];
+        defaultRecipe = cached ?? (await refreshTemplateData(defaultTemplate));
+        cacheTemplate(defaultTemplate.id, defaultRecipe);
+      }
+      setStandardRecipe(defaultRecipe);
+
+      let nextSelected = selectedTemplate;
+      if (nextSelected && !convertedTemplates.some(t => t.id === nextSelected)) {
+        nextSelected = defaultTemplate?.id ?? '';
+      } else if (!nextSelected && defaultTemplate) {
+        nextSelected = defaultTemplate.id;
+      }
+      setSelectedTemplate(nextSelected);
+
+      const currentVersion = activeVersionRef.current;
+      const hasProjectRecipe = !!projectRecipeRef.current;
+
+      if (currentVersion === 'STANDARD' && !hasProjectRecipe) {
+        applyRecipeData(defaultRecipe);
+      } else if (currentVersion === 'TEMPLATE' && nextSelected) {
+        const selected = convertedTemplates.find(t => t.id === nextSelected);
+        if (selected) {
+          const cachedTemplate = templateCache[nextSelected];
+          const recipe =
+            cachedTemplate ?? (await refreshTemplateData(selected));
+          cacheTemplate(nextSelected, recipe);
+          applyRecipeData(recipe);
+        } else {
+          applyRecipeData(null);
+        }
       }
     } catch (error) {
       console.error('Failed to load templates:', error);
-      // Fallback to empty state
       setTemplates([]);
+      setStandardTemplateId(null);
+      setStandardRecipe(null);
+      if (activeVersionRef.current === 'STANDARD' && !projectRecipeRef.current) {
+        applyRecipeData(null);
+      }
     }
   };
 
-  // Load a template into the current state
-  const loadTemplate = (template: OperationTemplate) => {
-    setMateriale([...template.materials]);
-    setConsumabile([...template.consumables]);
-    setEchipamente([...template.equipment]);
-    setManopera([...template.labor]);
+  // Load a template into memory with refreshed prices
+  const refreshTemplateData = async (template: OperationTemplate): Promise<RecipeData> => {
+    try {
+      const [allEquipment, allMaterials] = await Promise.all([
+        listEquipment(),
+        fetchUniqueMaterials(),
+      ]);
+
+      const refreshedEquipment = template.equipment.map(item => {
+        const currentEquipment = allEquipment.find(eq => eq.code === item.cod);
+        if (currentEquipment) {
+          const newUnitPrice = Number(currentEquipment.hourlyCost);
+          return {
+            ...item,
+            pretUnitar: newUnitPrice,
+            valoare: newUnitPrice * item.cantitate,
+          };
+        }
+        return { ...item };
+      });
+
+      const refreshedMaterials = template.materials.map(item => {
+        const currentMaterial = allMaterials.find(mat => mat.code === item.cod);
+        if (currentMaterial) {
+          const newUnitPrice = Number(currentMaterial.price);
+          return {
+            ...item,
+            pretUnitar: newUnitPrice,
+            valoare: newUnitPrice * item.cantitate,
+            packQuantity: currentMaterial.packQuantity ?? null,
+            packUnit: currentMaterial.packUnit ?? null,
+          };
+        }
+        return { ...item };
+      });
+
+      const refreshedConsumables = template.consumables.map(item => {
+        const currentMaterial = allMaterials.find(mat => mat.code === item.cod);
+        if (currentMaterial) {
+          const newUnitPrice = Number(currentMaterial.price);
+          return {
+            ...item,
+            pretUnitar: newUnitPrice,
+            valoare: newUnitPrice * item.cantitate,
+            packQuantity: currentMaterial.packQuantity ?? null,
+            packUnit: currentMaterial.packUnit ?? null,
+          };
+        }
+        return { ...item };
+      });
+
+      return {
+        materiale: refreshedMaterials as MaterialItem[],
+        consumabile: refreshedConsumables as ConsumabilItem[],
+        echipamente: refreshedEquipment as EchipamentItem[],
+        manopera: template.labor.map(item => ({ ...item })) as ManoperaItem[],
+      };
+    } catch (error) {
+      console.error('Failed to refresh prices:', error);
+      return {
+        materiale: template.materials.map(item => ({ ...item })),
+        consumabile: template.consumables.map(item => ({ ...item })),
+        echipamente: template.equipment.map(item => ({ ...item })),
+        manopera: template.labor.map(item => ({ ...item })),
+      };
+    }
   };
 
   // Handle template selection change
-  const handleTemplateChange = (templateId: string | unknown) => {
+  const handleTemplateChange = async (templateId: string | unknown) => {
     // Handle empty string case
     if (!templateId || templateId === '') {
       setSelectedTemplate('');
+      if (activeVersion === 'TEMPLATE') {
+        applyRecipeData(null);
+      }
       return;
     }
-    
+
     const id = String(templateId);
     const template = templates.find(t => t.id === id);
-    
-    if (template) {
-      setSelectedTemplate(id);
-      loadTemplate(template);
-    } else {
+
+    if (!template) {
       console.error('Template not found:', id);
+      return;
     }
+
+    setSelectedTemplate(id);
+    if (activeVersion !== 'TEMPLATE') {
+      setActiveVersion('TEMPLATE');
+    }
+
+    const cached = templateCache[id];
+    const recipe = cached ?? (await refreshTemplateData(template));
+    cacheTemplate(id, recipe);
+    applyRecipeData(recipe);
   };
 
   // Save current state as a new template
@@ -343,7 +840,9 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
           code: item.cod,
           unit: item.um,
           quantity: item.cantitate,
-          price: item.pretUnitar,
+          price: item.costUnitar,
+          packQuantity: item.packQuantity ?? null,
+          packUnit: item.packUnit ?? null,
         })),
         ...consumabile.map(item => ({
           type: 'CONSUMABLE' as const,
@@ -352,6 +851,8 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
           unit: item.um,
           quantity: item.cantitate,
           price: item.pretUnitar,
+          packQuantity: item.packQuantity ?? null,
+          packUnit: item.packUnit ?? null,
         })),
         ...echipamente.map(item => ({
           type: 'EQUIPMENT' as const,
@@ -417,6 +918,8 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       cod: equipment.code,
       denumire: equipment.description,
       um: 'oră',
+      consumNormat: 1, // Default to 1, user can edit
+      marjaConsum: 0, // Default to 0%, user can edit
       cantitate: 1,
       pretUnitar: Number(equipment.hourlyCost),
       valoare: Number(equipment.hourlyCost),
@@ -431,6 +934,8 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       cod: qualificationName,
       denumire: laborLine.name,
       um: laborLine.unit,
+      consumNormat: 1, // Default to 1, user can edit
+      marjaConsum: 0, // Default to 0%, user can edit
       cantitate: 1,
       pretUnitar: laborLine.hourlyRate,
       valoare: laborLine.hourlyRate,
@@ -438,18 +943,61 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
     setManopera((prev) => [...prev, newItem]);
   };
 
+  // Update equipment field and recalculate dependent values
+  const updateEquipmentField = (id: string, field: 'consumNormat' | 'marjaConsum', value: number) => {
+    setEchipamente(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      
+      const updated = { ...item, [field]: value };
+      
+      // Recalculate cantitate: consumNormat * (1 + marjaConsum/100)
+      updated.cantitate = updated.consumNormat * (1 + updated.marjaConsum / 100);
+      
+      // Recalculate valoare: cantitate * pretUnitar
+      updated.valoare = updated.cantitate * updated.pretUnitar;
+      
+      return updated;
+    }));
+  };
+
+  // Update labor field and recalculate dependent values
+  const updateLaborField = (id: string, field: 'consumNormat' | 'marjaConsum', value: number) => {
+    setManopera(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      
+      const updated = { ...item, [field]: value };
+      
+      // Recalculate cantitate: consumNormat * (1 + marjaConsum/100)
+      updated.cantitate = updated.consumNormat * (1 + updated.marjaConsum / 100);
+      
+      // Recalculate valoare: cantitate * pretUnitar
+      updated.valoare = updated.cantitate * updated.pretUnitar;
+      
+      return updated;
+    }));
+  };
+
   // Handle material selection
   const handleSelectMaterial = (material: Material) => {
+    const packPrice = material.price ? Number(material.price) : null;
+    const packQty = material.packQuantity ? Number(material.packQuantity) : null;
+    const costUnitar = computeUnitCost(packPrice, packQty);
+
     const newItem: MaterialItem = {
       id: crypto.randomUUID(),
       cod: material.code,
       denumire: material.description,
       um: material.unit,
+      packQuantity: material.packQuantity ?? null,
+      packUnit: material.packUnit ?? null,
+      packPrice: packPrice,
+      consumNormat: 1, // Default to 1, user can edit
+      marjaConsum: 0, // Default to 0%, user can edit
       cantitate: 1,
-      pretUnitar: Number(material.price),
-      valoare: Number(material.price),
+      costUnitar: costUnitar,
+      valoare: costUnitar,
     };
-    setMateriale((prev) => [...prev, newItem]);
+    setMateriale((prev) => [...prev, normalizeMaterialItem(newItem)]);
   };
 
   // Handle consumable selection
@@ -459,6 +1007,8 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       cod: material.code,
       denumire: material.description,
       um: material.unit,
+      packQuantity: material.packQuantity ?? null,
+      packUnit: material.packUnit ?? null,
       cantitate: 1,
       pretUnitar: Number(material.price),
       valoare: Number(material.price),
@@ -564,10 +1114,10 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
   };
 
   // Calculate totals
-  const totalMateriale = materiale.reduce((sum, item) => sum + item.valoare, 0);
-  const totalConsumabile = consumabile.reduce((sum, item) => sum + item.valoare, 0);
-  const totalEchipamente = echipamente.reduce((sum, item) => sum + item.valoare, 0);
-  const totalManopera = manopera.reduce((sum, item) => sum + item.valoare, 0);
+  const totalMateriale = materiale.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+  const totalConsumabile = consumabile.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+  const totalEchipamente = echipamente.reduce((sum, item) => sum + toNumber(item.valoare), 0);
+  const totalManopera = manopera.reduce((sum, item) => sum + toNumber(item.valoare), 0);
   const totalGeneral = totalMateriale + totalConsumabile + totalEchipamente + totalManopera;
 
   // Columns for Materiale
@@ -576,52 +1126,160 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       {
         accessorKey: 'cod',
         header: 'Cod',
-        size: 90,
-        minSize: 90,
-        maxSize: 90,
-        grow: false,
-      },
-      {
-        accessorKey: 'denumire',
-        header: 'Denumire Material',
-        size: 250,
-        minSize: 150,
-        grow: true,
-      },
-      {
-        accessorKey: 'um',
-        header: 'UM',
-        size: 60,
-        minSize: 60,
-        maxSize: 60,
-        grow: false,
-      },
-      {
-        accessorKey: 'cantitate',
-        header: 'Cant.',
         size: 80,
         minSize: 80,
         maxSize: 80,
         grow: false,
-        Cell: ({ cell }) => cell.getValue<number>().toFixed(2),
       },
       {
-        accessorKey: 'pretUnitar',
-        header: 'Preț',
-        size: 90,
-        minSize: 90,
-        maxSize: 90,
+        accessorKey: 'denumire',
+        header: 'Descriere',
+        size: 200,
+        minSize: 150,
+        grow: true,
+      },
+      {
+        accessorKey: 'consumNormat',
+        header: 'Consum Normat',
+        size: 110,
+        minSize: 100,
+        maxSize: 130,
         grow: false,
-        Cell: ({ cell }) => formatCurrency(cell.getValue<number>()),
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.consumNormat;
+          return (
+            <TextField
+              type="number"
+              value={Number.isFinite(value) ? value : 0}
+              onChange={(e) => handleMaterialConsumNormChange(row.original.id, e.target.value)}
+              size="small"
+              inputProps={{
+                step: '0.01',
+                style: { textAlign: 'right', fontSize: '0.875rem' }
+              }}
+              InputProps={{
+                endAdornment: row.original.um ? (
+                  <InputAdornment
+                    position="end"
+                    sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+                  >
+                    {row.original.um}
+                  </InputAdornment>
+                ) : undefined,
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'costUnitar',
+        header: 'Cost Unitar',
+        size: 100,
+        minSize: 90,
+        maxSize: 110,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ cell, row }) => {
+          const costUnitar = cell.getValue<number>();
+          const packQty = row.original.packQuantity;
+          const packUnit = row.original.packUnit;
+          const packPrice = row.original.packPrice;
+          
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight="bold">
+                {formatCurrency(costUnitar)}
+              </Typography>
+              {packQty && packUnit && packPrice && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  ({formatCurrency(packPrice)}/{packQty}{packUnit})
+                </Typography>
+              )}
+            </Box>
+          );
+        },
+      },
+      {
+        accessorKey: 'marjaConsum',
+        header: 'Marjă %',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.marjaConsum;
+          return (
+            <TextField
+              type="number"
+              value={Number.isFinite(value) ? value : 0}
+              onChange={(e) => handleMaterialMarjaChange(row.original.id, e.target.value)}
+              size="small"
+              inputProps={{
+                step: '1',
+                style: {
+                  textAlign: 'right',
+                  fontSize: '0.875rem',
+                  color: value >= 0 ? 'green' : 'red'
+                }
+              }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment
+                    position="end"
+                    sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+                  >
+                    %
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'cantitate',
+        header: 'Cantitate',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ cell, row }) => {
+          const cantitate = cell.getValue<number>();
+          const consumNormat = row.original.consumNormat;
+          const marja = row.original.marjaConsum;
+          
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight="bold">
+                {cantitate.toFixed(4)}
+              </Typography>
+              {marja !== 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  ({consumNormat.toFixed(2)} × {(1 + marja/100).toFixed(3)})
+                </Typography>
+              )}
+            </Box>
+          );
+        },
       },
       {
         accessorKey: 'valoare',
         header: 'Valoare',
         size: 100,
         minSize: 100,
-        maxSize: 100,
+        maxSize: 120,
         grow: false,
-        Cell: ({ cell }) => formatCurrency(cell.getValue<number>()),
+        enableEditing: false,
+        Cell: ({ cell }) => (
+          <Typography variant="body2" fontWeight="bold" color="primary">
+            {formatCurrency(cell.getValue<number>())}
+          </Typography>
+        ),
       },
       {
         id: 'actions',
@@ -630,6 +1288,7 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         minSize: 50,
         maxSize: 50,
         grow: false,
+        enableEditing: false,
         Cell: ({ row }) => (
           <IconButton
             size="small"
@@ -726,15 +1385,15 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       {
         accessorKey: 'cod',
         header: 'Cod',
-        size: 90,
-        minSize: 90,
-        maxSize: 90,
+        size: 80,
+        minSize: 80,
+        maxSize: 80,
         grow: false,
       },
       {
         accessorKey: 'denumire',
         header: 'Denumire Echipament',
-        size: 250,
+        size: 200,
         minSize: 150,
         grow: true,
       },
@@ -747,13 +1406,91 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         grow: false,
       },
       {
-        accessorKey: 'cantitate',
-        header: 'Cant.',
-        size: 80,
-        minSize: 80,
-        maxSize: 80,
+        accessorKey: 'consumNormat',
+        header: 'Consum Normat',
+        size: 110,
+        minSize: 100,
+        maxSize: 130,
         grow: false,
-        Cell: ({ cell }) => cell.getValue<number>().toFixed(2),
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.consumNormat;
+          return (
+            <TextField
+              type="number"
+              value={value}
+              onChange={(e) => {
+                const newValue = parseFloat(e.target.value) || 0;
+                updateEquipmentField(row.original.id, 'consumNormat', newValue);
+              }}
+              size="small"
+              inputProps={{
+                step: '0.01',
+                style: { textAlign: 'right', fontSize: '0.875rem' }
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'marjaConsum',
+        header: 'Marjă %',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.marjaConsum;
+          return (
+            <TextField
+              type="number"
+              value={value}
+              onChange={(e) => {
+                const newValue = parseFloat(e.target.value) || 0;
+                updateEquipmentField(row.original.id, 'marjaConsum', newValue);
+              }}
+              size="small"
+              inputProps={{
+                step: '1',
+                style: { 
+                  textAlign: 'right', 
+                  fontSize: '0.875rem',
+                  color: value >= 0 ? 'green' : 'red'
+                }
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'cantitate',
+        header: 'Cantitate',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ cell, row }) => {
+          const cantitate = cell.getValue<number>();
+          const consumNormat = row.original.consumNormat;
+          const marja = row.original.marjaConsum;
+          
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight="bold">
+                {cantitate.toFixed(4)}
+              </Typography>
+              {marja !== 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  ({consumNormat.toFixed(2)} × {(1 + marja/100).toFixed(3)})
+                </Typography>
+              )}
+            </Box>
+          );
+        },
       },
       {
         accessorKey: 'pretUnitar',
@@ -771,7 +1508,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         minSize: 100,
         maxSize: 100,
         grow: false,
-        Cell: ({ cell }) => formatCurrency(cell.getValue<number>()),
+        Cell: ({ cell }) => (
+          <Typography variant="body2" fontWeight="bold" color="primary">
+            {formatCurrency(cell.getValue<number>())}
+          </Typography>
+        ),
       },
       {
         id: 'actions',
@@ -801,15 +1542,15 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
       {
         accessorKey: 'cod',
         header: 'Cod',
-        size: 90,
-        minSize: 90,
-        maxSize: 90,
+        size: 80,
+        minSize: 80,
+        maxSize: 80,
         grow: false,
       },
       {
         accessorKey: 'denumire',
         header: 'Denumire Manoperă',
-        size: 250,
+        size: 200,
         minSize: 150,
         grow: true,
       },
@@ -822,13 +1563,91 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         grow: false,
       },
       {
-        accessorKey: 'cantitate',
-        header: 'Cant.',
-        size: 80,
-        minSize: 80,
-        maxSize: 80,
+        accessorKey: 'consumNormat',
+        header: 'Consum Normat',
+        size: 110,
+        minSize: 100,
+        maxSize: 130,
         grow: false,
-        Cell: ({ cell }) => cell.getValue<number>().toFixed(2),
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.consumNormat;
+          return (
+            <TextField
+              type="number"
+              value={value}
+              onChange={(e) => {
+                const newValue = parseFloat(e.target.value) || 0;
+                updateLaborField(row.original.id, 'consumNormat', newValue);
+              }}
+              size="small"
+              inputProps={{
+                step: '0.01',
+                style: { textAlign: 'right', fontSize: '0.875rem' }
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'marjaConsum',
+        header: 'Marjă %',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const value = row.original.marjaConsum;
+          return (
+            <TextField
+              type="number"
+              value={value}
+              onChange={(e) => {
+                const newValue = parseFloat(e.target.value) || 0;
+                updateLaborField(row.original.id, 'marjaConsum', newValue);
+              }}
+              size="small"
+              inputProps={{
+                step: '1',
+                style: { 
+                  textAlign: 'right', 
+                  fontSize: '0.875rem',
+                  color: value >= 0 ? 'green' : 'red'
+                }
+              }}
+              sx={{ width: '100%' }}
+            />
+          );
+        },
+      },
+      {
+        accessorKey: 'cantitate',
+        header: 'Cantitate',
+        size: 90,
+        minSize: 80,
+        maxSize: 100,
+        grow: false,
+        enableEditing: false,
+        Cell: ({ cell, row }) => {
+          const cantitate = cell.getValue<number>();
+          const consumNormat = row.original.consumNormat;
+          const marja = row.original.marjaConsum;
+          
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight="bold">
+                {cantitate.toFixed(4)}
+              </Typography>
+              {marja !== 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  ({consumNormat.toFixed(2)} × {(1 + marja/100).toFixed(3)})
+                </Typography>
+              )}
+            </Box>
+          );
+        },
       },
       {
         accessorKey: 'pretUnitar',
@@ -846,7 +1665,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         minSize: 100,
         maxSize: 100,
         grow: false,
-        Cell: ({ cell }) => formatCurrency(cell.getValue<number>()),
+        Cell: ({ cell }) => (
+          <Typography variant="body2" fontWeight="bold" color="primary">
+            {formatCurrency(cell.getValue<number>())}
+          </Typography>
+        ),
       },
       {
         id: 'actions',
@@ -870,144 +1693,200 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
     []
   );
 
+  // Fullscreen state (persist across sessions)
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fisaOperatie.fullScreen') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('fisaOperatie.fullScreen', isFullScreen ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [isFullScreen]);
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
+    <Dialog open={open} onClose={onClose} fullWidth fullScreen={isFullScreen} maxWidth={isFullScreen ? false : 'xl'}>
       <DialogTitle sx={{ pb: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="h5" component="div" sx={{ fontWeight: 600 }}>
             Fișa Operație: {operationName}
           </Typography>
-          <Chip
-            label={`Total: ${totalGeneral.toFixed(2)} LEI`}
-            color="primary"
-            sx={{ fontWeight: 600, fontSize: '1rem', px: 1 }}
-          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip
+              label={`Total: ${totalGeneral.toFixed(2)} LEI`}
+              color="primary"
+              sx={{ fontWeight: 600, fontSize: '1rem', px: 1 }}
+            />
+            <IconButton
+              size="small"
+              onClick={() => setIsFullScreen(v => !v)}
+              title={isFullScreen ? 'Iesire ecran complet' : 'Ecran complet'}
+            >
+              {isFullScreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+            </IconButton>
+          </Box>
         </Box>
       </DialogTitle>
       
       <Divider />
       
-      <DialogContent sx={{ p: 3 }}>
-        {/* Template Selector */}
+      <DialogContent sx={{ p: 3, ...(isFullScreen ? { height: 'calc(100vh - 140px)' } : {}) }}>
+        {/* Version Selector */}
         <Paper elevation={2} sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
           <Stack spacing={2}>
-            {/* Template Selector Row */}
-            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <BookmarkIcon color="primary" />
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  Template:
-                </Typography>
-              </Box>
-              
-              <FormControl size="small" sx={{ minWidth: 250 }}>
-                <InputLabel>Selectează Template</InputLabel>
-                <Select
-                  value={selectedTemplate}
-                  onChange={(e) => handleTemplateChange(e.target.value)}
-                  label="Selectează Template"
-                >
-                  {templates.map((template) => (
-                    <MenuItem key={template.id} value={template.id}>
-                      {template.name} {template.isDefault && '⭐'}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<SaveIcon />}
-                onClick={() => setShowSaveTemplateDialog(true)}
-                sx={{ textTransform: 'none' }}
-              >
-                Salvează ca Template Nou
-              </Button>
-
-              {selectedTemplate && (
-                <IconButton
+            <Stack
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              justifyContent="space-between"
+              flexWrap="wrap"
+            >
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <BookmarkIcon color="primary" />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    Versiune reteta
+                  </Typography>
+                </Box>
+                <ToggleButtonGroup
+                  color="primary"
+                  exclusive
+                  value={activeVersion}
+                  onChange={handleVersionChange}
                   size="small"
-                  color="error"
-                  onClick={async () => {
-                    const template = templates.find(t => t.id === selectedTemplate);
-                    if (!template) return;
-                    
-                    const confirmed = await confirm({
-                      title: 'Șterge Template',
-                      bodyTitle: `Sigur doriți să ștergeți template-ul "${template.name}"?`,
-                      confirmText: 'Șterge',
-                      cancelText: 'Anulează',
-                      danger: true,
-                    });
-
-                    if (confirmed && operationId) {
-                      try {
-                        await operationSheetsApi.deleteOperationTemplate(operationId, selectedTemplate);
-                        enqueueSnackbar('Template șters cu succes', { variant: 'success' });
-                        setSelectedTemplate('');
-                        await loadTemplates();
-                      } catch (error) {
-                        console.error('Failed to delete template:', error);
-                        enqueueSnackbar('Eroare la ștergerea template-ului', { variant: 'error' });
-                      }
-                    }
-                  }}
-                  title="Șterge Template"
                 >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              )}
-
-              {projectId && (
-                <Chip
-                  icon={<HistoryIcon />}
-                  label="Versiune Proiect"
-                  color="secondary"
+                  <ToggleButton value="STANDARD">Reteta Standard</ToggleButton>
+                  <ToggleButton value="TEMPLATE">Template-uri</ToggleButton>
+                  <ToggleButton value="PROJECT" disabled={!projectId}>
+                    Reteta Proiect
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Stack>
+              {onRecipeCalculated && activeVersion === 'PROJECT' && (
+                <Button
+                  variant="outlined"
                   size="small"
-                />
+                  startIcon={<AttachMoneyIcon />}
+                  onClick={handleApplyPriceToProject}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Aplica totalul in Fisa Proiect
+                </Button>
               )}
             </Stack>
 
-            {/* Template Info Row */}
-            {selectedTemplate && (() => {
-              const template = templates.find(t => t.id === selectedTemplate);
-              if (!template) return null;
-              
-              const createdDate = new Date(template.createdAt).toLocaleDateString('ro-RO', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              });
-              const updatedDate = new Date(template.updatedAt).toLocaleDateString('ro-RO', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              });
-              
-              return (
-                <Box sx={{ pl: 4, display: 'flex', gap: 3, flexWrap: 'wrap', fontSize: '0.875rem', color: 'text.secondary' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>Creat:</Typography>
-                    <Typography variant="caption">{createdDate}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>Actualizat:</Typography>
-                    <Typography variant="caption">{updatedDate}</Typography>
-                  </Box>
-                  {template.description && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>Descriere:</Typography>
-                      <Typography variant="caption">{template.description}</Typography>
-                    </Box>
+            {activeVersion === 'STANDARD' && (
+              standardTemplateId ? (
+                renderTemplateMeta(standardTemplateId)
+              ) : (
+                <Alert severity="info" variant="outlined">
+                  Nu exista inca o reteta standard. Intra in modul Template pentru a o defini.
+                </Alert>
+              )
+            )}
+
+            {activeVersion === 'TEMPLATE' && (
+              <Stack spacing={1.5}>
+                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+                  <FormControl size="small" sx={{ minWidth: 250 }}>
+                    <InputLabel>Selecteaza Template</InputLabel>
+                    <Select
+                      value={selectedTemplate}
+                      onChange={(e) => handleTemplateChange(e.target.value)}
+                      label="Selecteaza Template"
+                    >
+                      {templates.map((template) => (
+                        <MenuItem key={template.id} value={template.id}>
+                          {template.name}
+                          {template.isDefault ? ' (implicit)' : ''}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<SaveIcon />}
+                    onClick={() => setShowSaveTemplateDialog(true)}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    Salveaza ca Template Nou
+                  </Button>
+
+                  {selectedTemplate && (
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={async () => {
+                        const template = templates.find(t => t.id === selectedTemplate);
+                        if (!template) {
+                          return;
+                        }
+
+                        const confirmed = await confirm({
+                          title: 'Sterge Template',
+                          bodyTitle: `Sigur doresti sa stergi template-ul "${template.name}"?`,
+                          confirmText: 'Sterge',
+                          cancelText: 'Anuleaza',
+                          danger: true,
+                        });
+
+                        if (confirmed && operationId) {
+                          try {
+                            await operationSheetsApi.deleteOperationTemplate(operationId, selectedTemplate);
+                            enqueueSnackbar('Template sters cu succes', { variant: 'success' });
+                            setSelectedTemplate('');
+                            await loadTemplates();
+                          } catch (error) {
+                            console.error('Failed to delete template:', error);
+                            enqueueSnackbar('Eroare la stergerea template-ului', { variant: 'error' });
+                          }
+                        }
+                      }}
+                      title="Sterge Template"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   )}
-                </Box>
-              );
-            })()}
+                </Stack>
+
+                {templates.length === 0 ? (
+                  <Alert severity="info" variant="outlined">
+                    Nu exista template-uri definite inca. Creeaza unul nou pentru aceasta operatie.
+                  </Alert>
+                ) : selectedTemplate ? (
+                  renderTemplateMeta(selectedTemplate)
+                ) : (
+                  <Alert severity="info" variant="outlined">
+                    Selecteaza un template pentru a incarca detaliile lui.
+                  </Alert>
+                )}
+              </Stack>
+            )}
+
+            {activeVersion === 'PROJECT' && (
+              isProjectRecipeLoaded ? (
+                projectRecipe ? (
+                  <Alert severity="success" variant="outlined">
+                    Lucrezi pe reteta proiectului. Modificarile de aici afecteaza doar acest proiect.
+                  </Alert>
+                ) : (
+                  <Alert severity="info" variant="outlined">
+                    Proiectul nu are inca o reteta salvata. Porneste de la o reteta existenta sau construieste una noua, apoi salveaz-o pentru proiect.
+                  </Alert>
+                )
+              ) : (
+                <Alert severity="info" variant="outlined">
+                  Se incarca reteta proiectului...
+                </Alert>
+              )
+            )}
           </Stack>
         </Paper>
 
@@ -1421,49 +2300,62 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
         <Button
           variant="contained"
           size="large"
+          disabled={!!(projectId && !operationId)} // Disable if project context but no operation ID
           onClick={async () => {
+            // Validation: Ensure we have operationId when saving to a project
+            if (projectId && !operationId) {
+              enqueueSnackbar('Eroare: ID operație lipsește', { variant: 'error' });
+              return;
+            }
+
             // Case 1: Project-specific save (has both projectId and operationId)
             if (projectId && operationId) {
               try {
-                const items = [
-                  ...materiale.map(item => ({
-                    type: 'MATERIAL' as const,
-                    code: item.cod,
-                    name: item.denumire,
-                    description: item.denumire,
-                    unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
-                  })),
-                  ...consumabile.map(item => ({
-                    type: 'CONSUMABLE' as const,
-                    code: item.cod,
-                    name: item.denumire,
-                    description: item.denumire,
-                    unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
-                  })),
-                  ...echipamente.map(item => ({
-                    type: 'EQUIPMENT' as const,
-                    code: item.cod,
-                    name: item.denumire,
-                    description: item.denumire,
-                    unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
-                  })),
-                  ...manopera.map(item => ({
-                    type: 'LABOR' as const,
-                    code: item.cod,
-                    name: item.denumire,
-                    description: item.denumire,
-                    unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
-                  })),
-                ];
+        const items = [
+          ...materiale.map(item => ({
+            type: 'MATERIAL' as const,
+            code: item.cod,
+            name: item.denumire,
+            description: item.denumire,
+            unit: item.um,
+            quantity: toNumber(item.cantitate),
+            price: toNumber(item.costUnitar),
+            packQuantity: item.packQuantity ?? null,
+            packUnit: item.packUnit ?? null,
+          })),
+          ...consumabile.map(item => ({
+            type: 'CONSUMABLE' as const,
+            code: item.cod,
+            name: item.denumire,
+            description: item.denumire,
+            unit: item.um,
+            quantity: toNumber(item.cantitate),
+            price: toNumber(item.pretUnitar),
+            packQuantity: item.packQuantity ?? null,
+            packUnit: item.packUnit ?? null,
+          })),
+          ...echipamente.map(item => ({
+            type: 'EQUIPMENT' as const,
+            code: item.cod,
+            name: item.denumire,
+            description: item.denumire,
+            unit: item.um,
+            quantity: toNumber(item.cantitate),
+            price: toNumber(item.pretUnitar),
+          })),
+          ...manopera.map(item => ({
+            type: 'LABOR' as const,
+            code: item.cod,
+            name: item.denumire,
+            description: item.denumire,
+            unit: item.um,
+            quantity: toNumber(item.cantitate),
+            price: toNumber(item.pretUnitar),
+          })),
+        ];
 
+                console.log('Saving project operation sheet with items:', items);
+                
                 await operationSheetsApi.saveProjectOperationSheet(
                   projectId,
                   operationId,
@@ -1471,10 +2363,24 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
                 );
 
                 enqueueSnackbar('Fișă operație salvată pentru proiect', { variant: 'success' });
+                
+                // Call callback with calculated unit price if provided
+                if (onRecipeCalculated && totalRecipeCost > 0) {
+                  onRecipeCalculated(totalRecipeCost);
+                }
+                
                 onClose();
-              } catch (error) {
+              } catch (error: unknown) {
                 console.error('Failed to save project operation sheet:', error);
-                enqueueSnackbar('Eroare la salvare', { variant: 'error' });
+                let errorMsg = 'Eroare la salvare';
+                if (error && typeof error === 'object' && 'response' in error) {
+                  const axiosError = error as { response?: { data?: { error?: string } }; message?: string };
+                  console.error('Error response:', axiosError.response?.data);
+                  errorMsg = axiosError.response?.data?.error ?? axiosError.message ?? errorMsg;
+                } else if (error instanceof Error) {
+                  errorMsg = error.message;
+                }
+                enqueueSnackbar(errorMsg, { variant: 'error' });
               }
             }
             // Case 2: Template save (no projectId, automatically save to selected or standard template)
@@ -1486,32 +2392,32 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
                     code: item.cod,
                     name: item.denumire,
                     unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
+                    quantity: toNumber(item.cantitate),
+                    price: toNumber(item.costUnitar),
                   })),
                   ...consumabile.map(item => ({
                     type: 'CONSUMABLE' as const,
                     code: item.cod,
                     name: item.denumire,
                     unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
+                    quantity: toNumber(item.cantitate),
+                    price: toNumber(item.pretUnitar),
                   })),
                   ...echipamente.map(item => ({
                     type: 'EQUIPMENT' as const,
                     code: item.cod,
                     name: item.denumire,
                     unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
+                    quantity: toNumber(item.cantitate),
+                    price: toNumber(item.pretUnitar),
                   })),
                   ...manopera.map(item => ({
                     type: 'LABOR' as const,
                     code: item.cod,
                     name: item.denumire,
                     unit: item.um,
-                    quantity: item.cantitate,
-                    price: item.pretUnitar,
+                    quantity: toNumber(item.cantitate),
+                    price: toNumber(item.pretUnitar),
                   })),
                 ];
 
@@ -1562,6 +2468,11 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
                     enqueueSnackbar('Rețeta Standard salvată', { variant: 'success' });
                     await loadTemplates();
                   }
+                }
+
+                // Call callback with calculated unit price if provided
+                if (onRecipeCalculated && totalRecipeCost > 0) {
+                  onRecipeCalculated(totalRecipeCost);
                 }
 
                 onClose();
@@ -1704,3 +2615,5 @@ export const FisaOperatieModal: React.FC<FisaOperatieModalProps> = ({
     </Dialog>
   );
 };
+/* eslint-enable react-hooks/exhaustive-deps */
+

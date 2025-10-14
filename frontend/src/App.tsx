@@ -27,8 +27,10 @@ import QualificationsTreePage from "./modules/qualifications/QualificationsTreeP
 import MaterialsPage from "./modules/materials/MaterialsPage";
 import ProducersPage from "./modules/producers/ProducersPage";
 import ReceptionsPage from "./modules/receptii/ReceptionsPage";
+import RegistruReceptiiPage from "./modules/receptions/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
 import CashLedgerPage from "./modules/cash/CashLedgerPage";
+import ExchangeRatesPage from "./modules/exchangeRates/ExchangeRatesPage";
 
 function AppLayout() {
   return (
@@ -152,6 +154,14 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "registru-receptii",
+        element: (
+          <RequireAuth>
+            <RegistruReceptiiPage />
+          </RequireAuth>
+        ),
+      },
+      {
         path: "orders",
         element: (
           <RequireAuth>
@@ -214,6 +224,14 @@ const router = createBrowserRouter([
             <CashLedgerPage />
           </RequireAuth>
         )
+      },
+      {
+        path: "exchange-rates",
+        element: (
+          <RequireAuth>
+            <ExchangeRatesPage />
+          </RequireAuth>
+        ),
       }
     ],
   },

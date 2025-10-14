@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
-  Alert, Chip, Badge, Autocomplete, TextField
+  Alert, Chip, Badge
 } from '@mui/material';
-import { useQuery, useMutation, useQueryClient, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 import HistoryIcon from '@mui/icons-material/History';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -15,6 +14,8 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
 import EventIcon from '@mui/icons-material/Event';
 import UpdateIcon from '@mui/icons-material/Update';
+import DownloadIcon from '@mui/icons-material/Download';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import {
   MaterialReactTable,
@@ -33,12 +34,11 @@ import { UploadTechnicalSheetDialog } from './UploadTechnicalSheetDialog';
 
 import {
   fetchUniqueMaterials,
-  fetchSuppliers,
+
   createMaterialWithoutGroup,
   updateMaterial,
   deleteMaterial,
   type Material,
-  type Supplier,
 } from '../../api/materials';
 
 const trim = (v?: string | null) => (v == null ? '' : String(v).trim());
@@ -65,6 +65,8 @@ interface TreeRow {
   supplierName?: string | null;
   supplierId?: string | null;
   unit?: string | null;
+  packQuantity?: number | null;
+  packUnit?: string | null;
   price?: number | null;
   currency?: 'RON' | 'EUR' | null;
   purchaseDate?: string | null;
@@ -97,6 +99,8 @@ async function buildTree(): Promise<TreeRow[]> {
     supplierName: m.supplierName,
     supplierId: m.supplierId,
     unit: m.unit,
+    packQuantity: m.packQuantity != null ? Number(m.packQuantity) : null,
+    packUnit: m.packUnit,
     price: Number(m.price),
     currency: m.currency,
     purchaseDate: m.purchaseDate,
@@ -315,6 +319,54 @@ function MaterialsPageContent() {
         );
       },
     },
+    // PACK QUANTITY column (editable only for materials)
+    {
+      accessorKey: 'packQuantity',
+      header: 'Cant. pachet',
+      size: 140,
+      enableColumnFilter: false,
+      muiEditTextFieldProps: ({ row }: any) => ({
+        type: 'number',
+        inputProps: { step: 0.001, min: 0 },
+        disabled: row?.original?.type !== 'material',
+      }),
+      Cell: ({ row }) => {
+        if (row.original.type !== 'material') return '-';
+        const value = row.original.packQuantity;
+        if (value == null) return '-';
+        const formatted = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 4 }).format(value);
+        return (
+          <Typography variant="body2">
+            {formatted}
+          </Typography>
+        );
+      },
+    },
+    // PACK UNIT column (editable only for materials)
+    {
+      accessorKey: 'packUnit',
+      header: 'UM pachet',
+      size: 140,
+      enableColumnFilter: true,
+      filterVariant: 'select',
+      filterSelectOptions: unitSelectOptions as any,
+      filterFn: 'equalsString' as any,
+      editVariant: 'select',
+      editSelectOptions: unitSelectOptions as any,
+      muiEditTextFieldProps: ({ row }: any) => ({
+        select: true,
+        placeholder: 'Alege unitatea pachetului',
+        disabled: row?.original?.type !== 'material',
+      }),
+      Cell: ({ row, renderedCellValue }) => {
+        const val = trim(renderedCellValue as string);
+        return row.original.type === 'material' && val ? (
+          <Chip size="small" variant="outlined" color="secondary" label={val} />
+        ) : (
+          '-'
+        );
+      },
+    },
     // PRICE column with trend indicator (editable only for materials)
     {
       accessorKey: 'price',
@@ -422,24 +474,27 @@ function MaterialsPageContent() {
         const sheet = row.original.technicalSheet;
         
         return (
-          <Stack direction="row" spacing={0.5}>
+          <Stack direction="row" spacing={0.5} alignItems="center">
             {sheet ? (
               <>
                 <Tooltip title="Descarcă fișa tehnică">
                   <Chip 
                     size="small" 
-                    icon={<UploadFileIcon />} 
+                    icon={<DownloadIcon />} 
                     label="Disponibil" 
                     color="success"
-                    variant="outlined"
+                    variant="filled"
                     onClick={() => {
-                      const downloadUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3005'}/materials/${row.original.id}/download-sheet`;
-                      window.open(downloadUrl, '_blank');
+                      const downloadUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/materials/${row.original.id}/download-sheet`;
+                      const link = document.createElement('a');
+                      link.href = downloadUrl;
+                      link.download = sheet.split('/').pop() || 'fisa-tehnica';
+                      link.click();
                     }}
-                    sx={{ cursor: 'pointer' }}
+                    sx={{ fontWeight: 500, cursor: 'pointer' }}
                   />
                 </Tooltip>
-                <Tooltip title="Schimbă fișa tehnică">
+                <Tooltip title="Înlocuiește fișa tehnică">
                   <IconButton 
                     size="small" 
                     onClick={() => {
@@ -456,10 +511,10 @@ function MaterialsPageContent() {
                 </Tooltip>
               </>
             ) : (
-              <Chip 
+              <Button
                 size="small" 
-                label="Încarcă" 
                 variant="outlined"
+                startIcon={<CloudUploadIcon />}
                 onClick={() => {
                   setSelectedForUpload({
                     id: row.original.id,
@@ -468,8 +523,15 @@ function MaterialsPageContent() {
                   });
                   setUploadDialogOpen(true);
                 }}
-                sx={{ cursor: 'pointer' }}
-              />
+                sx={{ 
+                  borderStyle: 'dashed',
+                  '&:hover': {
+                    borderStyle: 'solid',
+                  }
+                }}
+              >
+                Încarcă
+              </Button>
             )}
           </Stack>
         );
@@ -509,11 +571,36 @@ function MaterialsPageContent() {
       const description = trim(values.name);
       const unit = trim(values.unit) || 'buc';
       const price = Number(values.price) || 0;
-      
-      if (!code || !description) throw new Error('Codul și descrierea sunt obligatorii');
-      if (!isValidUnit(unit)) throw new Error(`Unitate invalidă: ${unit}`);
-      
-      await createMaterialWithoutGroup({ code, description, unit, price, currency: 'RON' });
+      const rawPackQuantity = values.packQuantity;
+      const packQuantity =
+        rawPackQuantity === undefined || rawPackQuantity === null || rawPackQuantity === ''
+          ? null
+          : Number(rawPackQuantity);
+      const packUnit = trim(values.packUnit);
+
+      if (!code || !description) throw new Error('Codul si descrierea sunt obligatorii');
+      if (!isValidUnit(unit)) throw new Error('Unitate invalida: ' + unit);
+      if (packQuantity != null && (!Number.isFinite(packQuantity) || packQuantity <= 0)) {
+        throw new Error('Cantitatea pachetului trebuie sa fie un numar pozitiv');
+      }
+      if (packUnit && !isValidUnit(packUnit)) {
+        throw new Error('Unitate pachet invalida: ' + packUnit);
+      }
+      const hasPackQuantity = packQuantity != null;
+      const hasPackUnit = !!packUnit;
+      if (hasPackQuantity !== hasPackUnit) {
+        throw new Error('Completeaza atat cantitatea, cat si unitatea pachetului');
+      }
+
+      await createMaterialWithoutGroup({
+        code,
+        description,
+        unit,
+        price,
+        currency: 'RON',
+        packQuantity,
+        packUnit: packUnit || null,
+      });
       successNotistack('Material creat cu succes!');
       await load();
       table.setCreatingRow(null);
@@ -531,10 +618,27 @@ function MaterialsPageContent() {
       const description = trim(values.name);
       const unit = trim(values.unit) || 'buc';
       const price = Number(values.price) || 0;
-      
-      if (!code || !description) throw new Error('Codul și descrierea sunt obligatorii');
-      if (!isValidUnit(unit)) throw new Error(`Unitate invalidă: ${unit}`);
-      
+      const rawPackQuantity = values.packQuantity;
+      const packQuantity =
+        rawPackQuantity === undefined || rawPackQuantity === null || rawPackQuantity === ''
+          ? null
+          : Number(rawPackQuantity);
+      const packUnit = trim(values.packUnit);
+
+      if (!code || !description) throw new Error('Codul si descrierea sunt obligatorii');
+      if (!isValidUnit(unit)) throw new Error('Unitate invalida: ' + unit);
+      if (packQuantity != null && (!Number.isFinite(packQuantity) || packQuantity <= 0)) {
+        throw new Error('Cantitatea pachetului trebuie sa fie un numar pozitiv');
+      }
+      if (packUnit && !isValidUnit(packUnit)) {
+        throw new Error('Unitate pachet invalida: ' + packUnit);
+      }
+      const hasPackQuantity = packQuantity != null;
+      const hasPackUnit = !!packUnit;
+      if (hasPackQuantity !== hasPackUnit) {
+        throw new Error('Completeaza atat cantitatea, cat si unitatea pachetului');
+      }
+
       await updateMaterial(row.original.id, {
         code,
         description,
@@ -542,6 +646,8 @@ function MaterialsPageContent() {
         price,
         currency: row.original.currency || 'RON',
         technicalSheet: row.original.technicalSheet,
+        packQuantity,
+        packUnit: packUnit || null,
       });
       successNotistack('Material actualizat cu succes!');
       await load();
@@ -678,6 +784,8 @@ function MaterialsPageContent() {
                 name: '',
                 code: '',
                 unit: 'buc',
+                packQuantity: null,
+                packUnit: '',
                 price: 0,
                 currency: 'RON',
                 number: '',
