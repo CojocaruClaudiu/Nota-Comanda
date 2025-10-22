@@ -104,10 +104,10 @@ model Employee {
   cnp            String?  @unique // Cod Numeric Personal
   idSeries       String? // "PX"
   idNumber       String? // "821461"
-  idIssuer       String? // "SPCLEP Băicoi"
+  idIssuer       String? // "SPCLEP BÄƒicoi"
   idIssueDateISO DateTime? // "2021-09-29"
   county         String? // ex: "Prahova"
-  locality       String? // ex: "sat Novăcești (com. Florești)" or "Băicoi"
+  locality       String? // ex: "sat NovÄƒceÈ™ti (com. FloreÈ™ti)" or "BÄƒicoi"
   address        String? // ex: "nr. 295" or full street
   phone          String? // ex: "+40 721 123 456"
   qualifications Qualification[]
@@ -481,8 +481,8 @@ model ProjectSheetOperation {
   operationName   String        // e.g., "Tencuieli int. var cu mortar var-ciment"
   unit            String        // e.g., "mp", "mc"
   quantity        Float         // Cantitate
-  unitPrice       Float         // Preț unitar
-  totalPrice      Float         // Auto-calculated: quantity × unitPrice
+  unitPrice       Float         // PreÈ› unitar
+  totalPrice      Float         // Auto-calculated: quantity Ã— unitPrice
   notes           String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -509,17 +509,17 @@ model ProjectDevizMaterial {
   
   // Supplier and packaging information (for Necesar Aprovizionare)
   supplier              String?  // Furnizor
-  packageSize           Float?   // Mărime pachet (e.g., 25 for 25kg bag)
-  packageUnit           String?  // Unitate pachet (e.g., kg, buc, m²)
+  packageSize           Float?   // MÄƒrime pachet (e.g., 25 for 25kg bag)
+  packageUnit           String?  // Unitate pachet (e.g., kg, buc, mÂ²)
   
   // Pricing and calculations
   quantity              Float    // Cantitate
-  unitPrice             Float    // Preț unitar
-  baseValue             Float    // Valoare bază (quantity × unitPrice)
+  unitPrice             Float    // PreÈ› unitar
+  baseValue             Float    // Valoare bazÄƒ (quantity Ã— unitPrice)
   markupPercent         Float?   // Adaos %
   valueWithMarkup       Float    // Valoare cu adaos
   discountPercent       Float?   // Discount %
-  finalValue            Float    // Valoare finală
+  finalValue            Float    // Valoare finalÄƒ
   
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -540,16 +540,16 @@ model ProjectDevizLabor {
   operationDescription  String
   
   // Labor details
-  laborDescription      String   // Descriere linie manoperă
+  laborDescription      String   // Descriere linie manoperÄƒ
   
   // Pricing and calculations
   quantity              Float    // Cantitate
-  unitPrice             Float    // Preț unitar
-  baseValue             Float    // Valoare bază (quantity × unitPrice)
+  unitPrice             Float    // PreÈ› unitar
+  baseValue             Float    // Valoare bazÄƒ (quantity Ã— unitPrice)
   markupPercent         Float?   // Adaos %
   valueWithMarkup       Float    // Valoare cu adaos
   discountPercent       Float?   // Discount %
-  finalValue            Float    // Valoare finală
+  finalValue            Float    // Valoare finalÄƒ
   
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -866,15 +866,15 @@ model Equipment {
   category        String
   code            String   @unique // internal ID / inventory code
   description     String
-  status          String   // Status Unealtă (ex: "Activ", "Inactiv")
+  status          String   // Status UnealtÄƒ (ex: "Activ", "Inactiv")
   serialNumber    String?  // Serie
-  referenceNumber String?  // Număr referință
-  lastRepairDate  DateTime? // Ultima Reparație
-  repairCost      Float?   // Cost Reparație
-  repairCount     Int?     // Număr Reparații
-  warranty        String?  // Garanție
-  equipmentNumber String?  // Număr Echipament
-  generation      String?  // Generație
+  referenceNumber String?  // NumÄƒr referinÈ›Äƒ
+  lastRepairDate  DateTime? // Ultima ReparaÈ›ie
+  repairCost      Float?   // Cost ReparaÈ›ie
+  repairCount     Int?     // NumÄƒr ReparaÈ›ii
+  warranty        String?  // GaranÈ›ie
+  equipmentNumber String?  // NumÄƒr Echipament
+  generation      String?  // GeneraÈ›ie
   purchasePrice   Float?   // Pret Achizitie
   hourlyCost      Float
   createdAt       DateTime @default(now())
@@ -894,7 +894,7 @@ model Qualification {
   laborLines  LaborLine[]
 }
 
-// Labor lines under a qualification (Linii manoperă)
+// Labor lines under a qualification (Linii manoperÄƒ)
 model LaborLine {
   id              String    @id @default(uuid())
   qualificationId String
@@ -930,14 +930,14 @@ model Material {
   description     String                          // Descriere (from denumire_produs)
   supplierName    String?                         // Furnizor (from den_tert)
   supplierId      String?                         // ID Tert
-  manufacturer    String?                         // Producător (for reception registry)
+  manufacturer    String?                         // ProducÄƒtor (for reception registry)
   unit            String         @default("buc")  // UM
-  price           Decimal        @default(0)      // Preț
+  price           Decimal        @default(0)      // PreÈ›
   currency        Currency       @default(RON)
-  purchaseDate    DateTime?                       // Data achiziției (from data in Excel)
-  invoiceNumber   String?                         // Nr. Factură (ex: "ANR TGV 56836")
-  receptionType   ReceptionType? // Tip Recepție: SANTIER or MAGAZIE
-  receivedQuantity Decimal?      @db.Decimal(12, 4) // Cantitate recepționată (different from pack quantity)
+  purchaseDate    DateTime?                       // Data achiziÈ›iei (from data in Excel)
+  invoiceNumber   String?                         // Nr. FacturÄƒ (ex: "ANR TGV 56836")
+  receptionType   String?         // Tip RecepÈ›ie: SANTIER or MAGAZIE
+  receivedQuantity Decimal?      @db.Decimal(12, 4) // Cantitate recepÈ›ionatÄƒ (different from pack quantity)
   technicalSheet  String?                         // Path/URL to uploaded technical sheet document
   notes           String?
   packQuantity    Decimal?        @db.Decimal(12, 4) // Cantitate per ambalaj (ex: 25)
@@ -1080,3 +1080,4 @@ model OperationSheetModification {
   @@index([projectSheetId])
   @@index([timestamp])
 }
+

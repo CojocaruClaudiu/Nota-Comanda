@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
   CircularProgress, Alert, Chip
@@ -167,7 +167,7 @@ export default function OperationCategoriesPage() {
   // where the creating row appears
   const [createPos, setCreatePos] = useState<'top' | 'bottom' | number>('top');
 
-  // Fișa Operație modal state
+  // FiÈ™a OperaÈ›ie modal state
   const [showFisaOperatie, setShowFisaOperatie] = useState(false);
   const [selectedOperationName, setSelectedOperationName] = useState<string>('');
   const [selectedOperationId, setSelectedOperationId] = useState<string>('');
@@ -182,6 +182,9 @@ export default function OperationCategoriesPage() {
   const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(
     persisted.pagination ?? { pageIndex: 0, pageSize: 50 }
   );
+  const [globalFilterValue, setGlobalFilterValue] = useState<string>(
+    typeof persisted.globalFilter === 'string' ? persisted.globalFilter : ''
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,7 +193,7 @@ export default function OperationCategoriesPage() {
   const t = await buildTree();
   setTree(addPaths(t));
     } catch (e: any) {
-      setError(e?.message || 'Eroare la încărcare');
+      setError(e?.message || 'Eroare la Ã®ncÄƒrcare');
     } finally {
       setLoading(false);
     }
@@ -202,7 +205,7 @@ export default function OperationCategoriesPage() {
     // Hidden PATH column for powerful fuzzy/global filtering across hierarchy
     {
       id: 'path',
-      header: 'Căutare',
+      header: 'CÄƒutare',
       accessorFn: (row) => row.path || row.name,
       enableGlobalFilter: true,
       enableColumnFilter: true,
@@ -230,7 +233,7 @@ export default function OperationCategoriesPage() {
             letterSpacing: 0.2,
           }}
         >
-          {row.original.number || '—'}
+          {row.original.number || 'â€”'}
         </Box>
       ),
       enableEditing: false,
@@ -266,7 +269,7 @@ export default function OperationCategoriesPage() {
             </Typography>
             <Chip
               size="small"
-              label={t === 'category' ? 'Categorie' : t === 'operation' ? 'Operație' : 'Element'}
+              label={t === 'category' ? 'Categorie' : t === 'operation' ? 'OperaÈ›ie' : 'Element'}
               variant="outlined"
             />
             {t === 'item' && unit && (
@@ -274,7 +277,7 @@ export default function OperationCategoriesPage() {
             )}
             {t === 'category' && (
               <>
-                <Chip size="small" variant="outlined" label={`${opsCount ?? 0} operații`} />
+                <Chip size="small" variant="outlined" label={`${opsCount ?? 0} operaÈ›ii`} />
                 <Chip size="small" variant="outlined" label={`${itemsCount ?? 0} elemente`} />
               </>
             )}
@@ -305,7 +308,7 @@ export default function OperationCategoriesPage() {
       }),
       Cell: ({ row, renderedCellValue }) => {
         const val = trim(renderedCellValue as string);
-        return row.original.type === 'item' ? (val || '—') : '—';
+        return row.original.type === 'item' ? (val || 'â€”') : 'â€”';
       },
     },
   ], []);
@@ -428,7 +431,7 @@ export default function OperationCategoriesPage() {
       return (
         <Stack direction="row" gap={1} justifyContent="flex-end">
           {row.original.type === 'category' && (
-            <Tooltip title="Adaugă operație">
+            <Tooltip title="AdaugÄƒ operaÈ›ie">
               <span>
                 <IconButton size="small" onClick={() => addChild('operation')}>
                   <AddRoundedIcon fontSize="small" />
@@ -437,7 +440,7 @@ export default function OperationCategoriesPage() {
             </Tooltip>
           )}
           {row.original.type === 'operation' && (
-            <Tooltip title="Adaugă element">
+            <Tooltip title="AdaugÄƒ element">
               <span>
                 <IconButton size="small" onClick={() => addChild('item')}>
                   <AddRoundedIcon fontSize="small" />
@@ -446,7 +449,7 @@ export default function OperationCategoriesPage() {
             </Tooltip>
           )}
           {row.original.type === 'item' && (
-            <Tooltip title="Vezi Fișa Operație">
+            <Tooltip title="Vezi FiÈ™a OperaÈ›ie">
               <span>
                 <IconButton 
                   size="small" 
@@ -462,14 +465,14 @@ export default function OperationCategoriesPage() {
               </span>
             </Tooltip>
           )}
-          <Tooltip title="Editează">
+          <Tooltip title="EditeazÄƒ">
             <span>
               <IconButton size="small" onClick={() => table.setEditingRow(row)}>
                 <EditOutlinedIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="Șterge">
+          <Tooltip title="È˜terge">
             <span>
               <IconButton
                 size="small"
@@ -478,14 +481,14 @@ export default function OperationCategoriesPage() {
                   const r = row.original;
                   const isCategory = r.type === 'category';
                   const isOperation = r.type === 'operation';
-                  const title = 'Confirmare ștergere';
-                  const bodyTitle = 'Ești sigur că vrei să ștergi?';
+                  const title = 'Confirmare È™tergere';
+                  const bodyTitle = 'EÈ™ti sigur cÄƒ vrei sÄƒ È™tergi?';
                   const desc = isCategory
-                    ? (<span>Categoria <strong>{r.name}</strong> și toate operațiile și elementele din ea vor fi șterse permanent.</span>)
+                    ? (<span>Categoria <strong>{r.name}</strong> È™i toate operaÈ›iile È™i elementele din ea vor fi È™terse permanent.</span>)
                     : isOperation
-                      ? (<span>Operația <strong>{r.name}</strong> și toate elementele ei vor fi șterse permanent.</span>)
-                      : (<span>Elementul <strong>{r.name}</strong> va fi șters permanent.</span>);
-                  const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'Șterge', cancelText: 'Anulează', danger: true });
+                      ? (<span>OperaÈ›ia <strong>{r.name}</strong> È™i toate elementele ei vor fi È™terse permanent.</span>)
+                      : (<span>Elementul <strong>{r.name}</strong> va fi È™ters permanent.</span>);
+                  const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'È˜terge', cancelText: 'AnuleazÄƒ', danger: true });
                   if (!ok) return;
                   try {
                     setSaving(true);
@@ -493,9 +496,9 @@ export default function OperationCategoriesPage() {
                     else if (isOperation) await deleteOperation(r.id);
                     else await deleteOperationItem(r.id);
                     await load();
-                    successNotistack('Șters');
+                    successNotistack('È˜ters');
                   } catch (e: any) {
-                    errorNotistack(e?.message || 'Nu am putut șterge');
+                    errorNotistack(e?.message || 'Nu am putut È™terge');
                   } finally {
                     setSaving(false);
                   }
@@ -519,7 +522,7 @@ export default function OperationCategoriesPage() {
     displayColumnDefOptions: {
       'mrt-row-expand': { size: 56 },
       'mrt-row-actions': {
-        header: 'Acțiuni',
+        header: 'AcÈ›iuni',
         size: 180,
         muiTableBodyCellProps: {
           sx: {
@@ -547,7 +550,7 @@ export default function OperationCategoriesPage() {
 
     // toolbars
     muiSearchTextFieldProps: {
-      placeholder: 'Caută categorie/operație/element…',
+      placeholder: 'CautÄƒ categorie/operaÈ›ie/elementâ€¦',
       variant: 'outlined',
       sx: { minWidth: 320 },
     },
@@ -572,10 +575,10 @@ export default function OperationCategoriesPage() {
             );
           }}
         >
-          Adaugă categorie
+          AdaugÄƒ categorie
         </Button>
         <Button variant="outlined" onClick={() => load()} disabled={loading}>
-          {loading ? <CircularProgress size={18} /> : 'Reîncarcă'}
+          {loading ? <CircularProgress size={18} /> : 'ReÃ®ncarcÄƒ'}
         </Button>
       </Stack>
     ),
@@ -624,18 +627,10 @@ export default function OperationCategoriesPage() {
         return next;
       });
     },
-    onGlobalFilterChange: (updater) => {
-      const value = typeof updater === 'function' ? updater(table.getState().globalFilter) : updater;
-      savePersist({ globalFilter: value as any });
-    },
+    onGlobalFilterChange: (updater) => {\n      setGlobalFilterValue((prev) => {\n        const next = typeof updater === 'function' ? updater(prev) : updater;\n        savePersist({ globalFilter: next as any });\n        return next as string;\n      });\n    },
 
     // controlled loading banners
-    state: {
-      isLoading: loading,
-      showProgressBars: saving,
-      showAlertBanner: !!error,
-  sorting,
-  pagination,
+    state: {\n      isLoading: loading,\n      showProgressBars: saving,\n      showAlertBanner: !!error,\n      sorting,\n      pagination,\n      globalFilter: globalFilterValue,
     },
 
     // Optional perf toggles for big datasets:
@@ -644,7 +639,7 @@ export default function OperationCategoriesPage() {
   });
 
   // Auto-expand ancestors when filtering so matches nested under collapsed parents become visible
-  const globalFilter = (table.getState().globalFilter as string) || '';
+  const globalFilter = globalFilterValue || '';
   const columnFilters = table.getState().columnFilters as unknown as Array<unknown> | undefined;
   const hasActiveFilter = Boolean(globalFilter) || Boolean(columnFilters && columnFilters.length);
 
@@ -668,7 +663,7 @@ export default function OperationCategoriesPage() {
     <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
       <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="h5">Categorii / Operații / Elemente</Typography>
+          <Typography variant="h5">Categorii / OperaÈ›ii / Elemente</Typography>
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -678,7 +673,7 @@ export default function OperationCategoriesPage() {
         </Box>
       </Paper>
 
-      {/* Fișa Operație Modal */}
+      {/* FiÈ™a OperaÈ›ie Modal */}
       <FisaOperatieModal
         open={showFisaOperatie}
         onClose={() => {
@@ -692,3 +687,5 @@ export default function OperationCategoriesPage() {
     </Box>
   );
 }
+
+

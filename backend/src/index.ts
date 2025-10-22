@@ -1211,7 +1211,16 @@ type EquipmentPayload = {
 // GET /equipment
 app.get('/equipment', async (_req, res) => {
   try {
-    const list = await (prisma as any).equipment.findMany({ orderBy: [{ category: 'asc' }, { code: 'asc' }] });
+    // Use raw query with COALESCE for status to tolerate existing NULL values in DB
+    const list = await (prisma as any).$queryRaw`
+      SELECT id, category, code, description,
+             COALESCE(status, '') AS status,
+             "serialNumber", "referenceNumber", "lastRepairDate",
+             "repairCost", "repairCount", warranty, "equipmentNumber",
+             generation, "purchasePrice", "hourlyCost", "createdAt", "updatedAt"
+      FROM "Equipment"
+      ORDER BY category ASC, code ASC;
+    `;
     res.json(list);
   } catch (error: unknown) {
     console.error('GET /equipment error:', error);

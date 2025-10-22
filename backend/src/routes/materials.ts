@@ -1,4 +1,4 @@
-// API routes for Materials and Material Groups
+﻿// API routes for Materials and Material Groups
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import multer from 'multer';
@@ -42,7 +42,7 @@ const upload = multer({
     if (allowedTypes.test(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Tip de fișier invalid. Permise: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG'));
+      cb(new Error('Tip de fiÈ™ier invalid. Permise: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG'));
     }
   }
 });
@@ -85,7 +85,7 @@ router.get('/groups', async (_req, res) => {
     res.json(list);
   } catch (error: unknown) {
     console.error('GET /materials/groups error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca grupele de materiale' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca grupele de materiale' });
   }
 });
 
@@ -101,7 +101,7 @@ router.post('/groups', async (req, res) => {
     res.status(201).json(created);
   } catch (error: any) {
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Grupa de materiale există deja' });
+      return res.status(409).json({ error: 'Grupa de materiale existÄƒ deja' });
     }
     console.error('POST /materials/groups error:', error);
     res.status(500).json({ error: 'Nu am putut crea grupa de materiale' });
@@ -116,7 +116,7 @@ router.put('/groups/:id', async (req, res) => {
   
   try {
     const exists = await (prisma as any).materialGroup.findUnique({ where: { id } });
-    if (!exists) return res.status(404).json({ error: 'Grupa nu a fost găsită' });
+    if (!exists) return res.status(404).json({ error: 'Grupa nu a fost gÄƒsitÄƒ' });
     
     const updated = await (prisma as any).materialGroup.update({
       where: { id },
@@ -125,7 +125,7 @@ router.put('/groups/:id', async (req, res) => {
     res.json(updated);
   } catch (error: any) {
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Grupa de materiale există deja' });
+      return res.status(409).json({ error: 'Grupa de materiale existÄƒ deja' });
     }
     console.error('PUT /materials/groups/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza grupa de materiale' });
@@ -140,10 +140,10 @@ router.delete('/groups/:id', async (req, res) => {
     res.status(204).send();
   } catch (error: any) {
     if (error.code === 'P2003') {
-      return res.status(409).json({ error: 'Nu se poate șterge: există materiale în această grupă' });
+      return res.status(409).json({ error: 'Nu se poate È™terge: existÄƒ materiale Ã®n aceastÄƒ grupÄƒ' });
     }
     console.error('DELETE /materials/groups/:id error:', error);
-    res.status(500).json({ error: 'Nu am putut șterge grupa de materiale' });
+    res.status(500).json({ error: 'Nu am putut È™terge grupa de materiale' });
   }
 });
 
@@ -158,6 +158,8 @@ type MaterialPayload = {
   technicalSheet?: string | null;
   notes?: string | null;
   active?: boolean | null;
+  // Reception registry fields (optional, partial updates supported)
+  receptionType?: string | null;
 };
 
 // GET /api/materials/groups/:groupId/materials
@@ -171,7 +173,7 @@ router.get('/groups/:groupId/materials', async (req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials/groups/:groupId/materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca materialele' });
   }
 });
 
@@ -213,7 +215,7 @@ router.get('/unique', async (_req, res) => {
     res.json(uniqueMaterials);
   } catch (error: unknown) {
     console.error('GET /materials/unique error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele unice' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca materialele unice' });
   }
 });
 
@@ -229,7 +231,7 @@ router.get('/suppliers', async (_req, res) => {
     res.json(suppliers);
   } catch (error: unknown) {
     console.error('GET /materials/suppliers error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca lista de furnizori' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca lista de furnizori' });
   }
 });
 
@@ -244,7 +246,7 @@ router.get('/history/:code', async (req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials/history/:code error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca istoricul prețurilor' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca istoricul preÈ›urilor' });
   }
 });
 
@@ -258,7 +260,7 @@ router.get('/', async (_req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca materialele' });
   }
 });
 
@@ -276,7 +278,7 @@ router.get('/groups-with-materials', async (_req, res) => {
     res.json(groups);
   } catch (error: unknown) {
     console.error('GET /materials/groups-with-materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca datele' });
+    res.status(500).json({ error: 'Nu am putut Ã®ncÄƒrca datele' });
   }
 });
 
@@ -285,7 +287,7 @@ router.post('/', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+    return res.status(400).json({ error: 'Codul È™i descrierea sunt obligatorii' });
   }
   
   try {
@@ -317,7 +319,7 @@ router.post('/groups/:groupId/materials', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+    return res.status(400).json({ error: 'Codul È™i descrierea sunt obligatorii' });
   }
   
   try {
@@ -352,7 +354,7 @@ router.put('/:id', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+    return res.status(400).json({ error: 'Codul È™i descrierea sunt obligatorii' });
   }
   
   try {
@@ -375,6 +377,12 @@ router.put('/:id', async (req, res) => {
     if (packQuantityValue !== undefined) updateData.packQuantity = packQuantityValue;
     if (packUnitValue !== undefined) updateData.packUnit = packUnitValue;
 
+    // Validate and set receptionType if provided
+    if (Object.prototype.hasOwnProperty.call(p, 'receptionType')) {
+      const rt = (p.receptionType ?? null) as string | null;
+      updateData.receptionType = rt ? String(rt) : null;
+    }
+
     const updated = await (prisma as any).material.update({
       where: { id },
       data: updateData,
@@ -394,7 +402,7 @@ router.post('/:id/upload-sheet', upload.single('file'), async (req, res) => {
   const { id } = req.params;
   
   if (!req.file) {
-    return res.status(400).json({ error: 'Niciun fișier încărcat' });
+    return res.status(400).json({ error: 'Niciun fiÈ™ier Ã®ncÄƒrcat' });
   }
   
   try {
@@ -421,7 +429,7 @@ router.post('/:id/upload-sheet', upload.single('file'), async (req, res) => {
     if (req.file) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ error: 'Eroare la încărcarea fișierului' });
+    res.status(500).json({ error: 'Eroare la Ã®ncÄƒrcarea fiÈ™ierului' });
   }
 });
 
@@ -447,7 +455,7 @@ router.delete('/:id/technical-sheet', async (req, res) => {
     res.status(204).send();
   } catch (error: unknown) {
     console.error('DELETE /materials/:id/technical-sheet error:', error);
-    res.status(500).json({ error: 'Eroare la ștergerea fișierului' });
+    res.status(500).json({ error: 'Eroare la È™tergerea fiÈ™ierului' });
   }
 });
 
@@ -459,19 +467,19 @@ router.get('/:id/download-sheet', async (req, res) => {
     const material = await (prisma as any).material.findUnique({ where: { id } });
     
     if (!material?.technicalSheet) {
-      return res.status(404).json({ error: 'Fișierul nu există' });
+      return res.status(404).json({ error: 'FiÈ™ierul nu existÄƒ' });
     }
     
     const filePath = path.join(__dirname, '../../uploads/technical-sheets', path.basename(material.technicalSheet));
     
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Fișierul nu a fost găsit pe server' });
+      return res.status(404).json({ error: 'FiÈ™ierul nu a fost gÄƒsit pe server' });
     }
     
     res.download(filePath);
   } catch (error: unknown) {
     console.error('GET /materials/:id/download-sheet error:', error);
-    res.status(500).json({ error: 'Eroare la descărcarea fișierului' });
+    res.status(500).json({ error: 'Eroare la descÄƒrcarea fiÈ™ierului' });
   }
 });
 
@@ -492,8 +500,9 @@ router.delete('/:id', async (req, res) => {
     res.status(204).send();
   } catch (error: unknown) {
     console.error('DELETE /materials/:id error:', error);
-    res.status(500).json({ error: 'Nu am putut șterge materialul' });
+    res.status(500).json({ error: 'Nu am putut È™terge materialul' });
   }
 });
 
 export default router;
+
