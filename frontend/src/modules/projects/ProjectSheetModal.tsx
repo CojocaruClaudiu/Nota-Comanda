@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -97,6 +97,14 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   // Load existing project sheet data when modal opens
   useEffect(() => {
     if (open && devizLine) {
+      // reset visible state immediately to avoid flicker when switching lines or opening
+      setInitiationDate(null);
+      setEstimatedStartDate(null);
+      setEstimatedEndDate(null);
+      setStandardMarkup(0);
+      setStandardDiscount(0);
+      setIndirectCosts(0);
+      setOperations([]);
       const loadData = async () => {
         try {
           setLoading(true);
@@ -369,7 +377,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   };
 
   const handleDeleteOperation = async (id: string, operationName: string) => {
-    const ok = await confirm({
+      const ok = await confirm({
       title: 'Confirmare Ștergere',
       bodyTitle: 'Ștergi această operație?',
       description: (
@@ -465,8 +473,8 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
         },
       },
       {
-        accessorKey: 'unitPrice',
-        header: 'Preț unitar (din rețetă)',
+  accessorKey: 'unitPrice',
+  header: 'Preț unitar (din rețetă)',
         size: 150,
         enableEditing: false, // Read-only - calculated from recipe
         Cell: ({ cell, row }) => {
@@ -496,7 +504,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
           const val = cell.getValue<number | null>();
           return (
             <Typography variant="body2" fontWeight="bold">
-              {val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—'}
+                {val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—'}
             </Typography>
           );
         },
@@ -546,7 +554,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
           title={
             row.original.operationItemId 
               ? "Editează Fișa Operație" 
-              : "Fișa Operație disponibilă doar pentru operații din catalog"
+              : "Fișa Operație disponibilă doar pentru operațiile din catalog"
           }
         >
           <span>
@@ -562,7 +570,7 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Șterge operație">
+  <Tooltip title="Șterge operație">
           <IconButton
             size="small"
             color="error"
@@ -607,6 +615,14 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
                 onClick={() => setShowDevize(true)}
               >
                 Devize
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                onClick={() => {}}
+              >
+                Ofertare
               </Button>
               <IconButton onClick={onClose} size="small">
                 <CloseIcon />
@@ -817,3 +833,4 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
 };
 
 export default ProjectSheetModal;
+

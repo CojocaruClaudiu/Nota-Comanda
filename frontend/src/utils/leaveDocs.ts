@@ -68,8 +68,8 @@ function buildSentence(opts: LeaveDocOpts) {
   // singular vs plural
   const core =
     days === 1
-      ? `vă rog să-mi aprobați cererea de concediu de odihnă în data de ${dmyDot(startISO)}, respectiv 1 zi lucrătoare.`
-      : `vă rog să-mi aprobați cererea de concediu de odihnă în perioada ${dmyDot(startISO)} – ${dmyDot(endInclusiveISO)}, respectiv ${days} zile lucrătoare.`;
+      ? `Vă rog să-mi aprobați cererea de concediu de odihnă în data de ${dmyDot(startISO)}, respectiv 1 zi lucrătoare.`
+      : `Vă rog să-mi aprobați cererea de concediu de odihnă în perioada ${dmyDot(startISO)} – ${dmyDot(endInclusiveISO)}, respectiv ${days} zile lucrătoare.`;
 
   return { identity, core, endInclusiveISO };
 }

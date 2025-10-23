@@ -5,6 +5,16 @@ export type Equipment = {
   code: string; // internal id
   description: string;
   hourlyCost: number;
+  status?: string | null;
+  serialNumber?: string | null;
+  referenceNumber?: string | null;
+  lastRepairDate?: string | null;
+  repairCost?: number | null;
+  repairCount?: number | null;
+  warranty?: string | null;
+  equipmentNumber?: string | null;
+  generation?: string | null;
+  purchasePrice?: number | null;
   createdAt: string;
   updatedAt: string;
 };

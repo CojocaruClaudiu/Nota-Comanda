@@ -8,6 +8,8 @@ export const units: string[] = [
   'mc',  // metri cubi
   'm',   // metri
   'kg',
+  'sac',
+  'galeata',
   'tona',
   'l',
   'set',

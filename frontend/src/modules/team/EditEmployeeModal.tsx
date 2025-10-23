@@ -34,7 +34,7 @@ const validationSchema = Yup.object({
     .required('Numele este obligatoriu')
     .min(2, 'Numele trebuie să aibă cel puțin 2 caractere')
     .max(100, 'Numele nu poate avea mai mult de 100 caractere')
-    .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
+    .matches(/^[a-zA-ZăâîșțĂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
   hiredAt: Yup.string()
     .required('Data angajării este obligatorie'),
   cnp: Yup.string()

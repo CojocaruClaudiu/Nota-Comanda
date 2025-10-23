@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import {
   Box,
@@ -40,7 +40,8 @@ import {
   deleteProjectDevizLine,
   type ProjectDevizLine,
 } from '../../api/projectDeviz';
-import { saveProjectSheet } from '../../api/projectSheet';
+import { saveProjectSheet, fetchProjectSheet } from '../../api/projectSheet';
+import { fetchExchangeRates } from '../../api/exchangeRates';
 import ProjectSheetModal, { type ProjectSheetData } from './ProjectSheetModal';
 
 const getStatusColor = (status: ProjectStatus) => {
@@ -57,8 +58,8 @@ const getStatusColor = (status: ProjectStatus) => {
 const getStatusLabel = (status: ProjectStatus) => {
   switch (status) {
     case 'PLANNING': return 'Planificare';
-    case 'IN_PROGRESS': return 'În desfășurare';
-    case 'ON_HOLD': return 'În așteptare';
+  case 'IN_PROGRESS': return 'În desfășurare';
+  case 'ON_HOLD': return 'În așteptare';
     case 'COMPLETED': return 'Finalizat';
     case 'CANCELLED': return 'Anulat';
     default: return status;
@@ -98,12 +99,77 @@ const ProjectsPage: React.FC = () => {
     const lines = devizLines[projectId] || [];
     const isLoading = loadingDeviz[projectId];
 
+    // Store operation-derived totals per deviz line id
+    const [operationTotals, setOperationTotals] = useState<Record<string, { totalLei: number; totalLeiWithVat: number; totalEuro?: number; totalEuroWithVat?: number }>>({});
+
     // Load deviz when panel is expanded
     useEffect(() => {
       if (isExpanded && !devizLines[projectId] && !loadingDeviz[projectId]) {
         loadDevizForProject(projectId);
       }
     }, [isExpanded, projectId]);
+
+    // When panel expands, fetch project sheets for each deviz line and compute totals from operations
+    useEffect(() => {
+      if (!isExpanded) return;
+      if (!lines || lines.length === 0) return;
+
+      let cancelled = false;
+
+      const loadTotals = async () => {
+        try {
+          // Fetch exchange rate once
+          let ronEur: number | undefined = undefined;
+          try {
+            const rates = await fetchExchangeRates();
+            const parsed = Number(rates.ronEur);
+            if (Number.isFinite(parsed)) ronEur = parsed;
+          } catch (e) {
+            // ignore rate errors; EUR totals will be undefined
+          }
+
+          // Only fetch sheets for lines we haven't computed yet
+          const missing = lines.filter((line) => !operationTotals[line.id]);
+          if (missing.length === 0) return;
+
+          const results = await Promise.all(missing.map(async (line) => {
+            try {
+              const sheet = await fetchProjectSheet(projectId, line.id);
+              const ops = sheet.operations || [];
+              const totalLei = ops.reduce((s: number, op: any) => s + (Number(op.totalPrice) || 0), 0);
+              const vat = Number(line.vatPercent || 0);
+              const totalLeiWithVat = totalLei * (1 + vat / 100);
+
+              const totalEuro = ronEur != null ? totalLei * ronEur : undefined;
+              const totalEuroWithVat = ronEur != null ? (totalEuro as number) * (1 + vat / 100) : undefined;
+
+              return { id: line.id, totalLei, totalLeiWithVat, totalEuro, totalEuroWithVat };
+            } catch (err) {
+              // If no sheet or error, treat as zero
+              return { id: line.id, totalLei: 0, totalLeiWithVat: 0, totalEuro: undefined, totalEuroWithVat: undefined };
+            }
+          }));
+
+          if (cancelled) return;
+          const map: Record<string, any> = {};
+          for (const r of results) {
+            map[r.id] = {
+              totalLei: Number(r.totalLei || 0),
+              totalLeiWithVat: Number(r.totalLeiWithVat || 0),
+              totalEuro: r.totalEuro != null ? Number(r.totalEuro) : undefined,
+              totalEuroWithVat: r.totalEuroWithVat != null ? Number(r.totalEuroWithVat) : undefined,
+            };
+          }
+          setOperationTotals(prev => ({ ...prev, ...map }));
+        } catch (e) {
+          console.error('Failed to load operation totals for deviz lines', e);
+        }
+      };
+
+      void loadTotals();
+
+      return () => { cancelled = true; };
+    }, [isExpanded, lines, projectId, operationTotals]);
 
     if (isLoading) {
       return (
@@ -112,6 +178,36 @@ const ProjectsPage: React.FC = () => {
         </Box>
       );
     }
+
+    const aggregateTotals = useMemo(() => {
+      return lines.reduce(
+        (acc, line) => {
+          const totals = operationTotals[line.id];
+          const lineVat = Number(line.vatPercent ?? 0);
+
+          const baseLei = totals?.totalLei ?? (Number(line.priceLei) || 0);
+          const baseEuro = totals?.totalEuro ?? (Number(line.priceEuro) || 0);
+
+          const leiWithVat =
+            totals?.totalLeiWithVat ??
+            (Number(line.priceWithVatLei) ||
+              (Number.isFinite(baseLei) ? baseLei * (1 + lineVat / 100) : 0));
+
+          const euroWithVat =
+            totals?.totalEuroWithVat ??
+            (Number(line.priceWithVatEuro) ||
+              (Number.isFinite(baseEuro) ? baseEuro * (1 + lineVat / 100) : 0));
+
+          return {
+            lei: acc.lei + (Number.isFinite(baseLei) ? baseLei : 0),
+            euro: acc.euro + (Number.isFinite(baseEuro) ? baseEuro : 0),
+            leiWithVat: acc.leiWithVat + (Number.isFinite(leiWithVat) ? leiWithVat : 0),
+            euroWithVat: acc.euroWithVat + (Number.isFinite(euroWithVat) ? euroWithVat : 0),
+          };
+        },
+        { lei: 0, euro: 0, leiWithVat: 0, euroWithVat: 0 },
+      );
+    }, [lines, operationTotals]);
 
     return (
       <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
@@ -143,7 +239,6 @@ const ProjectsPage: React.FC = () => {
                   <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">TVA %</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">LEI cu TVA</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '120px' }} align="right">EURO cu TVA</TableCell>
-                  <TableCell sx={{ color: 'white', fontWeight: 'bold', width: '80px' }} align="center">Acțiuni</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -178,20 +273,23 @@ const ProjectsPage: React.FC = () => {
                       <TextField
                         size="small"
                         type="number"
-                        value={line.priceLei || ''}
+                        value={operationTotals[line.id]?.totalLei ?? line.priceLei ?? ''}
                         onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceLei: e.target.value ? parseFloat(e.target.value) : null })}
                         sx={{ width: '110px' }}
                         inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
+                        // If value derived from operations, show read-only to avoid confusion
+                        InputProps={{ readOnly: !!operationTotals[line.id]?.totalLei }}
                       />
                     </TableCell>
                     <TableCell>
                       <TextField
                         size="small"
                         type="number"
-                        value={line.priceEuro || ''}
+                        value={operationTotals[line.id]?.totalEuro ?? line.priceEuro ?? ''}
                         onChange={(e) => handleUpdateDevizLine(projectId, line.id, { priceEuro: e.target.value ? parseFloat(e.target.value) : null })}
                         sx={{ width: '110px' }}
                         inputProps={{ style: { textAlign: 'right' }, step: '0.01' }}
+                        InputProps={{ readOnly: !!operationTotals[line.id]?.totalEuro }}
                       />
                     </TableCell>
                     <TableCell align="center">
@@ -204,20 +302,28 @@ const ProjectsPage: React.FC = () => {
                         inputProps={{ style: { textAlign: 'center' }, step: '1', min: '0', max: '100' }}
                       />
                     </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" fontWeight="bold" color="success.main">
-                        {line.priceWithVatLei
-                          ? line.priceWithVatLei.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                          : '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" fontWeight="bold" color="success.main">
-                        {line.priceWithVatEuro
-                          ? line.priceWithVatEuro.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                          : '—'}
-                      </Typography>
-                    </TableCell>
+                    {(() => {
+                      const leiWithVat = operationTotals[line.id]?.totalLeiWithVat ?? line.priceWithVatLei;
+                      const euroWithVat = operationTotals[line.id]?.totalEuroWithVat ?? line.priceWithVatEuro;
+                      return (
+                        <>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                              {leiWithVat != null && leiWithVat !== 0
+                                ? leiWithVat.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                              {euroWithVat != null && euroWithVat !== 0
+                                ? euroWithVat.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : '—'}
+                            </Typography>
+                          </TableCell>
+                        </>
+                      );
+                    })()}
                     <TableCell align="center">
                       <IconButton
                         size="small"
@@ -236,23 +342,23 @@ const ProjectsPage: React.FC = () => {
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="subtitle1" fontWeight="bold">
-                      {lines.reduce((sum, l) => sum + (l.priceLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                      {aggregateTotals.lei.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="subtitle1" fontWeight="bold">
-                      {lines.reduce((sum, l) => sum + (l.priceEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                      {aggregateTotals.euro.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Typography>
                   </TableCell>
                   <TableCell />
                   <TableCell align="right">
                     <Typography variant="subtitle1" fontWeight="bold" color="success.main">
-                      {lines.reduce((sum, l) => sum + (l.priceWithVatLei || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                      {aggregateTotals.leiWithVat.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="subtitle1" fontWeight="bold" color="success.main">
-                      {lines.reduce((sum, l) => sum + (l.priceWithVatEuro || 0), 0).toLocaleString('ro-RO', { minimumFractionDigits: 2 })}
+                      {aggregateTotals.euroWithVat.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Typography>
                   </TableCell>
                   <TableCell />
@@ -286,39 +392,44 @@ const ProjectsPage: React.FC = () => {
         ),
       },
       {
-        accessorKey: 'status',
+        // Use localized label for filtering/searching and display,
+        // but compute color from the raw status stored in the row.
+        accessorFn: (row) => getStatusLabel(row.status as ProjectStatus),
+        id: 'status',
         header: 'Status',
         size: 150,
         enableColumnFilter: true,
         enableGlobalFilter: true,
-        Cell: ({ renderedCellValue }) => (
+        filterFn: 'includesString',
+        Cell: ({ row, renderedCellValue }) => (
           <Chip
-            label={getStatusLabel(renderedCellValue as ProjectStatus)}
-            color={getStatusColor(renderedCellValue as ProjectStatus)}
+            label={renderedCellValue as string}
+            color={getStatusColor(row.original.status as ProjectStatus)}
             size="small"
           />
         ),
       },
-      {
-        accessorKey: 'client.name',
+            {
+        accessorFn: (row) => row.client?.name || '',
+        id: 'clientName',
         header: 'Client',
         size: 180,
         enableColumnFilter: true,
         enableGlobalFilter: true,
-        accessorFn: (row) => row.client?.name || '',
+        filterFn: 'includesString',
         Cell: ({ renderedCellValue }) => renderedCellValue || '—',
       },
       {
         accessorKey: 'location',
-        header: 'Locație',
+  header: 'Locație',
         size: 180,
         enableColumnFilter: true,
         enableGlobalFilter: true,
-        Cell: ({ renderedCellValue }) => renderedCellValue || '—',
+  Cell: ({ renderedCellValue }) => renderedCellValue || '—',
       },
       {
         accessorKey: 'startDate',
-        header: 'Data Început',
+  header: 'Data Început',
         size: 140,
         enableColumnFilter: false,
         enableGlobalFilter: false,
@@ -327,7 +438,7 @@ const ProjectsPage: React.FC = () => {
       },
       {
         accessorKey: 'endDate',
-        header: 'Data Sfârșit',
+  header: 'Data Sfârșit',
         size: 140,
         enableColumnFilter: false,
         enableGlobalFilter: false,
@@ -358,7 +469,7 @@ const ProjectsPage: React.FC = () => {
   const response = await api.get<Project[]>('/projects');
   setData(response.data);
     } catch (e: any) {
-      const msg = e?.message || 'Eroare la încărcarea proiectelor';
+  const msg = e?.message || 'Eroare la încărcarea proiectelor';
       setError(msg);
       errorNotistack(msg);
     } finally {
@@ -400,7 +511,7 @@ const ProjectsPage: React.FC = () => {
       const lines = await fetchProjectDevizLines(projectId);
       setDevizLines(prev => ({ ...prev, [projectId]: lines }));
     } catch (e: any) {
-      errorNotistack(e?.message || 'Eroare la încărcarea devizului');
+  errorNotistack(e?.message || 'Eroare la încărcarea devizului');
     } finally {
       setLoadingDeviz(prev => ({ ...prev, [projectId]: false }));
     }
@@ -416,16 +527,16 @@ const ProjectsPage: React.FC = () => {
       const newLine = await createProjectDevizLine(projectId, {
         orderNum: newOrderNum,
         code,
-        description: 'Lucrări noi',
+  description: 'Lucrări noi',
         vatPercent: 19,
       });
       setDevizLines(prev => ({
         ...prev,
         [projectId]: [...(prev[projectId] || []), newLine],
       }));
-      successNotistack('Linie adăugată');
+  successNotistack('Linie adăugată');
     } catch (e: any) {
-      errorNotistack(e?.message || 'Eroare la adăugarea liniei');
+  errorNotistack(e?.message || 'Eroare la adăugarea liniei');
     }
   };
 
@@ -462,7 +573,7 @@ const ProjectsPage: React.FC = () => {
       }));
       successNotistack('Linie ștearsă');
     } catch (e: any) {
-      errorNotistack(e?.message || 'Eroare la ștergere');
+  errorNotistack(e?.message || 'Eroare la ștergere');
     }
   };
 
@@ -494,9 +605,9 @@ const ProjectsPage: React.FC = () => {
           notes: op.notes ?? undefined,
         })),
       });
-      successNotistack('Fișa proiect salvată cu succes');
+  successNotistack('Fișa proiect salvată cu succes');
     } catch (e: any) {
-      errorNotistack(e?.message || 'Eroare la salvarea fișei proiect');
+  errorNotistack(e?.message || 'Eroare la salvarea fișei proiect');
       throw e;
     }
   };
@@ -552,14 +663,14 @@ const ProjectsPage: React.FC = () => {
     },
 
     muiSearchTextFieldProps: {
-      placeholder: 'Căutare în toate coloanele...',
+  placeholder: 'Căutare în toate coloanele...',
       sx: { minWidth: '300px' },
       variant: 'outlined',
     },
 
     renderRowActions: ({ row }) => (
       <Stack direction="row" gap={1}>
-        <Tooltip title="Editează">
+  <Tooltip title="Editează">
           <span>
             <IconButton size="small" onClick={() => setEditTarget(row.original)}>
               <EditOutlinedIcon fontSize="small" />
@@ -696,3 +807,8 @@ const ProjectsPage: React.FC = () => {
 };
 
 export default ProjectsPage;
+
+
+
+
+

@@ -167,7 +167,7 @@ export default function OperationCategoriesPage() {
   // where the creating row appears
   const [createPos, setCreatePos] = useState<'top' | 'bottom' | number>('top');
 
-  // FiÈ™a OperaÈ›ie modal state
+  // Fișa Operație modal state
   const [showFisaOperatie, setShowFisaOperatie] = useState(false);
   const [selectedOperationName, setSelectedOperationName] = useState<string>('');
   const [selectedOperationId, setSelectedOperationId] = useState<string>('');
@@ -182,7 +182,8 @@ export default function OperationCategoriesPage() {
   const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(
     persisted.pagination ?? { pageIndex: 0, pageSize: 50 }
   );
-  const [globalFilterValue, setGlobalFilterValue] = useState<string>(
+  // controlled global filter to ensure real-time search and persist to storage
+  const [globalFilter, setGlobalFilter] = useState<string>(
     typeof persisted.globalFilter === 'string' ? persisted.globalFilter : ''
   );
 
@@ -193,7 +194,7 @@ export default function OperationCategoriesPage() {
   const t = await buildTree();
   setTree(addPaths(t));
     } catch (e: any) {
-      setError(e?.message || 'Eroare la Ã®ncÄƒrcare');
+      setError(e?.message || 'Eroare la încărcare');
     } finally {
       setLoading(false);
     }
@@ -205,13 +206,13 @@ export default function OperationCategoriesPage() {
     // Hidden PATH column for powerful fuzzy/global filtering across hierarchy
     {
       id: 'path',
-      header: 'CÄƒutare',
+      header: 'Căutare',
       accessorFn: (row) => row.path || row.name,
       enableGlobalFilter: true,
-      enableColumnFilter: true,
+      enableColumnFilter: false,
       filterFn: 'fuzzy' as any,
       size: 200,
-      enableHiding: true,
+      enableHiding: false,
       Cell: () => null,
     },
     // NUMBER column (left, monospace, aligns like "1", "1.1", "1.1.1")
@@ -233,7 +234,7 @@ export default function OperationCategoriesPage() {
             letterSpacing: 0.2,
           }}
         >
-          {row.original.number || 'â€”'}
+          {row.original.number || '—'}
         </Box>
       ),
       enableEditing: false,
@@ -244,7 +245,7 @@ export default function OperationCategoriesPage() {
       header: 'Denumire',
       size: 520,
   enableColumnFilter: true,
-  enableGlobalFilter: true,
+  enableGlobalFilter: false,
   enableColumnFilterModes: true,
   filterFn: 'fuzzy' as any,
       muiEditTextFieldProps: { required: true, autoFocus: true },
@@ -269,7 +270,7 @@ export default function OperationCategoriesPage() {
             </Typography>
             <Chip
               size="small"
-              label={t === 'category' ? 'Categorie' : t === 'operation' ? 'OperaÈ›ie' : 'Element'}
+              label={t === 'category' ? 'Categorie' : t === 'operation' ? 'Operație' : 'Element'}
               variant="outlined"
             />
             {t === 'item' && unit && (
@@ -277,7 +278,7 @@ export default function OperationCategoriesPage() {
             )}
             {t === 'category' && (
               <>
-                <Chip size="small" variant="outlined" label={`${opsCount ?? 0} operaÈ›ii`} />
+                <Chip size="small" variant="outlined" label={`${opsCount ?? 0} operații`} />
                 <Chip size="small" variant="outlined" label={`${itemsCount ?? 0} elemente`} />
               </>
             )}
@@ -308,7 +309,7 @@ export default function OperationCategoriesPage() {
       }),
       Cell: ({ row, renderedCellValue }) => {
         const val = trim(renderedCellValue as string);
-        return row.original.type === 'item' ? (val || 'â€”') : 'â€”';
+        return row.original.type === 'item' ? (val || '—') : '—';
       },
     },
   ], []);
@@ -431,7 +432,7 @@ export default function OperationCategoriesPage() {
       return (
         <Stack direction="row" gap={1} justifyContent="flex-end">
           {row.original.type === 'category' && (
-            <Tooltip title="AdaugÄƒ operaÈ›ie">
+            <Tooltip title="Adaugă operație">
               <span>
                 <IconButton size="small" onClick={() => addChild('operation')}>
                   <AddRoundedIcon fontSize="small" />
@@ -440,7 +441,7 @@ export default function OperationCategoriesPage() {
             </Tooltip>
           )}
           {row.original.type === 'operation' && (
-            <Tooltip title="AdaugÄƒ element">
+            <Tooltip title="Adaugă element">
               <span>
                 <IconButton size="small" onClick={() => addChild('item')}>
                   <AddRoundedIcon fontSize="small" />
@@ -449,7 +450,7 @@ export default function OperationCategoriesPage() {
             </Tooltip>
           )}
           {row.original.type === 'item' && (
-            <Tooltip title="Vezi FiÈ™a OperaÈ›ie">
+            <Tooltip title="Vezi Fișa Operație">
               <span>
                 <IconButton 
                   size="small" 
@@ -465,14 +466,14 @@ export default function OperationCategoriesPage() {
               </span>
             </Tooltip>
           )}
-          <Tooltip title="EditeazÄƒ">
+          <Tooltip title="Editează">
             <span>
               <IconButton size="small" onClick={() => table.setEditingRow(row)}>
                 <EditOutlinedIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="È˜terge">
+          <Tooltip title="Șterge">
             <span>
               <IconButton
                 size="small"
@@ -481,14 +482,14 @@ export default function OperationCategoriesPage() {
                   const r = row.original;
                   const isCategory = r.type === 'category';
                   const isOperation = r.type === 'operation';
-                  const title = 'Confirmare È™tergere';
-                  const bodyTitle = 'EÈ™ti sigur cÄƒ vrei sÄƒ È™tergi?';
+                  const title = 'Confirmare ștergere';
+                  const bodyTitle = 'Ești sigur că vrei să ștergi?';
                   const desc = isCategory
-                    ? (<span>Categoria <strong>{r.name}</strong> È™i toate operaÈ›iile È™i elementele din ea vor fi È™terse permanent.</span>)
+                    ? (<span>Categoria <strong>{r.name}</strong> și toate operațiile și elementele din ea vor fi șterse permanent.</span>)
                     : isOperation
-                      ? (<span>OperaÈ›ia <strong>{r.name}</strong> È™i toate elementele ei vor fi È™terse permanent.</span>)
-                      : (<span>Elementul <strong>{r.name}</strong> va fi È™ters permanent.</span>);
-                  const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'È˜terge', cancelText: 'AnuleazÄƒ', danger: true });
+                      ? (<span>Operația <strong>{r.name}</strong> și toate elementele ei vor fi șterse permanent.</span>)
+                      : (<span>Elementul <strong>{r.name}</strong> va fi șters permanent.</span>);
+                  const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'Șterge', cancelText: 'Anulează', danger: true });
                   if (!ok) return;
                   try {
                     setSaving(true);
@@ -496,9 +497,9 @@ export default function OperationCategoriesPage() {
                     else if (isOperation) await deleteOperation(r.id);
                     else await deleteOperationItem(r.id);
                     await load();
-                    successNotistack('È˜ters');
+                    successNotistack('Șters');
                   } catch (e: any) {
-                    errorNotistack(e?.message || 'Nu am putut È™terge');
+                    errorNotistack(e?.message || 'Nu am putut șterge');
                   } finally {
                     setSaving(false);
                   }
@@ -522,7 +523,7 @@ export default function OperationCategoriesPage() {
     displayColumnDefOptions: {
       'mrt-row-expand': { size: 56 },
       'mrt-row-actions': {
-        header: 'AcÈ›iuni',
+        header: 'Acțiuni',
         size: 180,
         muiTableBodyCellProps: {
           sx: {
@@ -550,7 +551,7 @@ export default function OperationCategoriesPage() {
 
     // toolbars
     muiSearchTextFieldProps: {
-      placeholder: 'CautÄƒ categorie/operaÈ›ie/elementâ€¦',
+      placeholder: 'Caută categorie/operație/element…',
       variant: 'outlined',
       sx: { minWidth: 320 },
     },
@@ -575,10 +576,10 @@ export default function OperationCategoriesPage() {
             );
           }}
         >
-          AdaugÄƒ categorie
+          Adaugă categorie
         </Button>
         <Button variant="outlined" onClick={() => load()} disabled={loading}>
-          {loading ? <CircularProgress size={18} /> : 'ReÃ®ncarcÄƒ'}
+          {loading ? <CircularProgress size={18} /> : 'Reîncarcă'}
         </Button>
       </Stack>
     ),
@@ -591,9 +592,8 @@ export default function OperationCategoriesPage() {
       showColumnFilters: true,
       columnPinning: persisted.columnPinning ?? { left: ['mrt-row-expand', 'number'], right: ['mrt-row-actions'] },
       density: persisted.density ?? 'compact',
-  columnVisibility: { path: false, ...(persisted.columnVisibility ?? {}) },
+  columnVisibility: { ...(persisted.columnVisibility ?? {}), path: false },
       columnOrder: persisted.columnOrder,
-      globalFilter: persisted.globalFilter,
     },
 
     // save user preferences
@@ -602,8 +602,9 @@ export default function OperationCategoriesPage() {
       savePersist({ columnPinning: value });
     },
     onColumnVisibilityChange: (updater) => {
-      const value = typeof updater === 'function' ? updater(table.getState().columnVisibility) : updater;
-      savePersist({ columnVisibility: value as any });
+      const prev = table.getState().columnVisibility;
+      const next = (typeof updater === 'function' ? (updater as any)(prev) : updater) as Record<string, boolean>;
+      savePersist({ columnVisibility: { ...next, path: false } as any });
     },
     onColumnOrderChange: (updater) => {
       const value = typeof updater === 'function' ? updater(table.getState().columnOrder) : updater;
@@ -627,10 +628,22 @@ export default function OperationCategoriesPage() {
         return next;
       });
     },
-    onGlobalFilterChange: (updater) => {\n      setGlobalFilterValue((prev) => {\n        const next = typeof updater === 'function' ? updater(prev) : updater;\n        savePersist({ globalFilter: next as any });\n        return next as string;\n      });\n    },
+    onGlobalFilterChange: (updater) => {
+      setGlobalFilter((prev) => {
+        const next = typeof updater === 'function' ? (updater as any)(prev) : updater;
+        savePersist({ globalFilter: next as any });
+        return next as string;
+      });
+    },
 
     // controlled loading banners
-    state: {\n      isLoading: loading,\n      showProgressBars: saving,\n      showAlertBanner: !!error,\n      sorting,\n      pagination,\n      globalFilter: globalFilterValue,
+    state: {
+      isLoading: loading,
+      showProgressBars: saving,
+      showAlertBanner: !!error,
+  sorting,
+  pagination,
+  globalFilter,
     },
 
     // Optional perf toggles for big datasets:
@@ -639,9 +652,9 @@ export default function OperationCategoriesPage() {
   });
 
   // Auto-expand ancestors when filtering so matches nested under collapsed parents become visible
-  const globalFilter = globalFilterValue || '';
+  const currentGlobalFilter = (globalFilter as string) || '';
   const columnFilters = table.getState().columnFilters as unknown as Array<unknown> | undefined;
-  const hasActiveFilter = Boolean(globalFilter) || Boolean(columnFilters && columnFilters.length);
+  const hasActiveFilter = Boolean(currentGlobalFilter) || Boolean(columnFilters && columnFilters.length);
 
   useEffect(() => {
     if (!hasActiveFilter) return; // don't override when there's no filtering
@@ -657,13 +670,13 @@ export default function OperationCategoriesPage() {
     const filteredRows: any[] = table.getFilteredRowModel().rows;
     walk(filteredRows);
     table.setExpanded(expandMap);
-  }, [table, hasActiveFilter, globalFilter]);
+  }, [table, hasActiveFilter, currentGlobalFilter]);
 
   return (
     <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
       <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="h5">Categorii / OperaÈ›ii / Elemente</Typography>
+          <Typography variant="h5">Categorii / Operații / Elemente</Typography>
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -673,7 +686,7 @@ export default function OperationCategoriesPage() {
         </Box>
       </Paper>
 
-      {/* FiÈ™a OperaÈ›ie Modal */}
+      {/* Fișa Operație Modal */}
       <FisaOperatieModal
         open={showFisaOperatie}
         onClose={() => {
@@ -687,5 +700,3 @@ export default function OperationCategoriesPage() {
     </Box>
   );
 }
-
-

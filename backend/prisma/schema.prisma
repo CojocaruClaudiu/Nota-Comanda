@@ -593,6 +593,13 @@ enum OrderStatus {
   RECEIVED
   CLOSED
   CANCELLED
+  // Extended set to support distinct Romanian UI labels
+  SUPPLIER_OUT_OF_STOCK   // Lipsă Stoc Furnizor
+  UNPAID_ORDER            // Neachitată
+  PAID_FULL_ORDER         // Achitată Integral
+  PAID_PARTIAL_ORDER      // Achitată Parțial
+  IN_DELIVERY             // În Curs de Livrare
+  RETURNED_REFUSED        // Returnată / Refuzată
 }
 
 enum OrderPriority {

@@ -26,7 +26,6 @@ import EquipmentPage from "./modules/equipment/EquipmentPage";
 import QualificationsTreePage from "./modules/qualifications/QualificationsTreePage";
 import MaterialsPage from "./modules/materials/MaterialsPage";
 import ProducersPage from "./modules/producers/ProducersPage";
-import ReceptionsPage from "./modules/receptii/ReceptionsPage";
 import RegistruReceptiiPage from "./modules/receptions/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
 import CashLedgerPage from "./modules/cash/CashLedgerPage";
@@ -146,14 +145,6 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: "receptii",
-        element: (
-          <RequireAuth>
-            <ReceptionsPage />
-          </RequireAuth>
-        ),
-      },
-      {
         path: "registru-receptii",
         element: (
           <RequireAuth>
@@ -242,7 +233,6 @@ export default function App() {
     <SnackbarProvider
       maxSnack={3}
       autoHideDuration={3000}
-      preventDuplicate
       anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
     >
       <AuthProvider>

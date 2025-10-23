@@ -38,7 +38,7 @@ const validationSchema = Yup.object({
     .required('Numele locației este obligatoriu')
     .min(2, 'Minim 2 caractere')
     .max(150, 'Maxim 150 caractere')
-    .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ0-9\s\-\.\,]+$/, 'Poate conține doar litere, cifre, spații și semne de punctuație'),
+    .matches(/^[a-zA-ZăâîșțĂÎȘȚ0-9\s\-\.\,]+$/, 'Poate conține doar litere, cifre, spații și semne de punctuație'),
   address: Yup.string()
     .required('Adresa este obligatorie')
     .min(2, 'Minim 2 caractere')

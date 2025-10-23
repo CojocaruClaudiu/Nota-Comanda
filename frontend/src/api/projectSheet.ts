@@ -41,8 +41,31 @@ export const fetchProjectSheet = async (
   projectId: string,
   devizLineId: string
 ): Promise<ProjectSheet> => {
-  const response = await api.get<ProjectSheet>(`/projects/${projectId}/deviz/${devizLineId}/sheet`);
-  return response.data;
+  const response = await api.get<ProjectSheet | { error: string }>(
+    `/projects/${projectId}/deviz/${devizLineId}/sheet`,
+    {
+      validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+    },
+  );
+
+  if (response.status === 404) {
+    return {
+      id: '',
+      projectId,
+      devizLineId,
+      initiationDate: null,
+      estimatedStartDate: null,
+      estimatedEndDate: null,
+      standardMarkupPercent: null,
+      standardDiscountPercent: null,
+      indirectCostsPercent: null,
+      operations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as ProjectSheet;
+  }
+
+  return response.data as ProjectSheet;
 };
 
 export const saveProjectSheet = async (

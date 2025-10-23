@@ -1,4 +1,4 @@
-// src/pages/auto/CarPage.tsx
+﻿// src/pages/auto/CarPage.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Paper, Stack, Typography, Button, Chip, Tooltip, CircularProgress, Alert, IconButton } from '@mui/material';
 import {
@@ -151,10 +151,14 @@ export default function CarPage() {
     { accessorKey: 'model', header: 'Model', size: 140 },
     { accessorKey: 'an', header: 'An', size: 80 },
     { accessorKey: 'culoare', header: 'Culoare', size: 120, Cell: ({ cell }) => cell.getValue<string>() || '—' },
-    {
-      accessorKey: 'driver.name',
+        {
+      // Use accessorFn to safely read nested driver name without warnings when missing
+      accessorFn: (row) => row.driver?.name || '',
+      id: 'driverName',
       header: 'Șofer',
       size: 220,
+      enableGlobalFilter: true,
+      filterFn: 'includesString',
       Cell: ({ row }) => row.original.driver?.name || '—',
     },
     {
@@ -383,3 +387,5 @@ export default function CarPage() {
     </Box>
   );
 }
+
+

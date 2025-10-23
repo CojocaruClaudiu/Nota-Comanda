@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -54,6 +54,8 @@ export type MaterialItem = {
   supplier?: string; // Furnizor
   packageSize?: number | null; // Mărime pachet (ex: 25 kg/buc)
   packageUnit?: string; // Unitate pachet (ex: kg, buc)
+  markupUsesStandard?: boolean;
+  discountUsesStandard?: boolean;
 };
 
 // Labor (Manopera) Types
@@ -70,6 +72,8 @@ export type LaborItem = {
   valueWithMarkup: number | null;
   discountPercent: number | null;
   finalValue: number | null;
+  markupUsesStandard?: boolean;
+  discountUsesStandard?: boolean;
 };
 
 interface DevizeModalProps {
@@ -109,6 +113,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const [stdMarkup, setStdMarkup] = useState<number>(standardMarkup || 0);
   const [stdDiscount, setStdDiscount] = useState<number>(standardDiscount || 0);
   const [stdIndirect, setStdIndirect] = useState<number>(standardIndirectCosts || 0);
+  const debugDevize = import.meta.env.DEV;
 
   // Sync incoming props when Devize opens
   useEffect(() => {
@@ -160,20 +165,20 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     const qty = item.quantity || 0;
     const price = item.unitPrice || 0;
     const baseValue = qty * price;
-    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
-    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
-    const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
-    const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
+  const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
+  const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
+  const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
+  const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
 
-    return {
-      ...item,
-      baseValue,
-      markupPercent: markup,
-      valueWithMarkup,
-      discountPercent: discount,
-      finalValue,
-    };
+  return {
+    ...item,
+    baseValue,
+    markupPercent: markup,
+    valueWithMarkup,
+    discountPercent: discount,
+    finalValue,
   };
+};
 
   // Seed materials when parent provides initial list
   React.useEffect(() => {
@@ -190,10 +195,19 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         ...m,
         orderNum: idx + 1,
       }))
-      .map((m) => calculateMaterialValues(m) as MaterialItem);
+      .map((m) => {
+        const usesStdMarkup = m.markupPercent == null || m.markupPercent === stdMarkup;
+        const usesStdDiscount = m.discountPercent == null || m.discountPercent === stdDiscount;
+        const calculated = calculateMaterialValues(m) as MaterialItem;
+        return {
+          ...calculated,
+          markupUsesStandard: usesStdMarkup,
+          discountUsesStandard: usesStdDiscount,
+        };
+      });
     
     setMaterials(seeded);
-  }, [open, initialMaterials, stdMarkup, stdDiscount]);
+  }, [open, initialMaterials]);
 
   // Seed labor when parent provides initial list
   React.useEffect(() => {
@@ -209,10 +223,19 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         ...l,
         orderNum: idx + 1,
       }))
-      .map((l) => calculateLaborValues(l) as LaborItem);
+      .map((l) => {
+        const usesStdMarkup = l.markupPercent == null || l.markupPercent === stdMarkup;
+        const usesStdDiscount = l.discountPercent == null || l.discountPercent === stdDiscount;
+        const calculated = calculateLaborValues(l) as LaborItem;
+        return {
+          ...calculated,
+          markupUsesStandard: usesStdMarkup,
+          discountUsesStandard: usesStdDiscount,
+        };
+      });
     
     setLabor(seeded);
-  }, [open, initialLabor, stdMarkup, stdDiscount]);
+  }, [open, initialLabor]);
 
   const calculateLaborValues = (item: Partial<LaborItem>): Partial<LaborItem> => {
     const qty = item.quantity || 0;
@@ -233,11 +256,70 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     };
   };
 
-  // Recompute rows when standard parameters change
+  // Apply standard parameters to all rows when values change
   useEffect(() => {
-    setMaterials(prev => prev.map(m => calculateMaterialValues(m) as MaterialItem));
-    setLabor(prev => prev.map(l => calculateLaborValues(l) as LaborItem));
+    setMaterials((prevMaterials) =>
+      prevMaterials.map((m) => {
+        const inheritsMarkup = m.markupUsesStandard ?? true;
+        const inheritsDiscount = m.discountUsesStandard ?? true;
+        const updated: MaterialItem = {
+          ...m,
+          markupPercent: inheritsMarkup ? stdMarkup : m.markupPercent,
+          discountPercent: inheritsDiscount ? stdDiscount : m.discountPercent,
+        };
+        const calculated = calculateMaterialValues(updated) as MaterialItem;
+        return {
+          ...calculated,
+          markupUsesStandard: inheritsMarkup,
+          discountUsesStandard: inheritsDiscount,
+        };
+      }),
+    );
+    setLabor((prevLabor) =>
+      prevLabor.map((l) => {
+        const inheritsMarkup = l.markupUsesStandard ?? true;
+        const inheritsDiscount = l.discountUsesStandard ?? true;
+        const updated: LaborItem = {
+          ...l,
+          markupPercent: inheritsMarkup ? stdMarkup : l.markupPercent,
+          discountPercent: inheritsDiscount ? stdDiscount : l.discountPercent,
+        };
+        const calculated = calculateLaborValues(updated) as LaborItem;
+        return {
+          ...calculated,
+          markupUsesStandard: inheritsMarkup,
+          discountUsesStandard: inheritsDiscount,
+        };
+      }),
+    );
   }, [stdMarkup, stdDiscount]);
+
+  useEffect(() => {
+    if (!debugDevize) return;
+    console.groupCollapsed('[Devize] Standard change');
+    console.log('stdMarkup', stdMarkup, 'stdDiscount', stdDiscount);
+    console.table(
+      materials.map((m) => ({
+        id: m.id,
+        code: m.materialCode,
+        markup: m.markupPercent,
+        inheritsMarkup: m.markupUsesStandard,
+        discount: m.discountPercent,
+        inheritsDiscount: m.discountUsesStandard,
+      })),
+    );
+    console.table(
+      labor.map((l) => ({
+        id: l.id,
+        description: l.laborDescription,
+        markup: l.markupPercent,
+        inheritsMarkup: l.markupUsesStandard,
+        discount: l.discountPercent,
+        inheritsDiscount: l.discountUsesStandard,
+      })),
+    );
+    console.groupEnd();
+  }, [stdMarkup, stdDiscount, materials, labor, debugDevize]);
 
   // Bubble parameter updates to parent
   useEffect(() => {
@@ -266,6 +348,8 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       supplier: '',
       packageSize: null,
       packageUnit: '',
+      markupUsesStandard: true,
+      discountUsesStandard: true,
     };
     setMaterials([...materials, newMaterial]);
   };
@@ -273,8 +357,27 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const handleUpdateMaterial = (id: string, updates: Partial<MaterialItem>) => {
     setMaterials(prev => prev.map(m => {
       if (m.id === id) {
-        const updated = { ...m, ...updates };
-        return calculateMaterialValues(updated) as MaterialItem;
+        const updated: MaterialItem = { ...m, ...updates };
+
+        if (Object.prototype.hasOwnProperty.call(updates, 'markupPercent')) {
+          const val = updates.markupPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdMarkup;
+          updated.markupUsesStandard = usesStandard;
+          updated.markupPercent = usesStandard ? stdMarkup : (val != null ? Number(val) : null);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'discountPercent')) {
+          const val = updates.discountPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdDiscount;
+          updated.discountUsesStandard = usesStandard;
+          updated.discountPercent = usesStandard ? stdDiscount : (val != null ? Number(val) : null);
+        }
+
+        const calculated = calculateMaterialValues(updated) as MaterialItem;
+        return {
+          ...calculated,
+          markupUsesStandard: updated.markupUsesStandard ?? m.markupUsesStandard ?? true,
+          discountUsesStandard: updated.discountUsesStandard ?? m.discountUsesStandard ?? true,
+        };
       }
       return m;
     }));
@@ -297,6 +400,8 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       valueWithMarkup: null,
       discountPercent: stdDiscount,
       finalValue: null,
+      markupUsesStandard: true,
+      discountUsesStandard: true,
     };
     setLabor([...labor, newLabor]);
   };
@@ -304,8 +409,25 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const handleUpdateLabor = (id: string, updates: Partial<LaborItem>) => {
     setLabor(prev => prev.map(l => {
       if (l.id === id) {
-        const updated = { ...l, ...updates };
-        return calculateLaborValues(updated) as LaborItem;
+        const updated: LaborItem = { ...l, ...updates };
+        if (Object.prototype.hasOwnProperty.call(updates, 'markupPercent')) {
+          const val = updates.markupPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdMarkup;
+          updated.markupUsesStandard = usesStandard;
+          updated.markupPercent = usesStandard ? stdMarkup : (val != null ? Number(val) : null);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'discountPercent')) {
+          const val = updates.discountPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdDiscount;
+          updated.discountUsesStandard = usesStandard;
+          updated.discountPercent = usesStandard ? stdDiscount : (val != null ? Number(val) : null);
+        }
+        const calculated = calculateLaborValues(updated) as LaborItem;
+        return {
+          ...calculated,
+          markupUsesStandard: updated.markupUsesStandard ?? l.markupUsesStandard ?? true,
+          discountUsesStandard: updated.discountUsesStandard ?? l.discountUsesStandard ?? true,
+        };
       }
       return l;
     }));
@@ -597,6 +719,12 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
         },
       },
+      
+      {
+        accessorKey: 'packageUnit',
+        header: 'UM Pachet',
+        size: 100,
+      },
       {
         id: 'packagesNeeded',
         header: 'Nr. Pachete Necesare',
@@ -611,11 +739,6 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           }
           return '—';
         },
-      },
-      {
-        accessorKey: 'packageUnit',
-        header: 'UM Pachet',
-        size: 100,
       },
       {
         accessorKey: 'unit',
@@ -635,6 +758,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
         },
       },
+      
       {
         accessorKey: 'unitPrice',
         header: 'Preț Unitar',
@@ -666,6 +790,21 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           type: 'number',
           inputProps: { step: 0.1, min: 0 },
         },
+        Cell: ({ cell }) => {
+          const value = cell.getValue<number | null>();
+          const display = value != null ? value : stdMarkup;
+          if (debugDevize) {
+            console.debug('[Devize][materials] markup cell', {
+              cellId: cell.id,
+              rowId: cell.row.id,
+              raw: value,
+              display,
+            });
+          }
+          return display != null
+            ? display.toLocaleString('ro-RO', { minimumFractionDigits: 2 })
+            : '–';
+        },
       },
       {
         accessorKey: 'valueWithMarkup',
@@ -685,6 +824,21 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           type: 'number',
           inputProps: { step: 0.1, min: 0, max: 100 },
         },
+        Cell: ({ cell }) => {
+          const value = cell.getValue<number | null>();
+          const display = value != null ? value : stdDiscount;
+          if (debugDevize) {
+            console.debug('[Devize][materials] discount cell', {
+              cellId: cell.id,
+              rowId: cell.row.id,
+              raw: value,
+              display,
+            });
+          }
+          return display != null
+            ? display.toLocaleString('ro-RO', { minimumFractionDigits: 2 })
+            : '–';
+        },
       },
       {
         accessorKey: 'finalValue',
@@ -701,7 +855,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         },
       },
     ],
-    []
+    [stdMarkup, stdDiscount]
   );
 
   // Labor Table Columns
@@ -768,6 +922,13 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           type: 'number',
           inputProps: { step: 0.1, min: 0 },
         },
+        Cell: ({ cell }) => {
+          const value = cell.getValue<number | null>();
+          const display = value != null ? value : stdMarkup;
+          return display != null
+            ? display.toLocaleString('ro-RO', { minimumFractionDigits: 2 })
+            : '–';
+        },
       },
       {
         accessorKey: 'valueWithMarkup',
@@ -787,6 +948,13 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
           type: 'number',
           inputProps: { step: 0.1, min: 0, max: 100 },
         },
+        Cell: ({ cell }) => {
+          const value = cell.getValue<number | null>();
+          const display = value != null ? value : stdDiscount;
+          return display != null
+            ? display.toLocaleString('ro-RO', { minimumFractionDigits: 2 })
+            : '–';
+        },
       },
       {
         accessorKey: 'finalValue',
@@ -803,7 +971,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         },
       },
     ],
-    []
+    [stdMarkup, stdDiscount]
   );
 
   const materialsTable = useMaterialReactTable({
@@ -1416,3 +1584,9 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
 };
 
 export default DevizeModal;
+
+
+
+
+
+
