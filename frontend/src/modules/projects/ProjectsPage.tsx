@@ -17,6 +17,9 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Popover,
+  MenuItem,
+  MenuList,
 } from '@mui/material';
 import {
   FolderOpen as FolderOpenIcon,
@@ -43,6 +46,7 @@ import {
 import { saveProjectSheet, fetchProjectSheet } from '../../api/projectSheet';
 import { fetchExchangeRates } from '../../api/exchangeRates';
 import ProjectSheetModal, { type ProjectSheetData } from './ProjectSheetModal';
+import { VAT_RATES, DEFAULT_VAT_RATE } from '../../config/vatRates';
 
 const getStatusColor = (status: ProjectStatus) => {
   switch (status) {
@@ -83,6 +87,12 @@ const ProjectsPage: React.FC = () => {
   // Deviz lines per project
   const [devizLines, setDevizLines] = useState<Record<string, ProjectDevizLine[]>>({});
   const [loadingDeviz, setLoadingDeviz] = useState<Record<string, boolean>>({});
+  const [projectBudgets, setProjectBudgets] = useState<Record<string, { totalLei: number; totalLeiWithVat: number; totalEuro?: number; totalEuroWithVat?: number }>>({});
+  const [budgetCache, setBudgetCache] = useState<Record<string, { totalLei: number; totalLeiWithVat: number; totalEuro?: number; totalEuroWithVat?: number }>>({});
+  const [loadingBudgets, setLoadingBudgets] = useState<Record<string, boolean>>({});
+
+  // Operation totals per deviz line (keyed by lineId) - stored at parent level to persist across panel toggles
+  const [operationTotals, setOperationTotals] = useState<Record<string, { totalLei: number; totalLeiWithVat: number; totalEuro?: number; totalEuroWithVat?: number }>>({});
   
   // Project Sheet Modal
   const [showProjectSheet, setShowProjectSheet] = useState(false);
@@ -94,13 +104,91 @@ const ProjectsPage: React.FC = () => {
   const { errorNotistack, successNotistack } = useNotistack();
   const confirm = useConfirm();
 
+  const formatCurrency = (value: number, currency: string) =>
+    `${value.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+
+  const loadProjectBudget = useCallback(
+    async (projectId: string, linesOverride?: ProjectDevizLine[]) => {
+      if (loadingBudgets[projectId]) return;
+      setLoadingBudgets(prev => ({ ...prev, [projectId]: true }));
+
+      try {
+        let ronEur: number | undefined = undefined;
+        try {
+          const rates = await fetchExchangeRates();
+          const parsed = Number(rates.ronEur);
+          if (Number.isFinite(parsed)) ronEur = parsed;
+        } catch (e) {
+          // ignore rate errors; EUR totals will be undefined
+        }
+
+        let lines = linesOverride;
+        if (!lines) {
+          try {
+            lines = await fetchProjectDevizLines(projectId);
+            setDevizLines(prev => (prev[projectId] ? prev : { ...prev, [projectId]: lines || [] }));
+          } catch (e) {
+            lines = [];
+          }
+        }
+
+        const lineTotals = await Promise.all(
+          (lines || []).map(async (line) => {
+            try {
+              const sheet = await fetchProjectSheet(projectId, line.id);
+              const ops = sheet.operations || [];
+              const baseLei = ops.reduce((s: number, op: any) => s + (Number(op.totalPrice) || 0), 0);
+              const vat = Number(line.vatPercent ?? 0);
+              const withVat = baseLei * (1 + vat / 100);
+              return { baseLei, withVat };
+            } catch (err) {
+              const baseLei = Number(line.priceLei) || 0;
+              const vat = Number(line.vatPercent ?? 0);
+              return { baseLei, withVat: baseLei * (1 + vat / 100) };
+            }
+          }),
+        );
+
+        const totalLei = lineTotals.reduce((s, t) => s + t.baseLei, 0);
+        const totalLeiWithVat = lineTotals.reduce((s, t) => s + t.withVat, 0);
+        const totalEuro = ronEur != null ? totalLei * ronEur : undefined;
+        const totalEuroWithVat = ronEur != null ? totalLeiWithVat * ronEur : undefined;
+
+        const computed = {
+          totalLei,
+          totalLeiWithVat,
+          totalEuro,
+          totalEuroWithVat,
+        };
+
+        setProjectBudgets(prev => ({
+          ...prev,
+          [projectId]: computed,
+        }));
+        setBudgetCache(prev => ({
+          ...prev,
+          [projectId]: computed,
+        }));
+      } finally {
+        setLoadingBudgets(prev => ({ ...prev, [projectId]: false }));
+      }
+    },
+    [loadingBudgets],
+  );
+
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+    data.forEach((project) => {
+      if (!projectBudgets[project.id] && !loadingBudgets[project.id]) {
+        void loadProjectBudget(project.id, devizLines[project.id]);
+      }
+    });
+  }, [data, devizLines, projectBudgets, loadingBudgets, loadProjectBudget]);
+
   // Component for the detail panel
   const DevizDetailPanel: React.FC<{ projectId: string; projectName: string; isExpanded: boolean }> = ({ projectId, projectName, isExpanded }) => {
     const lines = devizLines[projectId] || [];
     const isLoading = loadingDeviz[projectId];
-
-    // Store operation-derived totals per deviz line id
-    const [operationTotals, setOperationTotals] = useState<Record<string, { totalLei: number; totalLeiWithVat: number; totalEuro?: number; totalEuroWithVat?: number }>>({});
 
     // Load deviz when panel is expanded
     useEffect(() => {
@@ -169,7 +257,7 @@ const ProjectsPage: React.FC = () => {
       void loadTotals();
 
       return () => { cancelled = true; };
-    }, [isExpanded, lines, projectId, operationTotals]);
+  }, [isExpanded, lines, projectId, operationTotals, setOperationTotals]);
 
     if (isLoading) {
       return (
@@ -178,6 +266,27 @@ const ProjectsPage: React.FC = () => {
         </Box>
       );
     }
+
+    // VAT popover state
+    const [vatAnchorEl, setVatAnchorEl] = React.useState<HTMLElement | null>(null);
+    const [vatEditingLineId, setVatEditingLineId] = React.useState<string | null>(null);
+
+    const handleVatClick = (event: React.MouseEvent<HTMLElement>, lineId: string) => {
+      setVatAnchorEl(event.currentTarget);
+      setVatEditingLineId(lineId);
+    };
+
+    const handleVatClose = () => {
+      setVatAnchorEl(null);
+      setVatEditingLineId(null);
+    };
+
+    const handleVatSelect = (vatValue: number) => {
+      if (vatEditingLineId) {
+        handleUpdateDevizLine(projectId, vatEditingLineId, { vatPercent: vatValue });
+      }
+      handleVatClose();
+    };
 
     const aggregateTotals = useMemo(() => {
       return lines.reduce(
@@ -207,7 +316,7 @@ const ProjectsPage: React.FC = () => {
         },
         { lei: 0, euro: 0, leiWithVat: 0, euroWithVat: 0 },
       );
-    }, [lines, operationTotals]);
+  }, [lines, operationTotals]);
 
     return (
       <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
@@ -293,18 +402,25 @@ const ProjectsPage: React.FC = () => {
                       />
                     </TableCell>
                     <TableCell align="center">
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={line.vatPercent || ''}
-                        onChange={(e) => handleUpdateDevizLine(projectId, line.id, { vatPercent: e.target.value ? parseFloat(e.target.value) : null })}
-                        sx={{ width: '70px' }}
-                        inputProps={{ style: { textAlign: 'center' }, step: '1', min: '0', max: '100' }}
-                      />
+                      <Tooltip title="Click pentru a modifica TVA" arrow>
+                        <Chip
+                          label={`${line.vatPercent ?? DEFAULT_VAT_RATE}%`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          onClick={(e) => handleVatClick(e, line.id)}
+                          sx={{ 
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            '&:hover': { bgcolor: 'primary.light', color: 'primary.contrastText' }
+                          }}
+                        />
+                      </Tooltip>
                     </TableCell>
                     {(() => {
-                      const leiWithVat = operationTotals[line.id]?.totalLeiWithVat ?? line.priceWithVatLei;
-                      const euroWithVat = operationTotals[line.id]?.totalEuroWithVat ?? line.priceWithVatEuro;
+                      const totals = operationTotals[line.id];
+                      const leiWithVat = totals?.totalLeiWithVat ?? line.priceWithVatLei;
+                      const euroWithVat = totals?.totalEuroWithVat ?? line.priceWithVatEuro;
                       return (
                         <>
                           <TableCell align="right">
@@ -367,6 +483,33 @@ const ProjectsPage: React.FC = () => {
             </Table>
           </Box>
         )}
+
+        {/* VAT Popover */}
+        <Popover
+          open={Boolean(vatAnchorEl)}
+          anchorEl={vatAnchorEl}
+          onClose={handleVatClose}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'center',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'center',
+          }}
+        >
+          <MenuList dense>
+            {VAT_RATES.map((rate) => (
+              <MenuItem 
+                key={rate.value} 
+                onClick={() => handleVatSelect(rate.value)}
+                selected={vatEditingLineId ? (lines.find(l => l.id === vatEditingLineId)?.vatPercent ?? DEFAULT_VAT_RATE) === rate.value : false}
+              >
+                {rate.label}
+              </MenuItem>
+            ))}
+          </MenuList>
+        </Popover>
       </Box>
     );
   };
@@ -452,14 +595,46 @@ const ProjectsPage: React.FC = () => {
         enableColumnFilter: false,
         enableGlobalFilter: false,
         Cell: ({ row }) => {
+          const projectId = row.original.id;
+          const budget = projectBudgets[projectId] ?? budgetCache[projectId];
+          const isLoading = loadingBudgets[projectId];
+          const currency = ((row.original as any).currency || 'RON').toString().toUpperCase();
+
+          if (isLoading && !budget) {
+            return (
+              <Box sx={{ minHeight: 38, display: 'flex', alignItems: 'center' }}>
+                <CircularProgress size={16} />
+              </Box>
+            );
+          }
+
+          if (budget) {
+            const useEuro = currency === 'EUR' && budget.totalEuro != null && budget.totalEuroWithVat != null;
+            const displayCurrency = useEuro ? 'EUR' : 'RON';
+            const total = useEuro ? budget.totalEuro! : budget.totalLei;
+            const totalWithVat = useEuro ? budget.totalEuroWithVat! : budget.totalLeiWithVat;
+
+            return (
+              <Tooltip title="Calculat din fișele proiect" arrow>
+                <Stack spacing={0.25} sx={{ minHeight: 38, justifyContent: 'center' }}>
+                  <Typography variant="subtitle2" fontWeight="bold" color="success.main">
+                    {formatCurrency(totalWithVat, displayCurrency)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Fără TVA: {formatCurrency(total, displayCurrency)}
+                  </Typography>
+                </Stack>
+              </Tooltip>
+            );
+          }
+
           const val = row.original.budget;
           if (val == null) return '—';
-          const curr = (row.original as any).currency || 'RON';
-          return `${val.toLocaleString('ro-RO')} ${curr}`;
+          return `${val.toLocaleString('ro-RO')} ${currency}`;
         },
       },
     ],
-    [],
+    [projectBudgets, budgetCache, loadingBudgets, formatCurrency],
   );
 
   const load = useCallback(async () => {
@@ -510,12 +685,13 @@ const ProjectsPage: React.FC = () => {
       setLoadingDeviz(prev => ({ ...prev, [projectId]: true }));
       const lines = await fetchProjectDevizLines(projectId);
       setDevizLines(prev => ({ ...prev, [projectId]: lines }));
+      void loadProjectBudget(projectId, lines);
     } catch (e: any) {
   errorNotistack(e?.message || 'Eroare la încărcarea devizului');
     } finally {
       setLoadingDeviz(prev => ({ ...prev, [projectId]: false }));
     }
-  }, [devizLines, errorNotistack]);
+  }, [devizLines, errorNotistack, loadProjectBudget]);
 
   // Add new deviz line
   const handleAddDevizLine = async (projectId: string) => {
@@ -528,7 +704,7 @@ const ProjectsPage: React.FC = () => {
         orderNum: newOrderNum,
         code,
   description: 'Lucrări noi',
-        vatPercent: 19,
+        vatPercent: DEFAULT_VAT_RATE,
       });
       setDevizLines(prev => ({
         ...prev,
@@ -548,6 +724,29 @@ const ProjectsPage: React.FC = () => {
         ...prev,
         [projectId]: (prev[projectId] || []).map(l => l.id === lineId ? updated : l),
       }));
+
+      // If VAT changed, recalculate operationTotals for this line
+      if (updates.vatPercent !== undefined) {
+        const currentTotals = operationTotals[lineId];
+        if (currentTotals) {
+          const newVat = Number(updates.vatPercent ?? 0);
+          const newLeiWithVat = currentTotals.totalLei * (1 + newVat / 100);
+          const newEuroWithVat = currentTotals.totalEuro != null 
+            ? currentTotals.totalEuro * (1 + newVat / 100) 
+            : undefined;
+          
+          setOperationTotals(prev => ({
+            ...prev,
+            [lineId]: {
+              ...currentTotals,
+              totalLeiWithVat: newLeiWithVat,
+              totalEuroWithVat: newEuroWithVat,
+            },
+          }));
+        }
+        // Also refresh project budget
+        void loadProjectBudget(projectId);
+      }
     } catch (e: any) {
       errorNotistack(e?.message || 'Eroare la actualizare');
     }
@@ -605,6 +804,36 @@ const ProjectsPage: React.FC = () => {
           notes: op.notes ?? undefined,
         })),
       });
+
+      // Recalculate operation totals for this deviz line after save
+      const totalLei = data.operations.reduce((s, op) => s + (Number(op.totalPrice) || 0), 0);
+      const devizLine = devizLines[data.projectId]?.find(l => l.id === data.devizLineId);
+      const vat = Number(devizLine?.vatPercent ?? 0);
+      const totalLeiWithVat = totalLei * (1 + vat / 100);
+
+      // Fetch exchange rate for EUR calculation
+      let totalEuro: number | undefined = undefined;
+      let totalEuroWithVat: number | undefined = undefined;
+      try {
+        const rates = await fetchExchangeRates();
+        const ronEur = Number(rates.ronEur);
+        if (Number.isFinite(ronEur)) {
+          totalEuro = totalLei * ronEur;
+          totalEuroWithVat = totalLeiWithVat * ronEur;
+        }
+      } catch (e) {
+        // ignore rate errors
+      }
+
+      // Update operation totals immediately
+      setOperationTotals(prev => ({
+        ...prev,
+        [data.devizLineId]: { totalLei, totalLeiWithVat, totalEuro, totalEuroWithVat },
+      }));
+
+      // Also refresh the project budget
+      void loadProjectBudget(data.projectId, devizLines[data.projectId]);
+
   successNotistack('Fișa proiect salvată cu succes');
     } catch (e: any) {
   errorNotistack(e?.message || 'Eroare la salvarea fișei proiect');

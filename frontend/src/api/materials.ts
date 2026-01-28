@@ -38,6 +38,64 @@ export interface Material {
   suppliers?: string[];
 }
 
+export type MaterialFamilyConfidence = 'auto' | 'manual' | 'suspect';
+
+export interface MaterialFamilySummary {
+  id: string;
+  name: string;
+  normalizedKey: string;
+  variantsCount: number;
+  totalOrders: number;
+  suppliersCount: number;
+  minPrice?: number;
+  maxPrice?: number;
+  lastPurchaseAt?: string;
+  confidence: MaterialFamilyConfidence;
+}
+
+export interface MaterialFamilyVariant {
+  id: string;
+  materialId?: string;
+  name: string;
+  packValue?: number;
+  packUnit?: string;
+  color?: string;
+  brand?: string;
+  defaultSupplier?: string;
+  latestPrice?: number;
+  priceRange?: { min?: number; max?: number };
+  purchasesCount?: number;
+  confidence: MaterialFamilyConfidence;
+  assignedByUser?: boolean;
+  updatedAt?: string;
+}
+
+export interface MaterialFamilyAggregatedStats {
+  avgPrice?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  totalOrders: number;
+  suppliersCount: number;
+  latestPurchaseAt?: string;
+}
+
+export interface MaterialFamily {
+  summary: MaterialFamilySummary;
+  variants: MaterialFamilyVariant[];
+  aggregatedStats: MaterialFamilyAggregatedStats;
+}
+
+export interface MaterialFamiliesPreviewMeta {
+  hasSuspects?: boolean;
+  suspectsCount?: number;
+  generatedAt?: string;
+}
+
+export interface MaterialFamiliesPreviewResponse {
+  families: MaterialFamily[];
+  meta?: MaterialFamiliesPreviewMeta;
+}
+
 export interface Supplier {
   supplierName: string;
   supplierId?: string | null;
@@ -133,6 +191,11 @@ export const updateMaterial = async (id: string, payload: Partial<MaterialPayloa
 
 export const deleteMaterial = async (id: string): Promise<void> => {
   await api.delete(`/materials/${id}`);
+};
+
+export const fetchMaterialFamiliesPreview = async (): Promise<MaterialFamiliesPreviewResponse> => {
+  const response = await api.get<MaterialFamiliesPreviewResponse>('/materials/families/preview');
+  return response.data;
 };
 
 // Technical Sheet Management
