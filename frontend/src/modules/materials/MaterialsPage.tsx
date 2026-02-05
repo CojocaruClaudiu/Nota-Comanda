@@ -52,6 +52,39 @@ import {
 
 const trim = (v?: string | null) => (v == null ? '' : String(v).trim());
 
+// Smart parser to extract pack quantity and unit from material name/description
+// Patterns: (1.03KG), (500G), (2.5L), (10BUC), (1,5KG), etc.
+const parsePackFromName = (name: string): { quantity: number | null; unit: string | null } => {
+  if (!name) return { quantity: null, unit: null };
+  
+  // Match patterns like (1.03KG), (500G), (2.5L), (10BUC), [1.5KG], etc.
+  // Support both . and , as decimal separators
+  const patterns = [
+    /\((\d+[.,]\d+)\s*([a-zA-Z]+)\)/i,  // (1.03KG) or (1,5KG)
+    /\[(\d+[.,]\d+)\s*([a-zA-Z]+)\]/i,  // [1.03KG]
+    /\((\d+)\s*([a-zA-Z]+)\)/i,         // (500G) or (10BUC)
+    /\[(\d+)\s*([a-zA-Z]+)\]/i,         // [500G]
+  ];
+  
+  for (const pattern of patterns) {
+    const match = name.match(pattern);
+    if (match) {
+      const quantityStr = match[1].replace(',', '.'); // Normalize decimal separator
+      const quantity = parseFloat(quantityStr);
+      const unitStr = match[2].toLowerCase();
+      
+      // Try to match the unit
+      const matchedUnit = getMatchingUnit(unitStr);
+      
+      if (!isNaN(quantity) && quantity > 0 && matchedUnit) {
+        return { quantity, unit: matchedUnit };
+      }
+    }
+  }
+  
+  return { quantity: null, unit: null };
+};
+
 // Format date helper
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '—';
@@ -675,30 +708,39 @@ function MaterialsPageContent() {
         if (value == null) return '-';
         const formatted = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 4 }).format(value);
         const packUnit = (row.original.packUnit || '').toLowerCase();
-        // Detect suspicious values - likely data entry errors
-        // E.g., value of 103 when name contains "(1.03KG)" - user probably meant 1.03
-        const name = (row.original.name || '').toUpperCase();
+        const name = row.original.name || '';
+        
+        // Use smart parser to check if the name contains a different quantity/unit
+        const parsed = parsePackFromName(name);
         let isSuspicious = false;
         let suspicionReason = '';
-        // Check if value is suspiciously high (> 100) for weight/volume units
-        if (value >= 100 && ['kg', 'g', 'l', 'ml'].includes(packUnit)) {
-          // Check if there's a smaller number in the name that might be the intended value
-          const possibleDecimal = value / 100;
-          const nameHasSmaller = name.includes(possibleDecimal.toFixed(2).replace('.', ',')) || 
-                                  name.includes(possibleDecimal.toFixed(2)) ||
-                                  name.includes(`(${possibleDecimal}`) ||
-                                  name.includes(`/${possibleDecimal}`);
-          if (nameHasSmaller || (value % 100 === 0 && value >= 100)) {
+        
+        if (parsed.quantity && parsed.unit) {
+          // Check if parsed values differ significantly from stored values
+          const quantityDiffers = Math.abs(parsed.quantity - value) > 0.01;
+          const unitDiffers = parsed.unit !== packUnit;
+          
+          if (quantityDiffers || unitDiffers) {
             isSuspicious = true;
-            suspicionReason = `Valoare suspectă - poate ați vrut ${possibleDecimal.toFixed(2)} ${packUnit.toUpperCase()}?`;
+            suspicionReason = `Valoare suspectă - în nume găsim ${parsed.quantity} ${parsed.unit.toUpperCase()}, dar aici este ${formatted} ${packUnit.toUpperCase()}`;
+          }
+        } else {
+          // Fallback to old logic for cases without parseable patterns
+          // Check if value is suspiciously high (> 100) for weight/volume units
+          if (value >= 100 && ['kg', 'g', 'l', 'ml'].includes(packUnit)) {
+            const possibleDecimal = value / 100;
+            const nameUpper = name.toUpperCase();
+            const nameHasSmaller = nameUpper.includes(possibleDecimal.toFixed(2).replace('.', ',')) || 
+                                    nameUpper.includes(possibleDecimal.toFixed(2)) ||
+                                    nameUpper.includes(`(${possibleDecimal}`) ||
+                                    nameUpper.includes(`/${possibleDecimal}`);
+            if (nameHasSmaller || (value % 100 === 0 && value >= 100)) {
+              isSuspicious = true;
+              suspicionReason = `Valoare suspectă - poate ați vrut ${possibleDecimal.toFixed(2)} ${packUnit.toUpperCase()}?`;
+            }
           }
         }
-        // Check if value looks like it was extracted from a non-quantity part of name (e.g., "100LM" lumens)
-        const numericPatterns = name.match(/\d+(?:LM|W|V|A|MM|CM)\b/gi);
-        if (numericPatterns && numericPatterns.some(p => parseInt(p) === value)) {
-          isSuspicious = true;
-          suspicionReason = 'Valoare suspectă - pare extrasă din specificații tehnice, nu din cantitatea reală';
-        }
+        
         return (
           <Tooltip title={isSuspicious ? suspicionReason : ''} arrow>
             <Typography 
@@ -962,14 +1004,25 @@ function MaterialsPageContent() {
       const description = trim(values.name);
       const unit = getMatchingUnit(values.unit) || 'buc';
       const price = Number(values.price) || 0;
+      
+      // Smart parsing: extract pack quantity and unit from description if not provided
       const rawPackQuantity = values.packQuantity;
-      const packQuantity =
+      let packQuantity =
         rawPackQuantity === undefined || rawPackQuantity === null || rawPackQuantity === ''
           ? null
           : Number(rawPackQuantity);
-      // Normalize packUnit to match our valid units list
+      
       const rawPackUnit = trim(values.packUnit);
-      const packUnit = rawPackUnit ? getMatchingUnit(rawPackUnit) : '';
+      let packUnit = rawPackUnit ? getMatchingUnit(rawPackUnit) : '';
+      
+      // If pack info is not provided, try to parse from description
+      if (!packQuantity && !packUnit) {
+        const parsed = parsePackFromName(description);
+        if (parsed.quantity && parsed.unit) {
+          packQuantity = parsed.quantity;
+          packUnit = parsed.unit;
+        }
+      }
 
       if (!code || !description) throw new Error('Codul si descrierea sunt obligatorii');
       if (!isValidUnit(unit)) throw new Error('Unitate invalida: ' + unit);
@@ -1075,14 +1128,25 @@ function MaterialsPageContent() {
       const description = trim(values.name);
       const unit = getMatchingUnit(values.unit) || 'buc';
       const price = Number(values.price) || 0;
+      
+      // Smart parsing: extract pack quantity and unit from description if not provided
       const rawPackQuantity = values.packQuantity;
-      const packQuantity =
+      let packQuantity =
         rawPackQuantity === undefined || rawPackQuantity === null || rawPackQuantity === ''
           ? null
           : Number(rawPackQuantity);
-      // Normalize packUnit to match our valid units list
+      
       const rawPackUnit = trim(values.packUnit);
-      const packUnit = rawPackUnit ? getMatchingUnit(rawPackUnit) : '';
+      let packUnit = rawPackUnit ? getMatchingUnit(rawPackUnit) : '';
+      
+      // If pack info is not provided or user left it empty, try to parse from description
+      if (!packQuantity && !packUnit) {
+        const parsed = parsePackFromName(description);
+        if (parsed.quantity && parsed.unit) {
+          packQuantity = parsed.quantity;
+          packUnit = parsed.unit;
+        }
+      }
 
       if (!code || !description) throw new Error('Codul si descrierea sunt obligatorii');
       if (!isValidUnit(unit)) throw new Error('Unitate invalida: ' + unit);
