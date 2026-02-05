@@ -1,7 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
-  Alert, Chip, Badge, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select
+  Alert, Chip, Badge, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select,
+  Skeleton, LinearProgress, Snackbar
 } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -407,6 +408,8 @@ function MaterialsPageContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [operationProgress, setOperationProgress] = useState<{ message: string; progress: number } | null>(null);
+  const [optimisticTree, setOptimisticTree] = useState<TreeRow[] | null>(null);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assignFamilyId, setAssignFamilyId] = useState<string | null>(null);
   const [makeVariantDialogOpen, setMakeVariantDialogOpen] = useState(false);
@@ -447,14 +450,35 @@ function MaterialsPageContent() {
     typeof persisted.globalFilter === 'string' ? persisted.globalFilter : ''
   );
 
+  // Optimistic update helper
+  const applyOptimisticUpdate = useCallback((updater: (current: TreeRow[]) => TreeRow[]) => {
+    setOptimisticTree(prev => updater(prev || tree));
+  }, [tree]);
+
+  const rollbackOptimistic = useCallback(() => {
+    setOptimisticTree(null);
+  }, []);
+
+  const commitOptimistic = useCallback(() => {
+    if (optimisticTree) {
+      setTree(optimisticTree);
+      setOptimisticTree(null);
+    }
+  }, [optimisticTree]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setOperationProgress({ message: 'Se încarcă materialele...', progress: 30 });
     try {
       const t = await buildTree();
+      setOperationProgress({ message: 'Se procesează datele...', progress: 70 });
       setTree(addPaths(numberize(t)));
+      setOperationProgress({ message: 'Gata!', progress: 100 });
+      setTimeout(() => setOperationProgress(null), 500);
     } catch (e: any) {
       setError(e?.message || 'Eroare la încarcare');
+      setOperationProgress(null);
     } finally {
       setLoading(false);
     }
@@ -930,14 +954,18 @@ function MaterialsPageContent() {
   /* -------- CRUD Handlers -------- */
   const handleCreateRow: MRT_TableOptions<TreeRow>['onCreatingRowSave'] = async ({ values, row, table }) => {
     setSaving(true);
+    setOperationProgress({ message: 'Se creează...', progress: 0 });
     try {
       if ((row as any)?.original?.type === 'group') {
         const name = trim(values.name);
         if (!name) throw new Error('Denumirea este obligatorie');
+        setOperationProgress({ message: 'Se creează familia...', progress: 50 });
         await createMaterialFamily(name);
+        setOperationProgress({ message: 'Se reîncarcă datele...', progress: 80 });
         successNotistack('Familie creata cu succes!');
         await load();
         table.setCreatingRow(null);
+        setOperationProgress(null);
         return;
       }
       const code = trim(values.code);
@@ -990,11 +1018,40 @@ function MaterialsPageContent() {
         }
       }
 
-      await createMaterialWithoutGroup(payload as any);
-      successNotistack('Material creat cu succes!');
-      await load();
-      table.setCreatingRow(null);
+      setOperationProgress({ message: 'Se salvează materialul...', progress: 50 });
+      
+      // Optimistic update: add temporary material immediately
+      const tempId = `temp_${Date.now()}`;
+      applyOptimisticUpdate(current => {
+        const newMaterial: TreeRow = {
+          type: 'material',
+          id: tempId,
+          name: description,
+          code,
+          unit,
+          price,
+          currency: 'RON',
+          packQuantity,
+          packUnit: packUnit || null,
+          number: '0',
+        };
+        return [...current, newMaterial];
+      });
+      
+      try {
+        await createMaterialWithoutGroup(payload as any);
+        setOperationProgress({ message: 'Se reîncarcă...', progress: 80 });
+        successNotistack('Material creat cu succes!');
+        await load();
+        commitOptimistic();
+        table.setCreatingRow(null);
+        setOperationProgress(null);
+      } catch (error) {
+        rollbackOptimistic();
+        throw error;
+      }
     } catch (e: any) {
+      setOperationProgress(null);
       errorNotistack(e?.message || 'Eroare la creare');
     } finally {
       setSaving(false);
@@ -1003,14 +1060,34 @@ function MaterialsPageContent() {
 
   const handleEditRow: MRT_TableOptions<TreeRow>['onEditingRowSave'] = async ({ row, values, table }) => {
     setSaving(true);
+    setOperationProgress({ message: 'Se salvează modificările...', progress: 30 });
     try {
       if (row.original.type === 'group') {
         const name = trim(values.name);
         if (!name) throw new Error('Denumirea este obligatorie');
-        await updateMaterialFamily(row.original.id, name);
-        successNotistack('Familie actualizata!');
-        await load();
-        table.setEditingRow(null);
+        
+        // Optimistic update for family
+        applyOptimisticUpdate(current => {
+          return current.map(item => 
+            item.id === row.original.id && item.type === 'group'
+              ? { ...item, name }
+              : item
+          );
+        });
+        
+        try {
+          setOperationProgress({ message: 'Se salvează...', progress: 60 });
+          await updateMaterialFamily(row.original.id, name);
+          setOperationProgress({ message: 'Gata!', progress: 100 });
+          successNotistack('Familie actualizata!');
+          await load();
+          commitOptimistic();
+          table.setEditingRow(null);
+          setTimeout(() => setOperationProgress(null), 500);
+        } catch (error) {
+          rollbackOptimistic();
+          throw error;
+        }
         return;
       }
       const code = trim(values.code);
@@ -1056,11 +1133,37 @@ function MaterialsPageContent() {
         patch.familyId = nextFamilyId ? String(nextFamilyId) : null;
       }
 
-      await updateMaterial(row.original.id, patch);
-      successNotistack('Material actualizat cu succes!');
-      await load();
-      table.setEditingRow(null);
+      // Optimistic update for material
+      applyOptimisticUpdate(current => {
+        const updateRow = (items: TreeRow[]): TreeRow[] => {
+          return items.map(item => {
+            if (item.id === row.original.id && item.type === 'material') {
+              return { ...item, code, name: description, unit, price, packQuantity, packUnit: packUnit || null };
+            }
+            if (item.subRows) {
+              return { ...item, subRows: updateRow(item.subRows) };
+            }
+            return item;
+          });
+        };
+        return updateRow(current);
+      });
+
+      try {
+        setOperationProgress({ message: 'Se salvează pe server...', progress: 60 });
+        await updateMaterial(row.original.id, patch);
+        setOperationProgress({ message: 'Se reîncarcă...', progress: 90 });
+        successNotistack('Material actualizat cu succes!');
+        await load();
+        commitOptimistic();
+        table.setEditingRow(null);
+        setTimeout(() => setOperationProgress(null), 500);
+      } catch (error) {
+        rollbackOptimistic();
+        throw error;
+      }
     } catch (e: any) {
+      setOperationProgress(null);
       errorNotistack(e?.message || 'Eroare la actualizare');
     } finally {
       setSaving(false);
@@ -1070,7 +1173,7 @@ function MaterialsPageContent() {
   /* -------- Table -------- */
   const table = useMaterialReactTable<TreeRow>({
     columns,
-    data: tree,
+    data: optimisticTree || tree,
 
   // row identification (prefix with type to avoid collisions)
   getRowId: (row) => `${row.type}:${row.id}`,
@@ -1231,25 +1334,48 @@ function MaterialsPageContent() {
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title="?terge">
+              <Tooltip title="Șterge">
                 <span>
                   <IconButton
                     size="small"
                     color="error"
                     onClick={async () => {
                       const r = row.original;
-                      const title = 'Confirmare ?tergere';
+                      const title = 'Confirmare ștergere';
                       const bodyTitle = 'Ești sigur că vrei să ștergi?';
                       const desc = (<span>Materialul <strong>{r.name}</strong> va fi șters permanent.</span>);
                       const ok = await confirm({ title, bodyTitle, description: desc, confirmText: 'Șterge', cancelText: 'Anulează', danger: true });
                       if (!ok) return;
+                      
                       setSaving(true);
+                      setOperationProgress({ message: 'Se șterge...', progress: 30 });
+                      
+                      // Optimistic delete: remove immediately from UI
+                      applyOptimisticUpdate(current => {
+                        const removeFromTree = (items: TreeRow[]): TreeRow[] => {
+                          return items.filter(item => {
+                            if (item.id === r.id) return false;
+                            if (item.subRows) {
+                              item.subRows = removeFromTree(item.subRows);
+                            }
+                            return true;
+                          });
+                        };
+                        return removeFromTree(current);
+                      });
+                      
                       try {
+                        setOperationProgress({ message: 'Se șterge de pe server...', progress: 60 });
                         await deleteMaterial(r.id);
-                        successNotistack('Material ?ters cu succes!');
+                        setOperationProgress({ message: 'Gata!', progress: 100 });
+                        successNotistack('Material șters cu succes!');
                         await load();
+                        commitOptimistic();
+                        setTimeout(() => setOperationProgress(null), 500);
                       } catch (e: any) {
-                        errorNotistack(e?.message || 'Eroare la ?tergere');
+                        rollbackOptimistic();
+                        setOperationProgress(null);
+                        errorNotistack(e?.message || 'Eroare la ștergere');
                       } finally {
                         setSaving(false);
                       }
@@ -1495,9 +1621,37 @@ function MaterialsPageContent() {
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        
+        {/* Progress indicator */}
+        {operationProgress && (
+          <Box sx={{ mb: 2 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                {operationProgress.message}
+              </Typography>
+              <Typography variant="caption" color="primary" fontWeight={600}>
+                {operationProgress.progress}%
+              </Typography>
+            </Stack>
+            <LinearProgress variant="determinate" value={operationProgress.progress} />
+          </Box>
+        )}
 
         <Box sx={{ flex: 1, minHeight: 0 }}>
-          <MaterialReactTable table={table} />
+          {loading && tree.length === 0 ? (
+            <Stack spacing={1}>
+              <Skeleton variant="rectangular" height={56} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+              <Skeleton variant="rectangular" height={52} />
+            </Stack>
+          ) : (
+            <MaterialReactTable table={table} />
+          )}
         </Box>
       </Paper>
 
