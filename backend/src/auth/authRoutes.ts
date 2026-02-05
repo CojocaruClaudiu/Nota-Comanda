@@ -52,4 +52,28 @@ router.get("/me", async (req, res) => {
   }
 });
 
+router.post("/change-password", async (req, res) => {
+  const userId = (req as any).user?.sub;
+  const { currentPassword, newPassword } = req.body || {};
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Current and new password required" });
+  }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: "New password must be at least 8 characters" });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: Number(userId) } });
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const valid = await bcrypt.compare(String(currentPassword), user.passwordHash);
+  if (!valid) return res.status(401).json({ error: "Invalid current password" });
+
+  const passwordHash = await bcrypt.hash(String(newPassword), 10);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  return res.json({ ok: true });
+});
+
 export default router;

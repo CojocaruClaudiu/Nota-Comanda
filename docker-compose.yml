@@ -1,0 +1,67 @@
+# Docker Compose for Nota-Comanda Full Stack Deployment
+# Usage:
+#   1. Copy .env.example to .env and configure
+#   2. Run: docker-compose up -d --build
+#   3. Access frontend at http://YOUR_SERVER_IP:3000
+#   4. Backend API at http://YOUR_SERVER_IP:4000
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16
+    container_name: nota-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-nota}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nota-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-nota}?schema=public
+      PORT: 4000
+      NODE_ENV: production
+      # Add other environment variables as needed
+      # JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "4000:4000"
+    volumes:
+      # Persist uploaded files
+      - ./backend/uploads:/app/uploads
+
+  # Frontend Web App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Replace with your server's IP address or hostname
+        VITE_API_URL: ${API_URL:-http://localhost:4000}
+    container_name: nota-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  pgdata:
+    driver: local

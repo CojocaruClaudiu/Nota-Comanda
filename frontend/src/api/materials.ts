@@ -96,6 +96,16 @@ export interface MaterialFamiliesPreviewResponse {
   meta?: MaterialFamiliesPreviewMeta;
 }
 
+// Basic family record (for CRUD endpoints)
+export interface MaterialFamilyRecord {
+  id: string;
+  name: string;
+  normalizedKey?: string | null;
+  confidence?: MaterialFamilyConfidence | string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Supplier {
   supplierName: string;
   supplierId?: string | null;
@@ -195,6 +205,36 @@ export const deleteMaterial = async (id: string): Promise<void> => {
 
 export const fetchMaterialFamiliesPreview = async (): Promise<MaterialFamiliesPreviewResponse> => {
   const response = await api.get<MaterialFamiliesPreviewResponse>('/materials/families/preview');
+  return response.data;
+};
+
+// Families CRUD
+export const fetchMaterialFamilies = async (): Promise<MaterialFamilyRecord[]> => {
+  const response = await api.get<MaterialFamilyRecord[]>('/materials/families');
+  return response.data;
+};
+
+export const createMaterialFamily = async (name: string): Promise<MaterialFamilyRecord> => {
+  const response = await api.post<MaterialFamilyRecord>('/materials/families', { name });
+  return response.data;
+};
+
+export const updateMaterialFamily = async (id: string, name: string): Promise<MaterialFamilyRecord> => {
+  const response = await api.put<MaterialFamilyRecord>(`/materials/families/${id}`, { name });
+  return response.data;
+};
+
+export const deleteMaterialFamily = async (id: string): Promise<void> => {
+  await api.delete(`/materials/families/${id}`);
+};
+
+export const assignMaterialsToFamily = async (familyId: string, materialIds: string[]): Promise<{ updated: number }> => {
+  const response = await api.post<{ updated: number }>(`/materials/families/${familyId}/assign`, { materialIds });
+  return response.data;
+};
+
+export const unassignMaterialsFromFamily = async (familyId: string, materialIds: string[]): Promise<{ updated: number }> => {
+  const response = await api.post<{ updated: number }>(`/materials/families/${familyId}/unassign`, { materialIds });
   return response.data;
 };
 

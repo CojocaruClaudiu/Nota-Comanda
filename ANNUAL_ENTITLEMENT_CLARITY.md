@@ -144,7 +144,7 @@ Zilele se acumulează pro-rata pe parcursul anului (se calculează zilnic)...
     <strong>Politica concediu:</strong> Fiecare angajat poate lua <strong>{annualEntitlement} zile/an</strong>
     {annualEntitlement > 21 && ` (21 bază + ${annualEntitlement - 21} bonus vechime)`}. 
     Zilele se acumulează pro-rata pe parcursul anului (se calculează zilnic). 
-    Maximum 5 zile pot fi reportate din anul anterior (expiră 31 martie).
+    Maximum 5 zile pot fi reportate din anul anterior.
     {/* ... rest of policy ... */}
   </Typography>
 </Alert>

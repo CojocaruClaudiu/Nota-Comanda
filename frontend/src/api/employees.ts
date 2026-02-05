@@ -1,8 +1,10 @@
 // src/api/employees.ts
+import { API_BASE_URL } from './baseUrl';
 
 export type Employee = {
   id: string;
   name: string;
+  isActive?: boolean;
   qualifications: string[];
   hiredAt: string;             // ISO
   birthDate?: string | null;   // NEW (ISO)
@@ -15,6 +17,7 @@ export type Employee = {
   county?: string;             // NEW
   locality?: string;           // NEW
   address?: string;            // NEW
+  manualCarryOverDays?: number; // NEW
   createdAt?: string;
   updatedAt?: string;
 };
@@ -47,6 +50,9 @@ export type EmployeePayload = {
   county?: string;             // NEW
   locality?: string;           // NEW
   address?: string;            // NEW
+  isActive?: boolean;
+  deactivatedAt?: string | null; // Date when employee left (freezes leave calculations)
+  manualCarryOverDays?: number; // NEW
 };
 
 export type Leave = {
@@ -65,7 +71,7 @@ export type LeavePayload = {
   note?: string;
 };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = API_BASE_URL;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, init);

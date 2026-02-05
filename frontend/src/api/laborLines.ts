@@ -21,7 +21,9 @@ export type LaborLinePayload = {
   notes?: string | null;
 };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL } from './baseUrl';
+
+const API_URL = API_BASE_URL;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, init);

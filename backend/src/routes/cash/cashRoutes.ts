@@ -115,6 +115,7 @@ router.patch('/cash-entries/:id', async (req, res) => {
   const existing = await prisma.cashEntry.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: 'Not found' });
     const data = updateCashEntrySchema.parse(req.body);
+    const { cashAccountId: _cashAccountId, overrideNegative: _overrideNegative } = data;
   let updatedAmountDecimal: number | undefined;
     if (data.amount !== undefined) {
   const baseBalance = await computeBalanceExcludingEntry(existing.cashAccountId, existing.id);
@@ -124,7 +125,14 @@ router.patch('/cash-entries/:id', async (req, res) => {
       }
   updatedAmountDecimal = data.amount;
     }
-    const updated = await prisma.cashEntry.update({ where: { id }, data: { ...data, amount: updatedAmountDecimal } });
+    const updateData: Prisma.CashEntryUncheckedUpdateInput = {};
+    if (data.effectiveAt !== undefined) updateData.effectiveAt = new Date(data.effectiveAt as any);
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.currency !== undefined) updateData.currency = data.currency as any;
+    if (data.employeeId !== undefined) updateData.employeeId = data.employeeId;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    if (updatedAmountDecimal !== undefined) updateData.amount = updatedAmountDecimal;
+    const updated = await prisma.cashEntry.update({ where: { id }, data: updateData });
     res.json(updated);
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors });

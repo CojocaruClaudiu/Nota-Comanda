@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../../api/baseUrl';
 
 export type Client = {
   id: string;
@@ -15,7 +16,7 @@ export function useClients() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:4000/clients')
+    fetch(`${API_BASE_URL}/clients`)
       .then(res => res.json())
       .then(data => {
         setClients(data);

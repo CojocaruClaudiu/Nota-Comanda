@@ -67,6 +67,36 @@ const initialValues: LeavePayload = {
 
 const TRANSITION_MS = 250;
 
+const PRO_RATA_ROUND = Math.floor;
+
+const isLegacyEmployee = (hiredAt?: string | Date | null): boolean => {
+  if (!hiredAt) return true;
+  const d = dayjs(hiredAt).startOf('day');
+  if (!d.isValid()) return true;
+  const now = dayjs().startOf('day');
+  const years = now.diff(d, 'year');
+  return years >= 1;
+};
+
+const getAccruedForDisplay = (employee: EmployeeWithStats, year = dayjs().year()): number => {
+  const annualEntitlement = employee.entitledDays ?? 21;
+  if (isLegacyEmployee(employee.hiredAt)) return annualEntitlement;
+
+  if (employee.leaveBalance?.accrued !== undefined) {
+    return employee.leaveBalance.accrued;
+  }
+
+  const hire = dayjs(employee.hiredAt);
+  if (!hire.isValid()) return annualEntitlement;
+
+  const yEnd = dayjs(`${year}-12-31`);
+  const denom = yEnd.diff(hire, 'day') + 1;
+  const daysSoFar = dayjs().diff(hire, 'day') + 1;
+  if (denom <= 0) return 0;
+  const safeDays = Math.max(0, Math.min(daysSoFar, denom));
+  return PRO_RATA_ROUND((annualEntitlement * safeDays) / denom);
+};
+
 export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({ 
   open,
   onClose,
@@ -268,10 +298,29 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
                       <>
                         <Alert severity="info" sx={{ borderRadius: 2 }}>
                           <Typography variant="body2">
-                            <strong>Angajat:</strong> {renderEmployee.name} •{' '}
-                            <strong>Drept anual:</strong> {renderEmployee.entitledDays} zile •{' '}
-                            <strong>Folosite:</strong> {renderEmployee.takenDays} zile •{' '}
-                            <strong>Rămase:</strong> {renderEmployee.remainingDays} zile
+                            {(() => {
+                              const currentYear = dayjs().year();
+                              const annualEntitlement = renderEmployee.entitledDays ?? 21;
+                              const accrued = getAccruedForDisplay(renderEmployee, currentYear);
+                              const carriedOver = renderEmployee.leaveBalance?.carriedOver ?? 0;
+                              const companyShutdown = renderEmployee.leaveBalance?.companyShutdownDays ?? 0;
+                              const voluntary = renderEmployee.leaveBalance?.voluntaryDays ?? 0;
+                              const taken = (companyShutdown + voluntary) || renderEmployee.takenDays || 0;
+                              const remaining = Math.max(0, accrued + carriedOver - taken);
+                              const legacyLabel = isLegacyEmployee(renderEmployee.hiredAt)
+                                ? 'an întreg'
+                                : 'pro-rata';
+
+                              return (
+                                <>
+                                  <strong>Angajat:</strong> {renderEmployee.name} •{' '}
+                                  <strong>Drept anual:</strong> {annualEntitlement} zile •{' '}
+                                  <strong>Acumulat ({legacyLabel}):</strong> {accrued} zile •{' '}
+                                  <strong>Folosite:</strong> {taken} zile •{' '}
+                                  <strong>Rămase:</strong> {remaining} zile
+                                </>
+                              );
+                            })()}
                           </Typography>
                         </Alert>
                         <Divider />

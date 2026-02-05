@@ -13,6 +13,7 @@ import materialsRoutes from "./routes/materials";
 import operationSheetsRoutes from "./routes/operationSheets";
 import exchangeRateRoutes from "./routes/exchangeRates";
 import receptionsRoutes from "./routes/receptions";
+import offersRoutes from "./routes/offers";
 import jwt from 'jsonwebtoken';
 import { calculateLeaveBalance } from './services/leaveCalculations.js';
 
@@ -45,6 +46,7 @@ app.use("/materials", materialsRoutes);
 app.use("/operation-sheets", operationSheetsRoutes);
 app.use("/exchange-rates", exchangeRateRoutes);
 app.use("/receptions", receptionsRoutes);
+app.use("/offers", offersRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();
@@ -335,7 +337,7 @@ app.delete('/clients/:id', async (req, res) => {
 
 type EmployeePayload = {
   name: string;
-  qualifications?: string[];
+  qualifications?: string[];   
   hiredAt: string;            // ISO date
   birthDate?: string | null;  // ISO, optional
   cnp?: string | null;
@@ -347,6 +349,8 @@ type EmployeePayload = {
   county?: string | null;
   locality?: string | null;
   address?: string | null;
+  isActive?: boolean;
+  deactivatedAt?: string | null; // Date when employee left (freezes leave calculations)
 };
 type LeavePayload = {
   startDate: string; // ISO date for start
@@ -373,7 +377,15 @@ app.get('/employees', async (_req, res) => {
         // Use new leave calculation service
         let leaveBalance;
         try {
-          leaveBalance = await calculateLeaveBalance(e.id, e.hiredAt);
+          const manualCarryOverDays = (e as any).manualCarryOverDays;
+          const manualOverride = typeof manualCarryOverDays === 'number' && manualCarryOverDays > 0
+            ? manualCarryOverDays
+            : undefined;
+          // For inactive employees, freeze calculations at deactivation date
+          const calcDate = e.isActive === false && e.deactivatedAt
+            ? new Date(e.deactivatedAt)
+            : new Date();
+          leaveBalance = await calculateLeaveBalance(e.id, e.hiredAt, manualOverride, calcDate);
         } catch (error) {
           // Fallback to old calculation if service fails
           console.warn(`Failed to calculate leave for ${e.name}, using fallback:`, error);
@@ -422,7 +434,7 @@ app.get('/employees', async (_req, res) => {
 /** POST /employees */
 app.post('/employees', async (req, res) => {
   try {
-    const { name, qualifications = [], hiredAt } = (req.body || {}) as EmployeePayload;
+    const { name, qualifications = [], hiredAt, isActive } = (req.body || {}) as EmployeePayload;
     if (!name || !hiredAt) {
       return res.status(400).json({ error: 'Nume și Data angajării sunt obligatorii' });
     }
@@ -433,6 +445,7 @@ app.post('/employees', async (req, res) => {
       data: {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
+        isActive: typeof isActive === 'boolean' ? isActive : true,
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
         cnp: cleanOptional(req.body?.cnp),
         phone: cleanOptional(req.body?.phone),
@@ -443,6 +456,7 @@ app.post('/employees', async (req, res) => {
         county: cleanOptional(req.body?.county),
         locality: cleanOptional(req.body?.locality),
         address: cleanOptional(req.body?.address),
+        manualCarryOverDays: req.body?.manualCarryOverDays !== undefined ? Number(req.body.manualCarryOverDays) : 0,
         qualifications: {
           connectOrCreate: qualNames.map((n) => ({
             where: { name: n },
@@ -464,7 +478,7 @@ app.post('/employees', async (req, res) => {
 app.put('/employees/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const { name, qualifications = [], hiredAt } = (req.body || {}) as EmployeePayload;
+    const { name, qualifications = [], hiredAt, isActive, deactivatedAt } = (req.body || {}) as EmployeePayload;
     if (!name || !hiredAt) {
       return res.status(400).json({ error: 'Nume și Data angajării sunt obligatorii' });
     }
@@ -476,11 +490,21 @@ app.put('/employees/:id', async (req, res) => {
       ? Array.from(new Set(qualifications.map(q => String(q).trim()).filter(Boolean)))
       : [];
 
+    // Handle deactivatedAt: can be set (string), cleared (null), or unchanged (undefined)
+    let deactivatedAtValue: Date | null | undefined = undefined;
+    if (deactivatedAt === null) {
+      deactivatedAtValue = null; // Clear the date (reactivating)
+    } else if (typeof deactivatedAt === 'string') {
+      deactivatedAtValue = toDate(deactivatedAt); // Set the date (deactivating)
+    }
+
     const updated = await (prisma as any).employee.update({
       where: { id },
       data: {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
+        isActive: typeof isActive === 'boolean' ? isActive : existing.isActive,
+        ...(deactivatedAtValue !== undefined && { deactivatedAt: deactivatedAtValue }),
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
         cnp: cleanOptional(req.body?.cnp),
         phone: cleanOptional(req.body?.phone),
@@ -491,6 +515,7 @@ app.put('/employees/:id', async (req, res) => {
         county: cleanOptional(req.body?.county),
         locality: cleanOptional(req.body?.locality),
         address: cleanOptional(req.body?.address),
+        manualCarryOverDays: req.body?.manualCarryOverDays !== undefined ? Number(req.body.manualCarryOverDays) : undefined,
         qualifications: {
           set: [],
           connectOrCreate: qualNames.map((n) => ({ where: { name: n }, create: { name: n } })),
@@ -753,6 +778,7 @@ type CarPayload = {
   expItp?: string | null;  // 'YYYY-MM-DD' or ISO
   expRca?: string | null;
   expRovi?: string | null;
+  rcaDecontareDirecta?: boolean | null;
 };
 
 // helpers
@@ -809,6 +835,7 @@ app.post('/cars', async (req, res) => {
         expItp: optDate(p.expItp),
         expRca: optDate(p.expRca),
         expRovi: optDate(p.expRovi),
+        rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
       },
       include: { driver: { select: { id: true, name: true } } },
     });
@@ -852,6 +879,7 @@ app.put('/cars/:id', async (req, res) => {
         expItp: optDate(p.expItp),
         expRca: optDate(p.expRca),
         expRovi: optDate(p.expRovi),
+        rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
       },
       include: { driver: { select: { id: true, name: true } } },
     });
@@ -1975,6 +2003,7 @@ app.delete('/company-shutdowns/:id', async (req, res) => {
 /* ===================== BOOT ===================== */
 
 const PORT = Number(process.env.PORT || 4000);
+const HOST = process.env.HOST || '0.0.0.0';
 
 (async () => {
   try {
@@ -1982,8 +2011,8 @@ const PORT = Number(process.env.PORT || 4000);
   console.log('Prisma connected to DB');
     console.log('DB URL:', process.env.DATABASE_URL);
     await ensureOrderStatusEnum();
-    app.listen(PORT, () =>
-      console.log(`API running on http://localhost:${PORT}`)
+    app.listen(PORT, HOST, () =>
+      console.log(`API running on http://${HOST}:${PORT}`)
     );
   } catch (error: unknown) {
   console.error('Prisma failed to connect:', error);

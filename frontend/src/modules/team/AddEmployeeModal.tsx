@@ -12,8 +12,14 @@ import {
   Divider,
   Collapse,
   CircularProgress,
-  Fade
+  Fade,
+  ButtonBase,
+  alpha,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import BlockIcon from '@mui/icons-material/Block';
 import { DatePicker } from '@mui/x-date-pickers';
 import {
   PersonAdd,
@@ -23,7 +29,8 @@ import {
   Badge,
   ContactMail,
   Close,
-  ExpandMore
+  ExpandMore,
+  History
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 
@@ -42,7 +49,9 @@ interface Employee {
   county?: string;
   locality?: string;
   address?: string;
+  manualCarryOverDays?: number;
 }
+
 
 interface AddEmployeeModalProps {
   open: boolean;
@@ -54,6 +63,7 @@ interface AddEmployeeModalProps {
 interface FormState {
   name: string;
   hiredAt: string | null;
+  isActive?: boolean;
   cnp?: string;
   birthDate?: string | null;
   phone?: string;
@@ -65,6 +75,7 @@ interface FormState {
   county?: string;
   locality?: string;
   address?: string;
+  manualCarryOverDays?: string; // string for input handling
 }
 
 interface ValidationErrors {
@@ -87,6 +98,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
   const [form, setForm] = useState<FormState>({
     name: '',
     hiredAt: null,
+    isActive: true,
     cnp: '',
     birthDate: null,
     phone: '',
@@ -97,10 +109,12 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     idIssueDateISO: null,
     county: '',
     locality: '',
-    address: ''
+    address: '',
+    manualCarryOverDays: ''
   });
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
 
   // Utility functions
   const toIsoDate = useCallback((d: dayjs.Dayjs | null): string | null => {
@@ -148,6 +162,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
 
     if (!form.hiredAt) {
       newErrs.hiredAt = 'Data angajării este obligatorie';
+    } else if (dayjs(form.hiredAt).isAfter(dayjs(), 'day')) {
+      newErrs.hiredAt = 'Data angajării nu poate fi în viitor';
     }
 
     if (form.cnp && form.cnp.length !== 13) {
@@ -174,6 +190,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
     setForm({
       name: '',
       hiredAt: null,
+      isActive: true,
       cnp: '',
       birthDate: null,
       phone: '',
@@ -184,18 +201,24 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       idIssueDateISO: null,
       county: '',
       locality: '',
-      address: ''
+      address: '',
+      manualCarryOverDays: ''
     });
     setShowAdvanced(false);
+    setShowErrors(false);
     onClose();
   }, [onClose]);
 
   const handleSave = useCallback(async () => {
-    if (!valid) return;
+    if (!valid) {
+      setShowErrors(true);
+      return;
+    }
 
     const employeeData: Partial<Employee> = {
       name: form.name.trim(),
       hiredAt: form.hiredAt!,
+      isActive: form.isActive ?? true,
       cnp: form.cnp || undefined,
       birthDate: form.birthDate || undefined,
       phone: form.phone || undefined,
@@ -206,7 +229,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
       idIssueDateISO: form.idIssueDateISO || undefined,
       county: form.county || undefined,
       locality: form.locality || undefined,
-      address: form.address || undefined
+      address: form.address || undefined,
+      manualCarryOverDays: form.manualCarryOverDays ? Number(form.manualCarryOverDays) : undefined
     };
 
     await onSave(employeeData);
@@ -297,14 +321,36 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   placeholder="Ex: Popescu Ion Andrei"
                   required
                   fullWidth
-                  error={!!errs.name}
-                  helperText={errs.name}
+                  error={showErrors && !!errs.name}
+                  helperText={showErrors ? errs.name : ''}
                   InputProps={{
                     startAdornment: <Person sx={{ color: 'action.active', mr: 1 }} />,
+                    endAdornment: (
+                      <Stack direction="row" alignItems="center" sx={{ ml: 1 }}>
+                        <Divider orientation="vertical" flexItem sx={{ height: 24, my: 'auto', mx: 1, opacity: 0.5 }} />
+                        <FormControlLabel
+                          control={
+                            <Switch 
+                              checked={form.isActive !== false}
+                              onChange={(e) => setForm(f => ({ ...f, isActive: e.target.checked }))}
+                              size="small"
+                              color="success" 
+                            />
+                          }
+                          label={
+                            <Typography variant="caption" fontWeight={600} color={form.isActive !== false ? "success.main" : "text.secondary"} sx={{ minWidth: 45 }}>
+                              {form.isActive !== false ? "Activ" : "Inactiv"}
+                            </Typography>
+                          }
+                          sx={{ mr: 0, ml: 0.5 }}
+                        />
+                      </Stack>
+                    )
                   }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 2,
+                      pr: 1
                     }
                   }}
                 />
@@ -317,8 +363,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     placeholder="1234567890123"
                     inputProps={{ inputMode: 'numeric', maxLength: 13 }}
                     fullWidth
-                    error={!!errs.cnp}
-                    helperText={errs.cnp || '13 cifre'}
+                    error={showErrors && !!errs.cnp}
+                    helperText={showErrors ? errs.cnp : '13 cifre'}
                     InputProps={{
                       startAdornment: <Badge sx={{ color: 'action.active', mr: 1 }} />,
                     }}
@@ -335,8 +381,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     onChange={e => setForm(f => ({ ...f, phone: e.target.value.trim() }))}
                     placeholder="Ex: 0722123456"
                     fullWidth
-                    error={!!errs.phone}
-                    helperText={errs.phone || 'ex: 07xxxxxxxx sau +407xxxxxxxx'}
+                    error={showErrors && !!errs.phone}
+                    helperText={showErrors ? errs.phone : 'ex: 07xxxxxxxx sau +407xxxxxxxx'}
                     InputProps={{
                       startAdornment: <Phone sx={{ color: 'action.active', mr: 1 }} />,
                     }}
@@ -353,13 +399,14 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     label="Data Angajării"
                     format="DD/MM/YYYY"
                     value={form.hiredAt ? dayjs(form.hiredAt) : null}
+                    disableFuture
                     onChange={(d) => setForm(f => ({ ...f, hiredAt: toIsoDate(d) }))}
                     slotProps={{ 
                       textField: { 
                         required: true, 
                         fullWidth: true, 
-                        error: !!errs.hiredAt, 
-                        helperText: errs.hiredAt,
+                        error: showErrors && !!errs.hiredAt, 
+                        helperText: showErrors ? errs.hiredAt : '',
                         InputProps: {
                           startAdornment: <Work sx={{ color: 'action.active', mr: 1 }} />,
                         },
@@ -380,8 +427,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                     slotProps={{ 
                       textField: { 
                         fullWidth: true, 
-                        error: !!errs.birthDate, 
-                        helperText: errs.birthDate || 'Opțional',
+                        error: showErrors && !!errs.birthDate, 
+                        helperText: showErrors ? errs.birthDate : 'Opțional',
                         InputProps: {
                           startAdornment: <Person sx={{ color: 'action.active', mr: 1 }} />,
                         },
@@ -407,6 +454,24 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                   InputProps={{
                     startAdornment: <Work sx={{ color: 'action.active', mr: 1, alignSelf: 'flex-start', mt: 1 }} />,
                   }}
+
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                    }
+                  }}
+                />
+
+                <TextField
+                  label="Zile Reportate Manual"
+                  value={form.manualCarryOverDays || ''}
+                  onChange={setDigits('manualCarryOverDays')}
+                  placeholder="0"
+                  fullWidth
+                  helperText="Zile de concediu reportate din anul anterior (suprascrie calculul automat)"
+                  InputProps={{
+                    startAdornment: <History sx={{ color: 'action.active', mr: 1 }} />,
+                  }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 2,
@@ -424,6 +489,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip size="small" label={`Vârsta: ${ageFromBirth(form.birthDate) ?? '—'}`} />
                 <Chip size="small" label={`Vechime: ${formatTenureRo(tenureParts(form.hiredAt))}`} />
+                <Chip size="small" label={form.isActive === false ? 'Status: Inactiv' : 'Status: Activ'} />
               </Stack>
             </Box>
 
@@ -435,7 +501,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({
                 <ContactMail color="secondary" />
                 Informații Opționale
               </Typography>
-              
+
+
               {/* Advanced section toggle */}
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
                 <Button

@@ -1,5 +1,7 @@
 // src/api/leavePolicy.ts
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL } from './baseUrl';
+
+const API_URL = API_BASE_URL;
 
 export type AccrualMethod = 'DAILY' | 'MONTHLY' | 'AT_YEAR_START' | 'PRO_RATA';
 export type RoundingMethod = 'FLOOR' | 'CEIL' | 'ROUND';

@@ -7,7 +7,7 @@ export const projectsApi = {
     return response.data as Project[];
   },
 
-  getById: async (id: number): Promise<Project> => {
+  getById: async (id: string | number): Promise<Project> => {
     const response = await api.get(`/projects/${id}`);
     return response.data as Project;
   },
@@ -17,12 +17,12 @@ export const projectsApi = {
     return response.data as Project;
   },
 
-  update: async (id: number, project: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Project> => {
+  update: async (id: string | number, project: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>): Promise<Project> => {
     const response = await api.put(`/projects/${id}`, project);
     return response.data as Project;
   },
 
-  delete: async (id: number): Promise<void> => {
+  delete: async (id: string | number): Promise<void> => {
     await api.delete(`/projects/${id}`);
   },
 };

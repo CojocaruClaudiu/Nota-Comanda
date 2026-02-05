@@ -165,7 +165,7 @@ Individual cards for each component:
 2. **Carried Over** (Info Blue) ℹ️
    - Days brought from previous year
    - Shows "+3" with expiry warning
-   - "expiră 31 martie"
+   - "zile reportate din anul trecut"
 
 3. **Voluntary Days** (Orange) 🟠
    - Days taken by employee choice

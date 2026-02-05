@@ -5,7 +5,7 @@ import {
   Card, CardContent, Chip, IconButton, Tooltip,
   Alert, Divider, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, FormControlLabel,
-  Switch, 
+  Switch, useTheme, useMediaQuery, alpha,
   CircularProgress,
 } from '@mui/material';
 import {
@@ -56,6 +56,10 @@ function TabPanel(props: TabPanelProps) {
 }
 
 export default function LeavePolicyPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  
   const [currentTab, setCurrentTab] = useState(0);
   const [openBlackoutDialog, setOpenBlackoutDialog] = useState(false);
   const [openShutdownDialog, setOpenShutdownDialog] = useState(false);
@@ -162,71 +166,103 @@ export default function LeavePolicyPage() {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="ro">
-      <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default' }}>
-        <Paper elevation={2} sx={{ p: 3, height: '100%', overflow: 'auto' }}>
+      <Box sx={{ 
+        width: '100%', 
+        minHeight: '100vh', 
+        p: 0, 
+        m: 0, 
+        bgcolor: alpha(theme.palette.primary.main, 0.02)
+      }}>
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            p: { xs: 1.5, sm: 2 }, 
+            minHeight: '100vh', 
+            overflow: 'auto',
+            borderRadius: 0
+          }}
+        >
           {/* Header */}
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <SettingsIcon fontSize="large" color="primary" />
-              <Typography variant="h4" fontWeight={600}>
+          <Stack 
+            direction={{ xs: 'column', sm: 'row' }} 
+            justifyContent="space-between" 
+            alignItems={{ xs: 'flex-start', sm: 'center' }} 
+            spacing={2}
+            sx={{ mb: 2 }}
+          >
+            <Stack direction="row" spacing={{ xs: 1, sm: 2 }} alignItems="center">
+              <SettingsIcon fontSize={isMobile ? 'medium' : 'large'} color="primary" />
+              <Typography variant={isMobile ? 'h5' : 'h4'} fontWeight={600}>
                 Politică Concedii
               </Typography>
             </Stack>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
                 onClick={() => refetch()}
+                size={isMobile ? 'small' : 'medium'}
               >
                 Reîncarcă
               </Button>
-              <Chip label="Setări Companie" color="primary" variant="outlined" />
+              {!isMobile && <Chip label="Setări Companie" color="primary" variant="outlined" />}
             </Stack>
           </Stack>
 
-          <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 3 }}>
+          <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             Configurează politica de concedii, perioadele de blackout și închiderile firmei. 
-            Modificările se aplică imediat pentru toți angajații.
+            {!isMobile && ' Modificările se aplică imediat pentru toți angajații.'}
           </Alert>
 
           {/* Tabs */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-            <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
-              <Tab icon={<SettingsIcon />} label="Politică Generală" />
-              <Tab icon={<EventBusyIcon />} label="Blackout Periods" />
-              <Tab icon={<AcUnitIcon />} label="Închideri Firmă" />
+            <Tabs 
+              value={currentTab} 
+              onChange={(_, newValue) => setCurrentTab(newValue)}
+              variant={isMobile ? 'fullWidth' : 'standard'}
+              sx={{
+                '& .MuiTab-root': {
+                  minHeight: { xs: 48, sm: 64 },
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                  px: { xs: 1, sm: 2 }
+                }
+              }}
+            >
+              <Tab icon={<SettingsIcon />} label={isMobile ? 'Politică' : 'Politică Generală'} iconPosition={isMobile ? 'top' : 'start'} />
+              <Tab icon={<EventBusyIcon />} label={isMobile ? 'Blackout' : 'Blackout Periods'} iconPosition={isMobile ? 'top' : 'start'} />
+              <Tab icon={<AcUnitIcon />} label={isMobile ? 'Închideri' : 'Închideri Firmă'} iconPosition={isMobile ? 'top' : 'start'} />
             </Tabs>
           </Box>
 
           {/* Tab 1: General Policy */}
           <TabPanel value={currentTab} index={0}>
-            <Stack spacing={3}>
+            <Stack spacing={2}>
               {/* Base Configuration */}
               <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                  <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight={600} gutterBottom>
                     Configurare de Bază
                   </Typography>
                   <Divider sx={{ mb: 2 }} />
                   
                   <Stack spacing={2}>
-                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
                       <Chip 
                         label={`Zile de bază: ${policy.baseAnnualDays}`}
                         color="primary"
-                        sx={{ fontSize: '1rem', py: 2.5, px: 1 }}
+                        size="small"
                       />
                       <Chip 
-                        label={`Bonus: +${policy.bonusPerStep} zi la fiecare ${policy.seniorityStepYears} ani`}
+                        label={`Bonus: +${policy.bonusPerStep} zi la ${policy.seniorityStepYears} ani`}
                         color="success"
-                        sx={{ fontSize: '1rem', py: 2.5, px: 1 }}
+                        size="small"
                       />
                     </Stack>
 
-                    <Alert severity="success" icon={<CheckCircleIcon />}>
+                    <Alert severity="success" icon={<CheckCircleIcon />} sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
                       <Typography variant="body2">
                         <strong>Exemplu:</strong> Un angajat cu 7 ani vechime are dreptul la {policy.baseAnnualDays + policy.bonusPerStep} zile 
-                        (21 de bază + 1 bonus).
+                        {!isMobile && ' (21 de bază + 1 bonus)'}.
                       </Typography>
                     </Alert>
                   </Stack>
@@ -235,8 +271,8 @@ export default function LeavePolicyPage() {
 
               {/* Accrual Method */}
               <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                  <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight={600} gutterBottom>
                     Metoda de Acumulare
                   </Typography>
                   <Divider sx={{ mb: 2 }} />
@@ -244,96 +280,52 @@ export default function LeavePolicyPage() {
                   <Chip 
                     label={accrualMethodLabels[policy.accrualMethod]}
                     color="info"
-                    sx={{ fontSize: '1rem', py: 2.5, px: 2, mb: 2 }}
+                    size="small"
+                    sx={{ mb: 2 }}
                   />
 
-                  <Alert severity="info">
+                  <Alert severity="info" sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
                     <Typography variant="body2">
-                      <strong>Pro-rata:</strong> Zilele se acumulează proporțional pe parcursul anului. 
-                      Un angajat angajat pe 1 iulie va avea 50% din drept până la finalul anului.
+                      <strong>Pro-rata:</strong> Zilele se acumulează proporțional{isMobile ? '.' : ' pe parcursul anului. Un angajat angajat pe 1 iulie va avea 50% din drept până la finalul anului.'}
                     </Typography>
                   </Alert>
                 </CardContent>
               </Card>
 
-              {/* Carryover Rules */}
-              <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
-                    Regulile de Report
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  
-                  {policy.allowCarryover ? (
-                    <Stack spacing={2}>
-                      <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                        <Chip 
-                          label={`Permite report: Da`}
-                          color="success"
-                          icon={<CheckCircleIcon />}
-                          sx={{ fontSize: '1rem', py: 2.5, px: 1 }}
-                        />
-                        <Chip 
-                          label={`Maximum: ${policy.maxCarryoverDays} zile`}
-                          color="warning"
-                          sx={{ fontSize: '1rem', py: 2.5, px: 1 }}
-                        />
-                        <Chip 
-                          label={`Expiră: ${policy.carryoverExpiryDay}/${policy.carryoverExpiryMonth}`}
-                          color="error"
-                          sx={{ fontSize: '1rem', py: 2.5, px: 1 }}
-                        />
-                      </Stack>
-
-                      <Alert severity="warning" icon={<WarningIcon />}>
-                        <Typography variant="body2">
-                          Zilele reportate din anul precedent expiră pe {policy.carryoverExpiryDay}/{policy.carryoverExpiryMonth}. 
-                          Maximum {policy.maxCarryoverDays} zile pot fi reportate.
-                        </Typography>
-                      </Alert>
-                    </Stack>
-                  ) : (
-                    <Alert severity="error">
-                      Report dezactivat. Toate zilele nefolosite se pierd la finalul anului.
-                    </Alert>
-                  )}
-                </CardContent>
-              </Card>
-
               {/* Restrictions */}
               <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                  <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight={600} gutterBottom>
                     Restricții și Limite
                   </Typography>
                   <Divider sx={{ mb: 2 }} />
                   
                   <Stack spacing={2}>
-                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
                       {policy.maxConsecutiveDays && (
                         <Chip 
-                          label={`Max consecutive: ${policy.maxConsecutiveDays} zile`}
+                          label={`Max consecutive: ${policy.maxConsecutiveDays}z`}
                           variant="outlined"
-                          sx={{ fontSize: '0.95rem', py: 2 }}
+                          size="small"
                         />
                       )}
                       {policy.minNoticeDays && (
                         <Chip 
-                          label={`Preaviz minim: ${policy.minNoticeDays} zile`}
+                          label={`Preaviz: ${policy.minNoticeDays}z`}
                           variant="outlined"
-                          sx={{ fontSize: '0.95rem', py: 2 }}
+                          size="small"
                         />
                       )}
                       <Chip 
-                        label={`Sold negativ: ${policy.maxNegativeBalance === 0 ? 'Nepermis' : `Max ${policy.maxNegativeBalance} zile`}`}
+                        label={`Sold negativ: ${policy.maxNegativeBalance === 0 ? 'Nu' : `${policy.maxNegativeBalance}z`}`}
                         variant="outlined"
                         color={policy.maxNegativeBalance === 0 ? 'error' : 'warning'}
-                        sx={{ fontSize: '0.95rem', py: 2 }}
+                        size="small"
                       />
                       <Chip 
-                        label={`Rotunjire: ${roundingMethodLabels[policy.roundingMethod]}`}
+                        label={`Rotunjire: ${roundingMethodLabels[policy.roundingMethod].split(' ')[0]}`}
                         variant="outlined"
-                        sx={{ fontSize: '0.95rem', py: 2 }}
+                        size="small"
                       />
                     </Stack>
                   </Stack>
@@ -345,58 +337,60 @@ export default function LeavePolicyPage() {
           {/* Tab 2: Blackout Periods */}
           <TabPanel value={currentTab} index={1}>
             <Stack spacing={2}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="h6" fontWeight={600}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={2}>
+                <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight={600}>
                   Perioade Blackout
                 </Typography>
                 <Button
                   variant="contained"
                   startIcon={<AddIcon />}
                   onClick={() => setOpenBlackoutDialog(true)}
+                  size={isMobile ? 'small' : 'medium'}
+                  fullWidth={isMobile}
                 >
                   Adaugă Blackout
                 </Button>
               </Stack>
 
-              <Alert severity="warning" icon={<EventBusyIcon />}>
-                Perioadele de blackout blochează solicitările de concediu pentru toți angajații. 
-                Folosește pentru perioade de vârf sau inventar.
+              <Alert severity="warning" icon={<EventBusyIcon />} sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
+                Perioadele de blackout blochează solicitările de concediu{!isMobile && ' pentru toți angajații'}. 
+                {!isMobile && 'Folosește pentru perioade de vârf sau inventar.'}
               </Alert>
 
               {blackoutPeriods.length === 0 ? (
-                <Alert severity="info">
+                <Alert severity="info" sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
                   Nu există perioade de blackout configurate.
                 </Alert>
               ) : (
                 <Stack spacing={2}>
                   {blackoutPeriods.map((period) => (
                     <Card key={period.id} variant="outlined">
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>
+                      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-start' }} spacing={1}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant={isMobile ? 'subtitle1' : 'h6'} gutterBottom noWrap>
                               {period.reason}
                             </Typography>
-                            <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
                               <Chip 
-                                label={`${dayjs(period.startDate).format('DD MMM YYYY')} - ${dayjs(period.endDate).format('DD MMM YYYY')}`}
+                                label={`${dayjs(period.startDate).format(isMobile ? 'DD/MM' : 'DD MMM YYYY')} - ${dayjs(period.endDate).format(isMobile ? 'DD/MM' : 'DD MMM YYYY')}`}
                                 size="small"
                                 color="error"
                               />
                               <Chip 
-                                label={period.allowExceptions ? 'Permite excepții' : 'Fără excepții'}
+                                label={period.allowExceptions ? 'Excepții' : 'Fără excepții'}
                                 size="small"
                                 color={period.allowExceptions ? 'warning' : 'error'}
                                 variant="outlined"
                               />
                             </Stack>
-                            {period.allowExceptions && (
+                            {period.allowExceptions && !isMobile && (
                               <Typography variant="caption" color="text.secondary">
-                                * Solicitările pot fi aprobate manual de către manager
+                                * Solicitările pot fi aprobate manual
                               </Typography>
                             )}
                           </Box>
-                          <Stack direction="row" spacing={1}>
+                          <Stack direction="row" spacing={0.5}>
                             <Tooltip title="Editează">
                               <IconButton 
                                 size="small"
@@ -428,8 +422,8 @@ export default function LeavePolicyPage() {
           {/* Tab 3: Company Shutdowns */}
           <TabPanel value={currentTab} index={2}>
             <Stack spacing={2}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="h6" fontWeight={600}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={2}>
+                <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight={600}>
                   Închideri Firmă
                 </Typography>
                 <Button
@@ -437,58 +431,60 @@ export default function LeavePolicyPage() {
                   startIcon={<AddIcon />}
                   onClick={() => setOpenShutdownDialog(true)}
                   color="info"
+                  size={isMobile ? 'small' : 'medium'}
+                  fullWidth={isMobile}
                 >
                   Adaugă Închidere
                 </Button>
               </Stack>
 
-              <Alert severity="info" icon={<AcUnitIcon />}>
-                Închiderile firmei (ex: Crăciun, Revelion) deduc automat zile din dreptul de concediu al angajaților.
+              <Alert severity="info" icon={<AcUnitIcon />} sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
+                Închiderile firmei{!isMobile && ' (ex: Crăciun, Revelion)'} deduc automat zile din concediu.
               </Alert>
 
               {companyShutdowns.length === 0 ? (
-                <Alert severity="info">
+                <Alert severity="info" sx={{ '& .MuiAlert-message': { fontSize: { xs: '0.8rem', sm: '0.875rem' } } }}>
                   Nu există închideri de firmă configurate.
                 </Alert>
               ) : (
                 <Stack spacing={2}>
                   {companyShutdowns.map((shutdown) => (
                     <Card key={shutdown.id} variant="outlined" sx={{ bgcolor: 'info.50', borderColor: 'info.200' }}>
-                      <CardContent>
-                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                          <Box sx={{ flex: 1 }}>
+                      <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-start' }} spacing={1}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                              <AcUnitIcon color="info" />
-                              <Typography variant="h6">
+                              <AcUnitIcon color="info" fontSize={isMobile ? 'small' : 'medium'} />
+                              <Typography variant={isMobile ? 'subtitle1' : 'h6'} noWrap>
                                 {shutdown.reason}
                               </Typography>
                             </Stack>
-                            <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
                               <Chip 
-                                label={`${dayjs(shutdown.startDate).format('DD MMM YYYY')} - ${dayjs(shutdown.endDate).format('DD MMM YYYY')}`}
+                                label={`${dayjs(shutdown.startDate).format(isMobile ? 'DD/MM' : 'DD MMM YYYY')} - ${dayjs(shutdown.endDate).format(isMobile ? 'DD/MM' : 'DD MMM YYYY')}`}
                                 size="small"
                                 color="info"
                               />
                               <Chip 
-                                label={`${shutdown.days} zile lucru`}
+                                label={`${shutdown.days}z`}
                                 size="small"
                                 color="primary"
                                 sx={{ fontWeight: 600 }}
                               />
                               <Chip 
-                                label={shutdown.deductFromAllowance ? 'Se deduce din drept' : 'Concediu bonus'}
+                                label={shutdown.deductFromAllowance ? 'Dedus' : 'Bonus'}
                                 size="small"
                                 color={shutdown.deductFromAllowance ? 'warning' : 'success'}
                                 variant="outlined"
                               />
                             </Stack>
-                            {shutdown.deductFromAllowance && (
+                            {shutdown.deductFromAllowance && !isMobile && (
                               <Typography variant="caption" color="text.secondary">
-                                * Fiecare angajat va avea {shutdown.days} zile deduse automat din dreptul de concediu
+                                * {shutdown.days} zile deduse automat din dreptul de concediu
                               </Typography>
                             )}
                           </Box>
-                          <Stack direction="row" spacing={1}>
+                          <Stack direction="row" spacing={0.5}>
                             <Tooltip title="Editează">
                               <IconButton 
                                 size="small"

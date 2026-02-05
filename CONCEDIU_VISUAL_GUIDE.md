@@ -65,7 +65,7 @@ Shows days **carried over from previous year**.
 - Variant: `outlined`
 - Size: Small (`0.7rem` font)
 
-**Tooltip:** "Zile reportate din anul trecut (expiră 31 martie)"
+**Tooltip:** "Zile reportate din anul trecut"
 
 **Examples:**
 ```

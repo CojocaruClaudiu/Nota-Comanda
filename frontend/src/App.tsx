@@ -18,6 +18,8 @@ import FlotaPage from "./modules/auto/carPage";
 import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
 import NotFound from "./modules/NotFound";
+import SettingsPage from "./modules/settings/SettingsPage";
+import ProfilePage from "./modules/profile/ProfilePage";
 import SuppliersPage from "./modules/suppliers/SuppliersPage";
 import ProjectsPage from "./modules/projects/ProjectsPage";
 import OperationCategoriesPage from "./modules/operatii/OperationCategoriesPage";
@@ -221,6 +223,22 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <ExchangeRatesPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "setari",
+        element: (
+          <RequireAuth>
+            <SettingsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "profil",
+        element: (
+          <RequireAuth>
+            <ProfilePage />
           </RequireAuth>
         ),
       }

@@ -17,6 +17,7 @@ import EventIcon from '@mui/icons-material/Event';
 import UpdateIcon from '@mui/icons-material/Update';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import { API_BASE_URL } from '../../api/baseUrl';
 
 import {
   MaterialReactTable,
@@ -42,6 +43,7 @@ import {
   deleteMaterial,
   createMaterialFamily,
   updateMaterialFamily,
+  deleteMaterialFamily,
   fetchMaterialFamilies,
   assignMaterialsToFamily,
   type MaterialFamilyRecord,
@@ -421,6 +423,11 @@ function MaterialsPageContent() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedForUpload, setSelectedForUpload] = useState<{ id: string; name: string; currentFile?: string | null } | null>(null);
 
+  // Delete family dialog state (strong confirmation)
+  const [deleteFamilyOpen, setDeleteFamilyOpen] = useState(false);
+  const [deleteFamilyTarget, setDeleteFamilyTarget] = useState<{ id: string; name: string; materialCount: number } | null>(null);
+  const [deleteFamilyInput, setDeleteFamilyInput] = useState('');
+
 
   // where the creating row appears
   const [createPos, setCreatePos] = useState<'top' | 'bottom' | number>('top');
@@ -434,6 +441,10 @@ function MaterialsPageContent() {
   // controlled pagination state
   const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(
     persisted.pagination ?? { pageIndex: 0, pageSize: 50 }
+  );
+  // controlled global filter state (fix search without refresh)
+  const [globalFilter, setGlobalFilter] = useState<string>(
+    typeof persisted.globalFilter === 'string' ? persisted.globalFilter : ''
   );
 
   const load = useCallback(async () => {
@@ -474,6 +485,11 @@ function MaterialsPageContent() {
     };
     walk(t);
     return c;
+  };
+
+  const countMaterialsForRow = (row?: TreeRow | null): number => {
+    if (!row?.subRows?.length) return 0;
+    return countMaterialLeaves(row.subRows);
   };
 
 
@@ -640,10 +656,47 @@ function MaterialsPageContent() {
         const value = row.original.packQuantity;
         if (value == null) return '-';
         const formatted = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 4 }).format(value);
+        const packUnit = (row.original.packUnit || '').toLowerCase();
+        // Detect suspicious values - likely data entry errors
+        // E.g., value of 103 when name contains "(1.03KG)" - user probably meant 1.03
+        const name = (row.original.name || '').toUpperCase();
+        let isSuspicious = false;
+        let suspicionReason = '';
+        // Check if value is suspiciously high (> 100) for weight/volume units
+        if (value >= 100 && ['kg', 'g', 'l', 'ml'].includes(packUnit)) {
+          // Check if there's a smaller number in the name that might be the intended value
+          const possibleDecimal = value / 100;
+          const nameHasSmaller = name.includes(possibleDecimal.toFixed(2).replace('.', ',')) || 
+                                  name.includes(possibleDecimal.toFixed(2)) ||
+                                  name.includes(`(${possibleDecimal}`) ||
+                                  name.includes(`/${possibleDecimal}`);
+          if (nameHasSmaller || (value % 100 === 0 && value >= 100)) {
+            isSuspicious = true;
+            suspicionReason = `Valoare suspectă - poate ați vrut ${possibleDecimal.toFixed(2)} ${packUnit.toUpperCase()}?`;
+          }
+        }
+        // Check if value looks like it was extracted from a non-quantity part of name (e.g., "100LM" lumens)
+        const numericPatterns = name.match(/\d+(?:LM|W|V|A|MM|CM)\b/gi);
+        if (numericPatterns && numericPatterns.some(p => parseInt(p) === value)) {
+          isSuspicious = true;
+          suspicionReason = 'Valoare suspectă - pare extrasă din specificații tehnice, nu din cantitatea reală';
+        }
         return (
-          <Typography variant="body2">
-            {formatted}
-          </Typography>
+          <Tooltip title={isSuspicious ? suspicionReason : ''} arrow>
+            <Typography 
+              variant="body2" 
+              sx={isSuspicious ? { 
+                color: 'warning.main', 
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+              } : undefined}
+            >
+              {formatted}
+              {isSuspicious && ' ⚠️'}
+            </Typography>
+          </Tooltip>
         );
       },
     },
@@ -796,7 +849,7 @@ function MaterialsPageContent() {
                     color="success"
                     variant="filled"
                     onClick={() => {
-                      const downloadUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/materials/${row.original.id}/download-sheet`;
+                      const downloadUrl = `${API_BASE_URL}/materials/${row.original.id}/download-sheet`;
                       const link = document.createElement('a');
                       link.href = downloadUrl;
                       link.download = sheet.split('/').pop() || 'fisa-tehnica';
@@ -1100,39 +1153,62 @@ function MaterialsPageContent() {
           )}
 
           {isContainer && (
-            <Tooltip title="Adaugă variantă">
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={() => {
-                    const tempId = `__new__${Date.now()}_${Math.random().toString(16).slice(2)}`;
-                    const insertIndex = (row.index ?? 0) + 1;
-                    table.setCreatingRow(
-                      createRow(
-                        table,
-                        {
-                          type: 'material',
-                          id: tempId,
-                          parentId: row.original.id,
-                          name: '',
-                          code: '',
-                          unit: 'buc',
-                          packQuantity: null,
-                          packUnit: '',
-                          price: 0,
-                          currency: 'RON',
-                          number: '',
-                        },
-                        insertIndex,
-                        row.depth + 1,
-                      ),
-                    );
-                  }}
-                >
-                  <AddRoundedIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
+            <>
+              <Tooltip title="Adaugă variantă">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      const tempId = `__new__${Date.now()}_${Math.random().toString(16).slice(2)}`;
+                      const insertIndex = (row.index ?? 0) + 1;
+                      table.setCreatingRow(
+                        createRow(
+                          table,
+                          {
+                            type: 'material',
+                            id: tempId,
+                            parentId: row.original.id,
+                            name: '',
+                            code: '',
+                            unit: 'buc',
+                            packQuantity: null,
+                            packUnit: '',
+                            price: 0,
+                            currency: 'RON',
+                            number: '',
+                          },
+                          insertIndex,
+                          row.depth + 1,
+                        ),
+                      );
+                    }}
+                  >
+                    <AddRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Șterge familie">
+                <span>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    disabled={row.original.id === 'UNASSIGNED' || countMaterialsForRow(row.original) > 0}
+                    onClick={() => {
+                      const materialCount = countMaterialsForRow(row.original);
+                      setDeleteFamilyTarget({
+                        id: row.original.id,
+                        name: row.original.name,
+                        materialCount,
+                      });
+                      setDeleteFamilyInput('');
+                      setDeleteFamilyOpen(true);
+                    }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
           )}
 
           {!isContainer && (
@@ -1299,7 +1375,8 @@ function MaterialsPageContent() {
       showGlobalFilter: true,
       // Expand all rows by default so the full tree (families -> products -> variants) is visible
       expanded: true,
-  pagination: { pageIndex: 0, pageSize: 1000 },  // Default to large page so expanded tree shows many materials
+      pagination: { pageIndex: 0, pageSize: 1000 },  // Default to large page so expanded tree shows many materials
+      globalFilter: typeof persisted.globalFilter === 'string' ? persisted.globalFilter : '',
     },
     autoResetExpanded: false,
     onColumnVisibilityChange: (updater) => {
@@ -1326,6 +1403,7 @@ function MaterialsPageContent() {
     },
     onGlobalFilterChange: (updater) => {
       const value = typeof updater === 'function' ? updater(table.getState().globalFilter) : updater;
+      setGlobalFilter(String(value ?? ''));
       savePersist({ globalFilter: value as any });
     },
 
@@ -1336,6 +1414,7 @@ function MaterialsPageContent() {
       showAlertBanner: !!error,
       sorting,
       pagination,
+      globalFilter,
     },
   });
 
@@ -1522,6 +1601,83 @@ function MaterialsPageContent() {
         <DialogActions>
           <Button onClick={() => setMakeVariantDialogOpen(false)}>Anulează</Button>
           <Button onClick={handleMakeVariantConfirm} variant="contained">Confirmă</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Family Dialog (strong confirmation) */}
+      <Dialog
+        open={deleteFamilyOpen}
+        onClose={() => {
+          setDeleteFamilyOpen(false);
+          setDeleteFamilyTarget(null);
+          setDeleteFamilyInput('');
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Șterge familie</DialogTitle>
+        <DialogContent>
+          {deleteFamilyTarget ? (
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              {deleteFamilyTarget.materialCount > 0 ? (
+                <Alert severity="warning">
+                  Familia conține {deleteFamilyTarget.materialCount} materiale și nu poate fi ștearsă.
+                </Alert>
+              ) : (
+                <Alert severity="error">
+                  Această acțiune este permanentă. Pentru a confirma, scrie exact numele familiei.
+                </Alert>
+              )}
+              <Typography variant="body2" color="text.secondary">
+                Familie: <strong>{deleteFamilyTarget.name}</strong>
+              </Typography>
+              <TextField
+                fullWidth
+                label="Scrie numele familiei pentru confirmare"
+                value={deleteFamilyInput}
+                onChange={(e) => setDeleteFamilyInput(e.target.value)}
+                disabled={deleteFamilyTarget.materialCount > 0}
+              />
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteFamilyOpen(false);
+              setDeleteFamilyTarget(null);
+              setDeleteFamilyInput('');
+            }}
+          >
+            Anulează
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={
+              !deleteFamilyTarget ||
+              deleteFamilyTarget.materialCount > 0 ||
+              deleteFamilyInput.trim() !== deleteFamilyTarget.name
+            }
+            onClick={async () => {
+              if (!deleteFamilyTarget) return;
+              setSaving(true);
+              try {
+                await deleteMaterialFamily(deleteFamilyTarget.id);
+                successNotistack('Familie ștearsă cu succes!');
+                await load();
+                setDeleteFamilyOpen(false);
+                setDeleteFamilyTarget(null);
+                setDeleteFamilyInput('');
+              } catch (e: any) {
+                errorNotistack(e?.message || 'Eroare la ștergere familie');
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            Șterge definitiv
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

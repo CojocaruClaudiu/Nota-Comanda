@@ -21,7 +21,9 @@ export type ClientPayload = {
   cui?: string | null;
 };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+import { API_BASE_URL } from './baseUrl';
+
+const API_URL = API_BASE_URL;
 
 /* --------------------- helpers --------------------- */
 
