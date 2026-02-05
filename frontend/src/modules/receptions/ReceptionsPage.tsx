@@ -33,7 +33,7 @@ const ReceptionsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Load materials and projects on mount
-  const loadMaterials = useCallback(async () => {
+  const loadMaterials = useCallback(async (showToast = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -44,7 +44,9 @@ const ReceptionsPage: React.FC = () => {
         m.invoiceNumber || m.receptionType || m.purchaseDate || m.receivedQuantity
       );
       setMaterials(materialsWithReceptions);
-      successNotistack(`Încărcat ${materialsWithReceptions.length} recepții`);
+      if (showToast) {
+        successNotistack(`Încărcat ${materialsWithReceptions.length} recepții`);
+      }
     } catch (err: any) {
       const msg = err?.message || 'Eroare la încărcarea materialelor';
       setError(msg);
@@ -68,7 +70,7 @@ const ReceptionsPage: React.FC = () => {
   }, []);
 
   useEffect(() => { 
-    void loadMaterials();
+    void loadMaterials(false);
     void loadProjects();
   }, [loadMaterials, loadProjects]);
 
@@ -296,7 +298,7 @@ const ReceptionsPage: React.FC = () => {
         <Button 
           variant="outlined" 
           startIcon={<RefreshIcon />}
-          onClick={() => loadMaterials()} 
+          onClick={() => loadMaterials(true)} 
           disabled={loading}
         >
           Reîncarcă

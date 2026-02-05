@@ -3,8 +3,10 @@ import React, { useState } from 'react';
 import {
   Dialog, DialogContent,
   TextField, Button, Stack, IconButton, Typography,
-  Box, Divider, CircularProgress, Fade, Collapse, InputAdornment, useMediaQuery
+  Box, Divider, CircularProgress, Fade, Collapse, InputAdornment, useMediaQuery, ButtonBase, alpha, Switch, FormControlLabel
 } from '@mui/material';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import BlockIcon from '@mui/icons-material/Block';
 import { useTheme } from '@mui/material/styles';
 import { DatePicker } from '@mui/x-date-pickers';
 import { Formik, Form, Field } from 'formik';
@@ -17,6 +19,7 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import BadgeIcon from '@mui/icons-material/Badge';
 import ContactMailIcon from '@mui/icons-material/ContactMail';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import HistoryIcon from '@mui/icons-material/History';
 import dayjs from 'dayjs';
 import { updateEmployee, type EmployeeWithStats, type EmployeePayload, type Employee } from '../../api/employees';
 import useNotistack from '../orders/hooks/useNotistack';
@@ -34,9 +37,13 @@ const validationSchema = Yup.object({
     .required('Numele este obligatoriu')
     .min(2, 'Numele trebuie să aibă cel puțin 2 caractere')
     .max(100, 'Numele nu poate avea mai mult de 100 caractere')
-    .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
+    .matches(/^[a-zA-ZăâîșțĂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
   hiredAt: Yup.string()
-    .required('Data angajării este obligatorie'),
+    .required('Data angajării este obligatorie')
+    .test('not-future', 'Data angajării nu poate fi în viitor', (value) => {
+      if (!value) return false;
+      return !dayjs(value).isAfter(dayjs(), 'day');
+    }),
   cnp: Yup.string()
     .matches(/^[0-9]{13}$/, 'CNP-ul trebuie să aibă exact 13 cifre')
     .nullable(),
@@ -51,6 +58,7 @@ const validationSchema = Yup.object({
     .nullable(),
   birthDate: Yup.string().nullable(),
   idIssueDateISO: Yup.string().nullable(),
+  manualCarryOverDays: Yup.number().nullable().min(0, 'Nu poate fi negativ'),
 });
 
 export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
@@ -66,11 +74,12 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Get initial values based on employee
-  const getInitialValues = (): EmployeePayload & { qualificationsText: string } => {
+  const getInitialValues = (): EmployeePayload & { qualificationsText: string; manualCarryOverOverride: boolean } => {
     if (employee) {
       return {
         name: employee.name,
         hiredAt: employee.hiredAt,
+        isActive: employee.isActive ?? true,
         cnp: employee.cnp ?? '',
         birthDate: employee.birthDate ?? '',
         phone: employee.phone ?? '',
@@ -83,11 +92,14 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
         county: employee.county ?? '',
         locality: employee.locality ?? '',
         address: employee.address ?? '',
+        manualCarryOverDays: employee.manualCarryOverDays ?? '',
+        manualCarryOverOverride: false,
       };
     }
     return {
       name: '',
       hiredAt: '',
+      isActive: true,
       cnp: '',
       birthDate: '',
       phone: '',
@@ -100,6 +112,8 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       county: '',
       locality: '',
       address: '',
+      manualCarryOverDays: 0,
+      manualCarryOverOverride: false,
     };
   };
 
@@ -115,9 +129,24 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
         .map((q: string) => q.trim())
         .filter((q: string) => q.length > 0);
 
+      // Handle deactivation date when status changes
+      const wasActive = employee.isActive !== false;
+      const isNowActive = values.isActive !== false;
+      let deactivatedAt: string | null | undefined = undefined;
+      
+      if (wasActive && !isNowActive) {
+        // Employee is being deactivated - set the date
+        deactivatedAt = new Date().toISOString();
+      } else if (!wasActive && isNowActive) {
+        // Employee is being reactivated - clear the date
+        deactivatedAt = null;
+      }
+
       const payload: EmployeePayload = {
         name: values.name.trim(),
         hiredAt: values.hiredAt,
+        isActive: values.isActive ?? true,
+        ...(deactivatedAt !== undefined && { deactivatedAt }),
         cnp: values.cnp || undefined,
         birthDate: values.birthDate || undefined,
         phone: values.phone || undefined,
@@ -129,6 +158,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
         county: values.county || undefined,
         locality: values.locality || undefined,
         address: values.address || undefined,
+        manualCarryOverDays: values.manualCarryOverOverride ? Number(values.manualCarryOverDays || 0) : undefined,
       };
 
       const updated = await updateEmployee(employee.id, payload);
@@ -283,8 +313,29 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                   <PersonIcon sx={{ color: 'action.active' }} />
                                 </InputAdornment>
                               ),
+                              endAdornment: (
+                                <Stack direction="row" alignItems="center" sx={{ ml: 1 }}>
+                                  <Divider orientation="vertical" flexItem sx={{ height: 24, my: 'auto', mx: 1, opacity: 0.5 }} />
+                                  <FormControlLabel
+                                    control={
+                                      <Switch 
+                                        checked={values.isActive !== false}
+                                        onChange={(e) => setFieldValue('isActive', e.target.checked)}
+                                        size="small"
+                                        color="success" 
+                                      />
+                                    }
+                                    label={
+                                      <Typography variant="caption" fontWeight={600} color={values.isActive !== false ? "success.main" : "text.secondary"} sx={{ minWidth: 45 }}>
+                                        {values.isActive !== false ? "Activ" : "Inactiv"}
+                                      </Typography>
+                                    }
+                                    sx={{ mr: 0, ml: 0.5 }}
+                                  />
+                                </Stack>
+                              )
                             }}
-                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, pr: 1 } }}
                           />
                         )}
                       </Field>
@@ -341,6 +392,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                           label="Data Angajării"
                           format="DD/MM/YYYY"
                           value={values.hiredAt ? dayjs(values.hiredAt) : null}
+                          disableFuture
                           onChange={(date) => setFieldValue('hiredAt', date?.format('YYYY-MM-DD') || '')}
                           slotProps={{
                             textField: {
@@ -398,6 +450,32 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                               startAdornment: (
                                 <InputAdornment position="start" sx={{ alignSelf: 'flex-start' }}>
                                   <WorkIcon sx={{ color: 'action.active', mt: 1 }} />
+                                </InputAdornment>
+                              ),
+                            }}
+                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                          />
+                        )}
+                      </Field>
+
+                      <Field name="manualCarryOverDays">
+                        {({ field }: any) => (
+                          <TextField
+                            {...field}
+                            label="Zile Reportate Manual"
+                            type="number"
+                            placeholder={String(employee?.leaveBalance?.carriedOver ?? 0)}
+                            fullWidth
+                            variant="outlined"
+                            helperText={`Automat: ${employee?.leaveBalance?.carriedOver ?? 0} zile (lasă gol pentru a folosi calculul automat)`}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              setFieldValue('manualCarryOverOverride', true);
+                            }}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <HistoryIcon sx={{ color: 'action.active' }} />
                                 </InputAdornment>
                               ),
                             }}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
   CircularProgress, Alert, Chip
@@ -182,6 +182,10 @@ export default function OperationCategoriesPage() {
   const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(
     persisted.pagination ?? { pageIndex: 0, pageSize: 50 }
   );
+  // controlled global filter to ensure real-time search and persist to storage
+  const [globalFilter, setGlobalFilter] = useState<string>(
+    typeof persisted.globalFilter === 'string' ? persisted.globalFilter : ''
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -205,10 +209,10 @@ export default function OperationCategoriesPage() {
       header: 'Căutare',
       accessorFn: (row) => row.path || row.name,
       enableGlobalFilter: true,
-      enableColumnFilter: true,
+      enableColumnFilter: false,
       filterFn: 'fuzzy' as any,
       size: 200,
-      enableHiding: true,
+      enableHiding: false,
       Cell: () => null,
     },
     // NUMBER column (left, monospace, aligns like "1", "1.1", "1.1.1")
@@ -241,7 +245,7 @@ export default function OperationCategoriesPage() {
       header: 'Denumire',
       size: 520,
   enableColumnFilter: true,
-  enableGlobalFilter: true,
+  enableGlobalFilter: false,
   enableColumnFilterModes: true,
   filterFn: 'fuzzy' as any,
       muiEditTextFieldProps: { required: true, autoFocus: true },
@@ -588,9 +592,8 @@ export default function OperationCategoriesPage() {
       showColumnFilters: true,
       columnPinning: persisted.columnPinning ?? { left: ['mrt-row-expand', 'number'], right: ['mrt-row-actions'] },
       density: persisted.density ?? 'compact',
-  columnVisibility: { path: false, ...(persisted.columnVisibility ?? {}) },
+  columnVisibility: { ...(persisted.columnVisibility ?? {}), path: false },
       columnOrder: persisted.columnOrder,
-      globalFilter: persisted.globalFilter,
     },
 
     // save user preferences
@@ -599,8 +602,9 @@ export default function OperationCategoriesPage() {
       savePersist({ columnPinning: value });
     },
     onColumnVisibilityChange: (updater) => {
-      const value = typeof updater === 'function' ? updater(table.getState().columnVisibility) : updater;
-      savePersist({ columnVisibility: value as any });
+      const prev = table.getState().columnVisibility;
+      const next = (typeof updater === 'function' ? (updater as any)(prev) : updater) as Record<string, boolean>;
+      savePersist({ columnVisibility: { ...next, path: false } as any });
     },
     onColumnOrderChange: (updater) => {
       const value = typeof updater === 'function' ? updater(table.getState().columnOrder) : updater;
@@ -625,8 +629,11 @@ export default function OperationCategoriesPage() {
       });
     },
     onGlobalFilterChange: (updater) => {
-      const value = typeof updater === 'function' ? updater(table.getState().globalFilter) : updater;
-      savePersist({ globalFilter: value as any });
+      setGlobalFilter((prev) => {
+        const next = typeof updater === 'function' ? (updater as any)(prev) : updater;
+        savePersist({ globalFilter: next as any });
+        return next as string;
+      });
     },
 
     // controlled loading banners
@@ -636,6 +643,7 @@ export default function OperationCategoriesPage() {
       showAlertBanner: !!error,
   sorting,
   pagination,
+  globalFilter,
     },
 
     // Optional perf toggles for big datasets:
@@ -644,9 +652,9 @@ export default function OperationCategoriesPage() {
   });
 
   // Auto-expand ancestors when filtering so matches nested under collapsed parents become visible
-  const globalFilter = (table.getState().globalFilter as string) || '';
+  const currentGlobalFilter = (globalFilter as string) || '';
   const columnFilters = table.getState().columnFilters as unknown as Array<unknown> | undefined;
-  const hasActiveFilter = Boolean(globalFilter) || Boolean(columnFilters && columnFilters.length);
+  const hasActiveFilter = Boolean(currentGlobalFilter) || Boolean(columnFilters && columnFilters.length);
 
   useEffect(() => {
     if (!hasActiveFilter) return; // don't override when there's no filtering
@@ -662,7 +670,7 @@ export default function OperationCategoriesPage() {
     const filteredRows: any[] = table.getFilteredRowModel().rows;
     walk(filteredRows);
     table.setExpanded(expandMap);
-  }, [table, hasActiveFilter, globalFilter]);
+  }, [table, hasActiveFilter, currentGlobalFilter]);
 
   return (
     <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>

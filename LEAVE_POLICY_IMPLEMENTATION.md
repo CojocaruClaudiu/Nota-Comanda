@@ -140,7 +140,7 @@ validateLeaveRequest(employeeId, startDate, endDate, days) {
 
 Drept Total:        23 zile (21 bază + 2 vechime)
 Acumulat până azi:  15 zile (pro-rata)
-Report din 2024:    3 zile (expiră 31 Martie 2025) ⏰
+Report din 2024:    3 zile
 ─────────────────────────────────────────────────
 Folosit:            8 zile
   └ Voluntar:       5 zile
@@ -268,7 +268,7 @@ npx tsx scripts/seed-leave-policy.ts
 │   Bonus vechime:         +1 zi la fiecare 5 ani                 │
 │   Metodă acumulare:      Pro-rata                               │
 │   Rotunjire:             Floor (conservativ)                    │
-│   Report maxim:          5 zile (expiră 31 Martie)              │
+│   Report maxim:          5 zile                                 │
 │   Sold negativ:          0 zile (nu permite împrumut)           │
 │   Zile consecutive max:  10 zile                                │
 │   Preaviz minim:         14 zile                                │

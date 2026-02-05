@@ -110,6 +110,7 @@ export interface CreateOrderPayload {
   projectId?: string;
   deliveryAddress?: string;
   priority?: string;
+  status?: string;
   notes?: string;
   promisedDeliveryDate?: string;
   currency?: string;

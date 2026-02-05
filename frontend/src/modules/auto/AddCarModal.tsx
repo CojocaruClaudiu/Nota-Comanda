@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import {
   Dialog, DialogContent,
   TextField, Button, Stack, IconButton, Typography,
-  Box, Divider, CircularProgress, Fade, MenuItem
+  Box, Divider, CircularProgress, Fade, MenuItem,
+  Checkbox, FormControlLabel
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DirectionsCarFilledRoundedIcon from '@mui/icons-material/DirectionsCarFilledRounded';
@@ -68,6 +69,7 @@ const validationSchema = Yup.object({
   expItp: Yup.mixed().nullable(),
   expRca: Yup.mixed().nullable(),
   expRovi: Yup.mixed().nullable(),
+  rcaDecontareDirecta: Yup.boolean().nullable(),
 });
 
 const initialValues = {
@@ -83,6 +85,7 @@ const initialValues = {
   expItp: null as Dayjs | null,
   expRca: null as Dayjs | null,
   expRovi: null as Dayjs | null,
+  rcaDecontareDirecta: false as boolean,
 };
 
 export const AddCarModal: React.FC<AddCarModalProps> = ({ open, onClose, onCarAdded, employees }) => {
@@ -111,6 +114,7 @@ export const AddCarModal: React.FC<AddCarModalProps> = ({ open, onClose, onCarAd
             expItp: toIso(values.expItp),
             expRca: toIso(values.expRca),
             expRovi: toIso(values.expRovi),
+            rcaDecontareDirecta: values.rcaDecontareDirecta ?? false,
           };
           const created = await createCar(payload);
           onCarAdded(created);
@@ -343,13 +347,53 @@ export const AddCarModal: React.FC<AddCarModalProps> = ({ open, onClose, onCarAd
                           onChange={(d) => setFieldValue('expItp', d)}
                           slotProps={{ textField: { fullWidth: true } }}
                         />
-                        <DatePicker
-                          label="Expirare RCA"
-                          format="DD/MM/YYYY"
-                          value={values.expRca}
-                          onChange={(d) => setFieldValue('expRca', d)}
-                          slotProps={{ textField: { fullWidth: true } }}
-                        />
+                        {/* RCA date + decontare toggle inline */}
+                        <Box
+                          sx={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            border: '1px solid',
+                            borderColor: values.rcaDecontareDirecta ? 'success.main' : 'divider',
+                            borderRadius: 2,
+                            p: 1.5,
+                            bgcolor: values.rcaDecontareDirecta ? 'success.lighter' : 'background.paper',
+                            transition: 'all 0.2s ease-in-out'
+                          }}
+                        >
+                          <DatePicker
+                            label="Expirare RCA"
+                            format="DD/MM/YYYY"
+                            value={values.expRca}
+                            onChange={(d) => setFieldValue('expRca', d)}
+                            slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                          />
+                          <FormControlLabel
+                            sx={{
+                              m: 0,
+                              mt: 1,
+                              px: 1,
+                              py: 0.5,
+                              borderRadius: 1,
+                              bgcolor: values.rcaDecontareDirecta ? 'success.light' : 'grey.100',
+                              '& .MuiFormControlLabel-label': {
+                                fontSize: 13,
+                                fontWeight: 500,
+                                color: values.rcaDecontareDirecta ? 'success.dark' : 'text.secondary'
+                              }
+                            }}
+                            control={
+                              <Checkbox
+                                size="small"
+                                sx={{ p: 0.25, mr: 0.75 }}
+                                checked={Boolean(values.rcaDecontareDirecta)}
+                                onChange={(e) => setFieldValue('rcaDecontareDirecta', e.target.checked)}
+                                color="success"
+                              />
+                            }
+                            label="✓ Decontare directă"
+                          />
+                        </Box>
                         <DatePicker
                           label="Expirare Rovinietă"
                           format="DD/MM/YYYY"

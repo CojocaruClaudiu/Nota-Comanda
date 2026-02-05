@@ -1,4 +1,4 @@
-// API routes for Materials and Material Groups
+﻿// API routes for Materials and Material Groups
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import multer from 'multer';
@@ -11,6 +11,11 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 const prisma = new PrismaClient();
+
+const isPrismaMissingModelOrColumn = (err: any) => {
+  // P2021 = model table does not exist, P2023 = column does not exist
+  return err && (err.code === 'P2021' || err.code === 'P2023');
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -85,7 +90,7 @@ router.get('/groups', async (_req, res) => {
     res.json(list);
   } catch (error: unknown) {
     console.error('GET /materials/groups error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca grupele de materiale' });
+  res.status(500).json({ error: 'Nu am putut încărca grupele de materiale' });
   }
 });
 
@@ -101,7 +106,7 @@ router.post('/groups', async (req, res) => {
     res.status(201).json(created);
   } catch (error: any) {
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Grupa de materiale există deja' });
+  return res.status(409).json({ error: 'Grupa de materiale există deja' });
     }
     console.error('POST /materials/groups error:', error);
     res.status(500).json({ error: 'Nu am putut crea grupa de materiale' });
@@ -116,7 +121,7 @@ router.put('/groups/:id', async (req, res) => {
   
   try {
     const exists = await (prisma as any).materialGroup.findUnique({ where: { id } });
-    if (!exists) return res.status(404).json({ error: 'Grupa nu a fost găsită' });
+  if (!exists) return res.status(404).json({ error: 'Grupa nu a fost găsită' });
     
     const updated = await (prisma as any).materialGroup.update({
       where: { id },
@@ -125,7 +130,7 @@ router.put('/groups/:id', async (req, res) => {
     res.json(updated);
   } catch (error: any) {
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Grupa de materiale există deja' });
+  return res.status(409).json({ error: 'Grupa de materiale există deja' });
     }
     console.error('PUT /materials/groups/:id error:', error);
     res.status(500).json({ error: 'Nu am putut actualiza grupa de materiale' });
@@ -140,10 +145,186 @@ router.delete('/groups/:id', async (req, res) => {
     res.status(204).send();
   } catch (error: any) {
     if (error.code === 'P2003') {
-      return res.status(409).json({ error: 'Nu se poate șterge: există materiale în această grupă' });
+  return res.status(409).json({ error: 'Nu se poate șterge: există materiale în această grupă' });
     }
     console.error('DELETE /materials/groups/:id error:', error);
-    res.status(500).json({ error: 'Nu am putut șterge grupa de materiale' });
+  res.status(500).json({ error: 'Nu am putut șterge grupa de materiale' });
+  }
+});
+
+/* ===================== MATERIAL FAMILIES (NEW) ===================== */
+
+// GET /api/materials/families - list all families
+router.get('/families', async (_req, res) => {
+  try {
+    const families = await (prisma as any).materialFamily.findMany({ orderBy: { name: 'asc' } });
+    res.json(families);
+  } catch (error: unknown) {
+    console.error('GET /materials/families error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      // Schema not pushed yet - return empty list so frontend can continue working
+      return res.json([]);
+    }
+  res.status(500).json({ error: 'Nu am putut încărca familiile de materiale' });
+  }
+});
+
+// POST /api/materials/families - create family
+router.post('/families', async (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Denumirea este obligatorie' });
+  try {
+    const created = await (prisma as any).materialFamily.create({ data: { name: cleanRequired(name) } });
+    res.status(201).json(created);
+  } catch (error: any) {
+    if (error.code === 'P2002') return res.status(409).json({ error: 'Familia exista deja' });
+    console.error('POST /materials/families error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      return res.status(400).json({ error: 'Schema database not prepared for families (table missing). Apply migration to enable families.' });
+    }
+    res.status(500).json({ error: 'Nu am putut crea familia' });
+  }
+});
+
+// PUT /api/materials/families/:id - update family
+router.put('/families/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Denumirea este obligatorie' });
+  try {
+    const exists = await (prisma as any).materialFamily.findUnique({ where: { id } });
+  if (!exists) return res.status(404).json({ error: 'Familia nu a fost găsită' });
+    const updated = await (prisma as any).materialFamily.update({ where: { id }, data: { name: cleanRequired(name) } });
+    res.json(updated);
+  } catch (error: any) {
+    if (error.code === 'P2002') return res.status(409).json({ error: 'Nume deja folosit' });
+    console.error('PUT /materials/families/:id error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      return res.status(400).json({ error: 'Schema database not prepared for families (table missing). Apply migration to enable families.' });
+    }
+    res.status(500).json({ error: 'Nu am putut actualiza familia' });
+  }
+});
+
+// DELETE /api/materials/families/:id - delete family (only if no materials assigned)
+router.delete('/families/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const count = await (prisma as any).material.count({ where: { familyId: id } });
+  if (count > 0) return res.status(409).json({ error: 'Nu se poate șterge: există materiale atribuite acestei familii' });
+    await (prisma as any).materialFamily.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error: any) {
+    console.error('DELETE /materials/families/:id error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      return res.status(400).json({ error: 'Schema database not prepared for families (table missing). Apply migration to enable families.' });
+    }
+  res.status(500).json({ error: 'Nu am putut șterge familia' });
+  }
+});
+
+// POST /api/materials/families/preview - aggregated preview (used by frontend)
+router.get('/families/preview', async (_req, res) => {
+  try {
+    const families = await (prisma as any).materialFamily.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        materials: {
+          orderBy: [{ code: 'asc' }],
+          take: 50,
+        },
+      },
+    });
+
+    // Build a simplified preview response expected by the frontend
+    const result = families.map((f: any) => {
+      const variants = (f.materials || []).map((m: any) => ({
+        id: m.id,
+        materialId: m.id,
+        code: m.code,
+        name: m.description,
+        packValue: m.packQuantity ? Number(m.packQuantity) : undefined,
+        packUnit: m.packUnit || undefined,
+        defaultSupplier: m.supplierName || undefined,
+        latestPrice: m.price != null ? Number(m.price) : undefined,
+        purchaseDate: m.purchaseDate || undefined,
+        purchasesCount: undefined,
+        confidence: 'manual',
+        updatedAt: m.updatedAt,
+      }));
+
+      const aggregatedStats = {
+        avgPrice: undefined,
+        minPrice: undefined,
+        maxPrice: undefined,
+        totalOrders: variants.length,
+        suppliersCount: 0,
+        latestPurchaseAt: f.updatedAt,
+      };
+
+      return {
+        summary: {
+          id: f.id,
+          name: f.name,
+          normalizedKey: f.normalizedKey || null,
+          variantsCount: variants.length,
+          totalOrders: variants.length,
+          suppliersCount: 0,
+          minPrice: undefined,
+          maxPrice: undefined,
+          lastPurchaseAt: f.updatedAt,
+          confidence: (f.confidence as any) || 'manual',
+        },
+        variants,
+        aggregatedStats,
+      };
+    });
+
+    res.json({ families: result, meta: { generatedAt: new Date().toISOString() } });
+  } catch (error: unknown) {
+    console.error('GET /materials/families/preview error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      // Return empty preview so frontend can keep working without families
+      return res.json({ families: [], meta: { generatedAt: new Date().toISOString(), note: 'families table missing' } });
+    }
+    res.status(500).json({ error: 'Nu am putut genera preview-ul familiilor' });
+  }
+});
+
+// Assign/unassign materials to family (single or batch)
+// POST /api/materials/families/:id/assign - { materialIds: string[] }
+router.post('/families/:id/assign', async (req, res) => {
+  const { id } = req.params;
+  const { materialIds, materialId } = req.body || {};
+  const ids = Array.isArray(materialIds) ? materialIds : materialId ? [materialId] : [];
+  if (!ids.length) return res.status(400).json({ error: 'materialIds is required' });
+  try {
+    const updated = await (prisma as any).material.updateMany({ where: { id: { in: ids } }, data: { familyId: id } });
+    res.json({ updated: updated.count });
+  } catch (error: unknown) {
+    console.error('POST /materials/families/:id/assign error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      return res.status(400).json({ error: 'Schema database not prepared for families (table/column missing). Apply migration to enable families.' });
+    }
+    res.status(500).json({ error: 'Nu am putut atribui materialele' });
+  }
+});
+
+// POST /api/materials/families/:id/unassign - { materialIds: string[] }
+router.post('/families/:id/unassign', async (req, res) => {
+  const { id } = req.params;
+  const { materialIds, materialId } = req.body || {};
+  const ids = Array.isArray(materialIds) ? materialIds : materialId ? [materialId] : [];
+  if (!ids.length) return res.status(400).json({ error: 'materialIds is required' });
+  try {
+    const updated = await (prisma as any).material.updateMany({ where: { id: { in: ids }, familyId: id }, data: { familyId: null } });
+    res.json({ updated: updated.count });
+  } catch (error: unknown) {
+    console.error('POST /materials/families/:id/unassign error:', error);
+    if (isPrismaMissingModelOrColumn(error)) {
+      return res.status(400).json({ error: 'Schema database not prepared for families (table/column missing). Apply migration to enable families.' });
+    }
+    res.status(500).json({ error: 'Nu am putut elimina atribuirea materialelor' });
   }
 });
 
@@ -158,6 +339,11 @@ type MaterialPayload = {
   technicalSheet?: string | null;
   notes?: string | null;
   active?: boolean | null;
+  packQuantity?: number | null;
+  packUnit?: string | null;
+  // Reception registry fields (optional, partial updates supported)
+  receptionType?: string | null;
+  familyId?: string | null;
 };
 
 // GET /api/materials/groups/:groupId/materials
@@ -171,7 +357,7 @@ router.get('/groups/:groupId/materials', async (req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials/groups/:groupId/materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele' });
+  res.status(500).json({ error: 'Nu am putut încărca materialele' });
   }
 });
 
@@ -213,7 +399,7 @@ router.get('/unique', async (_req, res) => {
     res.json(uniqueMaterials);
   } catch (error: unknown) {
     console.error('GET /materials/unique error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele unice' });
+  res.status(500).json({ error: 'Nu am putut încărca materialele unice' });
   }
 });
 
@@ -229,7 +415,7 @@ router.get('/suppliers', async (_req, res) => {
     res.json(suppliers);
   } catch (error: unknown) {
     console.error('GET /materials/suppliers error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca lista de furnizori' });
+  res.status(500).json({ error: 'Nu am putut încărca lista de furnizori' });
   }
 });
 
@@ -244,7 +430,7 @@ router.get('/history/:code', async (req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials/history/:code error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca istoricul prețurilor' });
+  res.status(500).json({ error: 'Nu am putut încărca istoricul prețurilor' });
   }
 });
 
@@ -258,7 +444,7 @@ router.get('/', async (_req, res) => {
     res.json(materials);
   } catch (error: unknown) {
     console.error('GET /materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca materialele' });
+  res.status(500).json({ error: 'Nu am putut încărca materialele' });
   }
 });
 
@@ -276,7 +462,7 @@ router.get('/groups-with-materials', async (_req, res) => {
     res.json(groups);
   } catch (error: unknown) {
     console.error('GET /materials/groups-with-materials error:', error);
-    res.status(500).json({ error: 'Nu am putut încărca datele' });
+  res.status(500).json({ error: 'Nu am putut încărca datele' });
   }
 });
 
@@ -285,13 +471,14 @@ router.post('/', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+  return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
   }
   
   try {
     const created = await (prisma as any).material.create({
       data: {
         groupId: null,  // No group
+        familyId: p.familyId ?? null,
         code: cleanRequired(p.code),
         description: cleanRequired(p.description),
         unit: cleanOptional(p.unit) ?? 'buc',
@@ -317,13 +504,14 @@ router.post('/groups/:groupId/materials', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+  return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
   }
   
   try {
     const created = await (prisma as any).material.create({
       data: {
         groupId,
+        familyId: p.familyId ?? null,
         code: cleanRequired(p.code),
         description: cleanRequired(p.description),
         unit: cleanOptional(p.unit) ?? 'buc',
@@ -352,7 +540,7 @@ router.put('/:id', async (req, res) => {
   const p = (req.body || {}) as MaterialPayload;
   
   if (!p.code || !p.description) {
-    return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
+  return res.status(400).json({ error: 'Codul și descrierea sunt obligatorii' });
   }
   
   try {
@@ -372,8 +560,19 @@ router.put('/:id', async (req, res) => {
       active: p.active == null ? true : Boolean(p.active),
     };
 
+    // allow updating family assignment when provided
+    if (Object.prototype.hasOwnProperty.call(p, 'familyId')) {
+      updateData.familyId = p.familyId ? String(p.familyId) : null;
+    }
+
     if (packQuantityValue !== undefined) updateData.packQuantity = packQuantityValue;
     if (packUnitValue !== undefined) updateData.packUnit = packUnitValue;
+
+    // Validate and set receptionType if provided
+    if (Object.prototype.hasOwnProperty.call(p, 'receptionType')) {
+      const rt = (p.receptionType ?? null) as string | null;
+      updateData.receptionType = rt ? String(rt) : null;
+    }
 
     const updated = await (prisma as any).material.update({
       where: { id },
@@ -394,7 +593,7 @@ router.post('/:id/upload-sheet', upload.single('file'), async (req, res) => {
   const { id } = req.params;
   
   if (!req.file) {
-    return res.status(400).json({ error: 'Niciun fișier încărcat' });
+  return res.status(400).json({ error: 'Niciun fișier încărcat' });
   }
   
   try {
@@ -421,7 +620,7 @@ router.post('/:id/upload-sheet', upload.single('file'), async (req, res) => {
     if (req.file) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ error: 'Eroare la încărcarea fișierului' });
+  res.status(500).json({ error: 'Eroare la încărcarea fișierului' });
   }
 });
 
@@ -447,7 +646,7 @@ router.delete('/:id/technical-sheet', async (req, res) => {
     res.status(204).send();
   } catch (error: unknown) {
     console.error('DELETE /materials/:id/technical-sheet error:', error);
-    res.status(500).json({ error: 'Eroare la ștergerea fișierului' });
+  res.status(500).json({ error: 'Eroare la ștergerea fișierului' });
   }
 });
 
@@ -459,19 +658,19 @@ router.get('/:id/download-sheet', async (req, res) => {
     const material = await (prisma as any).material.findUnique({ where: { id } });
     
     if (!material?.technicalSheet) {
-      return res.status(404).json({ error: 'Fișierul nu există' });
+  return res.status(404).json({ error: 'Fișierul nu există' });
     }
     
     const filePath = path.join(__dirname, '../../uploads/technical-sheets', path.basename(material.technicalSheet));
     
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Fișierul nu a fost găsit pe server' });
+  return res.status(404).json({ error: 'Fișierul nu a fost găsit pe server' });
     }
     
     res.download(filePath);
   } catch (error: unknown) {
     console.error('GET /materials/:id/download-sheet error:', error);
-    res.status(500).json({ error: 'Eroare la descărcarea fișierului' });
+  res.status(500).json({ error: 'Eroare la descărcarea fișierului' });
   }
 });
 
@@ -492,8 +691,9 @@ router.delete('/:id', async (req, res) => {
     res.status(204).send();
   } catch (error: unknown) {
     console.error('DELETE /materials/:id error:', error);
-    res.status(500).json({ error: 'Nu am putut șterge materialul' });
+  res.status(500).json({ error: 'Nu am putut șterge materialul' });
   }
 });
 
 export default router;
+

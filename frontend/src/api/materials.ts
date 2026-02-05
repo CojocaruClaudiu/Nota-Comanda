@@ -38,6 +38,74 @@ export interface Material {
   suppliers?: string[];
 }
 
+export type MaterialFamilyConfidence = 'auto' | 'manual' | 'suspect';
+
+export interface MaterialFamilySummary {
+  id: string;
+  name: string;
+  normalizedKey: string;
+  variantsCount: number;
+  totalOrders: number;
+  suppliersCount: number;
+  minPrice?: number;
+  maxPrice?: number;
+  lastPurchaseAt?: string;
+  confidence: MaterialFamilyConfidence;
+}
+
+export interface MaterialFamilyVariant {
+  id: string;
+  materialId?: string;
+  name: string;
+  packValue?: number;
+  packUnit?: string;
+  color?: string;
+  brand?: string;
+  defaultSupplier?: string;
+  latestPrice?: number;
+  priceRange?: { min?: number; max?: number };
+  purchasesCount?: number;
+  confidence: MaterialFamilyConfidence;
+  assignedByUser?: boolean;
+  updatedAt?: string;
+}
+
+export interface MaterialFamilyAggregatedStats {
+  avgPrice?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  totalOrders: number;
+  suppliersCount: number;
+  latestPurchaseAt?: string;
+}
+
+export interface MaterialFamily {
+  summary: MaterialFamilySummary;
+  variants: MaterialFamilyVariant[];
+  aggregatedStats: MaterialFamilyAggregatedStats;
+}
+
+export interface MaterialFamiliesPreviewMeta {
+  hasSuspects?: boolean;
+  suspectsCount?: number;
+  generatedAt?: string;
+}
+
+export interface MaterialFamiliesPreviewResponse {
+  families: MaterialFamily[];
+  meta?: MaterialFamiliesPreviewMeta;
+}
+
+// Basic family record (for CRUD endpoints)
+export interface MaterialFamilyRecord {
+  id: string;
+  name: string;
+  normalizedKey?: string | null;
+  confidence?: MaterialFamilyConfidence | string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Supplier {
   supplierName: string;
   supplierId?: string | null;
@@ -133,6 +201,41 @@ export const updateMaterial = async (id: string, payload: Partial<MaterialPayloa
 
 export const deleteMaterial = async (id: string): Promise<void> => {
   await api.delete(`/materials/${id}`);
+};
+
+export const fetchMaterialFamiliesPreview = async (): Promise<MaterialFamiliesPreviewResponse> => {
+  const response = await api.get<MaterialFamiliesPreviewResponse>('/materials/families/preview');
+  return response.data;
+};
+
+// Families CRUD
+export const fetchMaterialFamilies = async (): Promise<MaterialFamilyRecord[]> => {
+  const response = await api.get<MaterialFamilyRecord[]>('/materials/families');
+  return response.data;
+};
+
+export const createMaterialFamily = async (name: string): Promise<MaterialFamilyRecord> => {
+  const response = await api.post<MaterialFamilyRecord>('/materials/families', { name });
+  return response.data;
+};
+
+export const updateMaterialFamily = async (id: string, name: string): Promise<MaterialFamilyRecord> => {
+  const response = await api.put<MaterialFamilyRecord>(`/materials/families/${id}`, { name });
+  return response.data;
+};
+
+export const deleteMaterialFamily = async (id: string): Promise<void> => {
+  await api.delete(`/materials/families/${id}`);
+};
+
+export const assignMaterialsToFamily = async (familyId: string, materialIds: string[]): Promise<{ updated: number }> => {
+  const response = await api.post<{ updated: number }>(`/materials/families/${familyId}/assign`, { materialIds });
+  return response.data;
+};
+
+export const unassignMaterialsFromFamily = async (familyId: string, materialIds: string[]): Promise<{ updated: number }> => {
+  const response = await api.post<{ updated: number }>(`/materials/families/${familyId}/unassign`, { materialIds });
+  return response.data;
 };
 
 // Technical Sheet Management

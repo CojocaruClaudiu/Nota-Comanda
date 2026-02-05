@@ -30,12 +30,12 @@ const validationSchema = Yup.object({
     .required('Numele clientului este obligatoriu')
     .min(2, 'Numele trebuie să aibă cel puțin 2 caractere')
     .max(100, 'Numele nu poate avea mai mult de 100 caractere')
-    .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
+    .matches(/^[a-zA-ZăâîșțĂÎȘȚ\s\-\.]+$/, 'Numele poate conține doar litere, spații, cratime și puncte'),
   location: Yup.string()
     .required('Locația este obligatorie')
     .min(2, 'Locația trebuie să aibă cel puțin 2 caractere')
     .max(200, 'Locația nu poate avea mai mult de 200 caractere')
-    .matches(/^[a-zA-ZăâîșțĂÂÎȘȚ0-9\s\-\.\,]+$/, 'Locația poate conține doar litere, cifre, spații și semne de punctuație'),
+    .matches(/^[a-zA-ZăâîșțĂÎȘȚ0-9\s\-\.\,]+$/, 'Locația poate conține doar litere, cifre, spații și semne de punctuație'),
   phone: Yup.string()
     .matches(/^(\+4|0)?(7[0-9]{8}|2[0-9]{8}|3[0-9]{8})?$/, 'Numărul de telefon trebuie să fie valid (ex: 0722123456, +40722123456)')
     .nullable(),

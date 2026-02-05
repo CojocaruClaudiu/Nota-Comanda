@@ -213,42 +213,43 @@ export function applyRounding(value: number, method: RoundingMethod): number {
  */
 export async function calculateCarryover(
   employeeId: string,
+  hiredAt: Date,
   currentYear: number,
   policy: EffectivePolicy
 ): Promise<number> {
   if (!policy.allowCarryover) return 0;
   
-  // Check if carryover has expired (HANDLES FEB 29 EDGE CASE)
-  if (policy.carryoverExpiryMonth && policy.carryoverExpiryDay) {
-    const expiryDate = createSafeDate(
-      currentYear, 
-      policy.carryoverExpiryMonth - 1, 
-      policy.carryoverExpiryDay
-    );
-    
-    if (new Date() > expiryDate) return 0;
-  }
-  
   // Get previous year balance
-  const previousYearEnd = new Date(currentYear - 1, 11, 31);
-  const previousBalance = await getYearEndBalance(employeeId, currentYear - 1);
+  const previousBalance = await getYearEndBalance(employeeId, hiredAt, currentYear - 1, policy);
   
   if (previousBalance <= 0) return 0;
   
-  // Apply max carryover limit
-  return policy.maxCarryoverDays 
-    ? Math.min(previousBalance, policy.maxCarryoverDays)
-    : previousBalance;
+  // No cap: carry over full remaining balance
+  return previousBalance;
 }
 
 /**
  * Get year-end balance for a specific year
  */
-async function getYearEndBalance(employeeId: string, year: number): Promise<number> {
-  // This would need the full calculation for that year
-  // For now, return 0 (implement properly with historical data)
-  // TODO: Implement historical balance calculation
-  return 0;
+async function getYearEndBalance(
+  employeeId: string,
+  hiredAt: Date,
+  year: number,
+  policy: EffectivePolicy
+): Promise<number> {
+  const yearEnd = new Date(year, 11, 31);
+
+  // Not employed yet by year end
+  if (hiredAt > yearEnd) return 0;
+
+  const annualEntitlement = calculateAnnualEntitlement(hiredAt, policy, yearEnd);
+  const accruedRaw = calculateAccrued(hiredAt, annualEntitlement, policy.accrualMethod, yearEnd);
+  const accrued = applyRounding(accruedRaw, policy.roundingMethod);
+
+  const taken = await getTakenDays(employeeId, year);
+  const remaining = Math.max(0, accrued - taken.total);
+
+  return remaining;
 }
 
 /**
@@ -293,6 +294,7 @@ export async function getTakenDays(employeeId: string, year: number = new Date()
 export async function calculateLeaveBalance(
   employeeId: string,
   hiredAt: Date,
+  manualCarryOverDays?: number,
   asOf: Date = new Date()
 ): Promise<LeaveBalance> {
   // Get default company policy
@@ -319,7 +321,9 @@ export async function calculateLeaveBalance(
   const accrued = applyRounding(accruedRaw, effectivePolicy.roundingMethod);
   
   // Get carryover
-  const carriedOver = await calculateCarryover(employeeId, asOf.getFullYear(), effectivePolicy);
+  const systemCarryover = await calculateCarryover(employeeId, hiredAt, asOf.getFullYear(), effectivePolicy);
+  const hasManualOverride = manualCarryOverDays !== undefined && manualCarryOverDays !== null;
+  const carriedOver = hasManualOverride ? manualCarryOverDays : systemCarryover;
   
   // Get taken days
   const taken = await getTakenDays(employeeId, asOf.getFullYear());

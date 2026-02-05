@@ -17,6 +17,7 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/ro';
 
 import { getLeaves, deleteLeave, type EmployeeWithStats, type Leave } from '../../api/employees';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
 import { sumBusinessDaysForYear } from '../../utils/businessDays';
 import useNotistack from '../orders/hooks/useNotistack';
 
@@ -103,7 +104,24 @@ export const HolidayHistoryModal: React.FC<HolidayHistoryModalProps> = ({
     onClose();
   };
 
+  const confirm = useConfirm();
+
   const handleDeleteLeave = async (leaveId: string) => {
+    const confirmed = await confirm({
+      title: 'Confirmare ștergere concediu',
+      bodyTitle: 'Ești sigur că vrei să ștergi această înregistrare de concediu?',
+      description: (
+        <>
+          Înregistrarea va fi ștearsă definitiv. Această acțiune nu poate fi anulată.
+        </>
+      ),
+      confirmText: 'Șterge înregistrarea',
+      cancelText: 'Anulează',
+      danger: true,
+    });
+
+    if (!confirmed) return;
+
     try {
       setLoading(true);
       await deleteLeave(leaveId);

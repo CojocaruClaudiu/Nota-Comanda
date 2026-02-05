@@ -18,6 +18,8 @@ import FlotaPage from "./modules/auto/carPage";
 import CarCalendarPage from "./modules/auto/carCalendarPage";
 import OfferPage from "./modules/offer/OfferPage";
 import NotFound from "./modules/NotFound";
+import SettingsPage from "./modules/settings/SettingsPage";
+import ProfilePage from "./modules/profile/ProfilePage";
 import SuppliersPage from "./modules/suppliers/SuppliersPage";
 import ProjectsPage from "./modules/projects/ProjectsPage";
 import OperationCategoriesPage from "./modules/operatii/OperationCategoriesPage";
@@ -26,7 +28,6 @@ import EquipmentPage from "./modules/equipment/EquipmentPage";
 import QualificationsTreePage from "./modules/qualifications/QualificationsTreePage";
 import MaterialsPage from "./modules/materials/MaterialsPage";
 import ProducersPage from "./modules/producers/ProducersPage";
-import ReceptionsPage from "./modules/receptii/ReceptionsPage";
 import RegistruReceptiiPage from "./modules/receptions/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
 import CashLedgerPage from "./modules/cash/CashLedgerPage";
@@ -146,14 +147,6 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: "receptii",
-        element: (
-          <RequireAuth>
-            <ReceptionsPage />
-          </RequireAuth>
-        ),
-      },
-      {
         path: "registru-receptii",
         element: (
           <RequireAuth>
@@ -232,6 +225,22 @@ const router = createBrowserRouter([
             <ExchangeRatesPage />
           </RequireAuth>
         ),
+      },
+      {
+        path: "setari",
+        element: (
+          <RequireAuth>
+            <SettingsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "profil",
+        element: (
+          <RequireAuth>
+            <ProfilePage />
+          </RequireAuth>
+        ),
       }
     ],
   },
@@ -242,7 +251,6 @@ export default function App() {
     <SnackbarProvider
       maxSnack={3}
       autoHideDuration={3000}
-      preventDuplicate
       anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
     >
       <AuthProvider>

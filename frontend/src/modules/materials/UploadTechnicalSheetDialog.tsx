@@ -26,6 +26,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { uploadTechnicalSheet, deleteTechnicalSheet } from '../../api/materials';
+import { API_BASE_URL } from '../../api/baseUrl';
 
 const ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png'] as const;
 type AllowedExtension = (typeof ALLOWED_EXTENSIONS)[number];
@@ -33,7 +34,7 @@ const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 const buildDownloadUrl = (materialId: string) => {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  const baseUrl = API_BASE_URL;
   return `${baseUrl}/materials/${materialId}/download-sheet`;
 };
 

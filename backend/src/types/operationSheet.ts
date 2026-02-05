@@ -10,6 +10,9 @@ export interface OperationSheetItemDTO {
   quantity: number;
   unitPrice: number;
   notes?: string;
+  // Enriched from Materials catalog when applicable (MATERIAL/CONSUMABLE)
+  packQuantity?: number | null;
+  packUnit?: string | null;
 }
 
 export interface OperationSheetTemplateDTO {

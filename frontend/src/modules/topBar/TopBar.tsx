@@ -138,11 +138,21 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
                       className="topbar__menuItem"
                       role="menuitem"
                       ref={firstMenuItemRef}
-                      onClick={() => setMenuOpen(false)}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        navigate('/profil');
+                      }}
                     >
                       Profil
                     </button>
-                    <button className="topbar__menuItem" role="menuitem" onClick={() => setMenuOpen(false)}>
+                    <button
+                      className="topbar__menuItem"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        navigate('/setari');
+                      }}
+                    >
                       Setări
                     </button>
                     <hr className="topbar__menuSep" />

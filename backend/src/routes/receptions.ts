@@ -4,18 +4,44 @@ import { PrismaClient } from '@prisma/client';
 const router = Router();
 const prisma = new PrismaClient();
 
+function materialToReception(material: any) {
+  return {
+    id: material.id,
+    date: material.purchaseDate ? new Date(material.purchaseDate).toISOString() : '',
+    invoice: material.invoiceNumber ?? '',
+    supplier: material.supplierName ?? '',
+    manufacturer: material.manufacturer ?? '',
+    material: material.description ?? material.code ?? '',
+    unit: material.unit ?? '',
+    quantity: material.receivedQuantity != null ? Number(material.receivedQuantity) : 0,
+    unitPrice: material.price != null ? Number(material.price) : 0,
+    orderId: null,
+    receptionType: material.receptionType ?? null,
+    createdAt: material.createdAt ? new Date(material.createdAt).toISOString() : undefined,
+    updatedAt: material.updatedAt ? new Date(material.updatedAt).toISOString() : undefined,
+  };
+}
+
 /**
  * GET /receptions
  * Fetch all receptions
  */
 router.get('/', async (req, res) => {
   try {
-    const receptions = await prisma.reception.findMany({
+    const materials = await prisma.material.findMany({
+      where: {
+        OR: [
+          { invoiceNumber: { not: null } },
+          { receptionType: { not: null } },
+          { purchaseDate: { not: null } },
+          { receivedQuantity: { not: null } },
+        ],
+      },
       orderBy: {
-        date: 'desc',
+        purchaseDate: 'desc',
       },
     });
-    res.json(receptions);
+    res.json(materials.map(materialToReception));
   } catch (error) {
     console.error('Error fetching receptions:', error);
     res.status(500).json({ error: 'Failed to fetch receptions' });
@@ -29,15 +55,15 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const reception = await prisma.reception.findUnique({
+    const material = await prisma.material.findUnique({
       where: { id },
     });
 
-    if (!reception) {
+    if (!material) {
       return res.status(404).json({ error: 'Reception not found' });
     }
 
-    res.json(reception);
+    res.json(materialToReception(material));
   } catch (error) {
     console.error('Error fetching reception:', error);
     res.status(500).json({ error: 'Failed to fetch reception' });
@@ -59,7 +85,6 @@ router.post('/', async (req, res) => {
       unit,
       quantity,
       unitPrice,
-      orderId,
       receptionType,
     } = req.body;
 
@@ -72,22 +97,23 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid receptionType. Must be SANTIER or MAGAZIE' });
     }
 
-    const reception = await prisma.reception.create({
+    const reception = await prisma.material.create({
       data: {
-        date: new Date(date),
-        invoice,
-        supplier,
-        manufacturer,
-        material,
+        code: material,
+        description: material,
         unit,
-        quantity: parseFloat(quantity),
-        unitPrice: parseFloat(unitPrice),
-        orderId: orderId || null,
+        price: parseFloat(unitPrice),
+        currency: 'RON',
+        supplierName: supplier,
+        manufacturer,
+        invoiceNumber: invoice,
+        purchaseDate: new Date(date),
+        receivedQuantity: parseFloat(quantity),
         receptionType,
       },
     });
 
-    res.status(201).json(reception);
+    res.status(201).json(materialToReception(reception));
   } catch (error) {
     console.error('Error creating reception:', error);
     res.status(500).json({ error: 'Failed to create reception' });
@@ -110,12 +136,11 @@ router.put('/:id', async (req, res) => {
       unit,
       quantity,
       unitPrice,
-      orderId,
       receptionType,
     } = req.body;
 
     // Check if reception exists
-    const existing = await prisma.reception.findUnique({
+    const existing = await prisma.material.findUnique({
       where: { id },
     });
 
@@ -129,23 +154,25 @@ router.put('/:id', async (req, res) => {
     }
 
     const updateData: any = {};
-    if (date !== undefined) updateData.date = new Date(date);
-    if (invoice !== undefined) updateData.invoice = invoice;
-    if (supplier !== undefined) updateData.supplier = supplier;
+    if (date !== undefined) updateData.purchaseDate = new Date(date);
+    if (invoice !== undefined) updateData.invoiceNumber = invoice;
+    if (supplier !== undefined) updateData.supplierName = supplier;
     if (manufacturer !== undefined) updateData.manufacturer = manufacturer;
-    if (material !== undefined) updateData.material = material;
+    if (material !== undefined) {
+      updateData.description = material;
+      updateData.code = material;
+    }
     if (unit !== undefined) updateData.unit = unit;
-    if (quantity !== undefined) updateData.quantity = parseFloat(quantity);
-    if (unitPrice !== undefined) updateData.unitPrice = parseFloat(unitPrice);
-    if (orderId !== undefined) updateData.orderId = orderId || null;
+    if (quantity !== undefined) updateData.receivedQuantity = parseFloat(quantity);
+    if (unitPrice !== undefined) updateData.price = parseFloat(unitPrice);
     if (receptionType !== undefined) updateData.receptionType = receptionType;
 
-    const reception = await prisma.reception.update({
+    const reception = await prisma.material.update({
       where: { id },
       data: updateData,
     });
 
-    res.json(reception);
+    res.json(materialToReception(reception));
   } catch (error) {
     console.error('Error updating reception:', error);
     res.status(500).json({ error: 'Failed to update reception' });
@@ -161,7 +188,7 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
 
     // Check if reception exists
-    const existing = await prisma.reception.findUnique({
+    const existing = await prisma.material.findUnique({
       where: { id },
     });
 
@@ -169,7 +196,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Reception not found' });
     }
 
-    await prisma.reception.delete({
+    await prisma.material.delete({
       where: { id },
     });
 

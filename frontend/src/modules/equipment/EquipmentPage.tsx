@@ -75,6 +75,17 @@ export default function EquipmentPage() {
               name: it.description,
               code: it.code,
               hourlyCost: it.hourlyCost,
+              // attach extra fields to be available in row.original
+              serialNumber: (it as any).serialNumber,
+              referenceNumber: (it as any).referenceNumber,
+              status: (it as any).status,
+              lastRepairDate: (it as any).lastRepairDate,
+              repairCost: (it as any).repairCost,
+              repairCount: (it as any).repairCount,
+              warranty: (it as any).warranty,
+              equipmentNumber: (it as any).equipmentNumber,
+              generation: (it as any).generation,
+              purchasePrice: (it as any).purchasePrice,
             })),
         }));
   setTree(numberize(cats));
@@ -87,6 +98,13 @@ export default function EquipmentPage() {
     }
   }, [errorNotistack]);
   useEffect(() => { void load(); }, [load]);
+
+  // Extract vendor product code (prefix before any :: suffix)
+  const getProductCode = useCallback((code?: string) => {
+    if (!code) return '';
+    const idx = code.indexOf('::');
+    return idx === -1 ? code : code.slice(0, idx);
+  }, []);
 
   const columns = useMemo<MRT_ColumnDef<TreeRow>[]>(() => [
     // Number column
@@ -119,24 +137,49 @@ export default function EquipmentPage() {
       Cell: ({ row, renderedCellValue }) => {
         const t = row.original.type;
         const sub = row.original.subRows || [];
-        const itemsCount = t === 'category' ? sub.length : undefined;
+        if (t === 'item') {
+          return (
+            <Stack direction="row" alignItems="flex-start" gap={1} sx={{ py: 0.25 }}>
+              <SubdirectoryArrowRightIcon fontSize="small" />
+              <Box>
+                <Typography variant="body1" sx={{ fontWeight: 400 }}>
+                  {renderedCellValue as string}
+                </Typography>
+                {row.original.code && (
+                  <Typography variant="caption" color="text.secondary">#{getProductCode(row.original.code)}</Typography>
+                )}
+              </Box>
+            </Stack>
+          );
+        }
+        const itemsCount = sub.length;
         return (
           <Stack direction="row" alignItems="center" gap={1} sx={{ py: 0.25 }}>
-            {t !== 'category' && <SubdirectoryArrowRightIcon fontSize="small" />}
-            <Typography variant="body1" sx={{ fontWeight: t === 'category' ? 600 : 400 }}>
+            <Typography variant="body1" sx={{ fontWeight: 600 }}>
               {renderedCellValue as string}
             </Typography>
-            {t === 'category' && (
-              <Chip size="small" variant="outlined" label={`${itemsCount ?? 0} articole`} />
-            )}
+            <Chip size="small" variant="outlined" label={`${itemsCount ?? 0} articole`} />
           </Stack>
         );
       },
     },
+    // Derived product code (read-only, vendor code prefix)
+    { id: 'productCode', header: 'Cod produs', size: 220, enableGlobalFilter: true, accessorFn: (row) => getProductCode((row as any).code), enableEditing: false },
     // Code column (items only)
     { accessorKey: 'code', header: 'Cod', size: 350, enableGlobalFilter: true, Cell: ({ row, cell }) => row.original.type === 'item' ? (cell.getValue<string>() || '—') : '—', muiEditTextFieldProps: ({ row }: any) => ({ disabled: row?.original?.type !== 'item' }) },
-    // Hourly cost column (items only)
-    { accessorKey: 'hourlyCost', header: 'Cost orar (RON)', size: 250, Cell: ({ row, cell }) => row.original.type === 'item' ? Number(cell.getValue<number>() || 0).toFixed(2) : '—', muiEditTextFieldProps: ({ row }: any) => ({ type: 'number', inputProps: { step: 0.01 }, disabled: row?.original?.type !== 'item' }) },
+  // Hourly cost column (items only)
+  { accessorKey: 'hourlyCost', header: 'Cost orar (RON)', size: 140, Cell: ({ row, cell }) => row.original.type === 'item' ? Number(cell.getValue<number>() || 0).toFixed(2) : '—', muiEditTextFieldProps: ({ row }: any) => ({ type: 'number', inputProps: { step: 0.01 }, disabled: row?.original?.type !== 'item' }) },
+  // New read-only columns
+  { accessorKey: 'status', header: 'Status', size: 120, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? (row.original as any).status || '—' : '—' },
+  { accessorKey: 'serialNumber', header: 'Serie', size: 160, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? (row.original as any).serialNumber || '—' : '—' },
+  { accessorKey: 'referenceNumber', header: 'Nr. referință', size: 160, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? (row.original as any).referenceNumber || '—' : '—' },
+  { accessorKey: 'lastRepairDate', header: 'Ult. reparație', size: 160, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).lastRepairDate ? new Date((row.original as any).lastRepairDate).toLocaleDateString() : '—') : '—' },
+  { accessorKey: 'repairCost', header: 'Cost reparație', size: 140, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).repairCost != null ? Number((row.original as any).repairCost).toFixed(2) : '—') : '—' },
+  { accessorKey: 'repairCount', header: 'Nr. reparații', size: 120, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).repairCount != null ? String((row.original as any).repairCount) : '—') : '—' },
+  { accessorKey: 'warranty', header: 'Garanție', size: 160, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).warranty || '—') : '—' },
+  { accessorKey: 'equipmentNumber', header: 'Nr. echipament', size: 160, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).equipmentNumber || '—') : '—' },
+  { accessorKey: 'generation', header: 'Generație', size: 120, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).generation || '—') : '—' },
+  { accessorKey: 'purchasePrice', header: 'Preț achiziție', size: 140, enableEditing: false, Cell: ({ row }) => row.original.type === 'item' ? ((row.original as any).purchasePrice != null ? Number((row.original as any).purchasePrice).toFixed(2) : '—') : '—' },
   ], []);
 
   // Create/Edit handlers
@@ -202,6 +245,16 @@ export default function EquipmentPage() {
 
   // per-row delete handled inline via useConfirm
 
+  // diacritic-insensitive normalizer for searching/filtering (ă â î ș ţ, etc.)
+  const normalize = useCallback(
+    (v: unknown) =>
+      String(v ?? '')
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLowerCase(),
+    [],
+  );
+
   const table = useMaterialReactTable<TreeRow>({
     columns,
     data: tree,
@@ -212,7 +265,7 @@ export default function EquipmentPage() {
     getRowCanExpand: (row) => row.original.type === 'category',
     enableExpanding: true,
     enableExpandAll: true,
-    initialState: { expanded: true, showGlobalFilter: true, density: 'compact' },
+    initialState: { expanded: true, showGlobalFilter: true, density: 'compact', columnVisibility: { code: false } },
     autoResetExpanded: false,
 
     // filtering
@@ -224,9 +277,9 @@ export default function EquipmentPage() {
     filterFns: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fuzzy: (row: any, columnId: string, value: string, addMeta: (meta: any) => void) => {
-        // simple contains for now (could wire match-sorter like operations page)
-        const hay = String(row.getValue(columnId) ?? '').toLowerCase();
-        const needle = String(value ?? '').toLowerCase();
+        // diacritic-insensitive contains match (ă/â/î/ș/ţ)
+        const hay = normalize(row.getValue(columnId));
+        const needle = normalize(value);
         const passed = hay.includes(needle);
         addMeta?.({ passed });
         return passed;

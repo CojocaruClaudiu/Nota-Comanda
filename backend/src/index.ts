@@ -13,6 +13,7 @@ import materialsRoutes from "./routes/materials";
 import operationSheetsRoutes from "./routes/operationSheets";
 import exchangeRateRoutes from "./routes/exchangeRates";
 import receptionsRoutes from "./routes/receptions";
+import offersRoutes from "./routes/offers";
 import jwt from 'jsonwebtoken';
 import { calculateLeaveBalance } from './services/leaveCalculations.js';
 
@@ -45,6 +46,7 @@ app.use("/materials", materialsRoutes);
 app.use("/operation-sheets", operationSheetsRoutes);
 app.use("/exchange-rates", exchangeRateRoutes);
 app.use("/receptions", receptionsRoutes);
+app.use("/offers", offersRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();
@@ -82,6 +84,51 @@ function ageFrom(birth: Date | null | undefined, ref = new Date()): number | nul
   if (ref < birthdayThisYear) years -= 1;
   return Math.max(0, years);
 }
+
+/** Ensure DB enum OrderStatus contains all extended values used by the app. */
+async function ensureOrderStatusEnum() {
+  const values = [
+    'SUPPLIER_OUT_OF_STOCK',
+    'UNPAID_ORDER',
+    'PAID_FULL_ORDER',
+    'PAID_PARTIAL_ORDER',
+    'IN_DELIVERY',
+    'RETURNED_REFUSED',
+  ];
+  for (const v of values) {
+    try {
+      const rows: Array<{ exists: boolean }> = await prisma.$queryRawUnsafe(
+        `SELECT EXISTS(
+           SELECT 1 FROM pg_type t
+           JOIN pg_enum e ON t.oid = e.enumtypid
+           WHERE t.typname = 'OrderStatus' AND e.enumlabel = '${v}'
+         ) AS exists`
+      );
+      const exists = Boolean(Array.isArray(rows) && rows[0] && (rows[0] as any).exists);
+      if (!exists) {
+        await prisma.$executeRawUnsafe(`ALTER TYPE "OrderStatus" ADD VALUE '${v}'`);
+      }
+    } catch (e) {
+      console.warn(`ensureOrderStatusEnum: failed to add ${v} (continuing):`, e);
+    }
+  }
+}
+
+// Debug endpoint to verify enum values present in DB
+app.get('/debug/order-status', async (_req, res) => {
+  try {
+    const rows = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT e.enumlabel as label
+       FROM pg_type t
+       JOIN pg_enum e ON t.oid = e.enumtypid
+       WHERE t.typname = 'OrderStatus'
+       ORDER BY e.enumsortorder`
+    );
+    res.json({ values: rows.map(r => r.label) });
+  } catch (e) {
+    res.status(500).json({ error: 'failed to read enum', detail: String(e) });
+  }
+});
 
 /** Ping */
 app.get('/ping', (_req, res) => res.json({ pong: true }));
@@ -290,7 +337,7 @@ app.delete('/clients/:id', async (req, res) => {
 
 type EmployeePayload = {
   name: string;
-  qualifications?: string[];
+  qualifications?: string[];   
   hiredAt: string;            // ISO date
   birthDate?: string | null;  // ISO, optional
   cnp?: string | null;
@@ -302,6 +349,8 @@ type EmployeePayload = {
   county?: string | null;
   locality?: string | null;
   address?: string | null;
+  isActive?: boolean;
+  deactivatedAt?: string | null; // Date when employee left (freezes leave calculations)
 };
 type LeavePayload = {
   startDate: string; // ISO date for start
@@ -328,7 +377,15 @@ app.get('/employees', async (_req, res) => {
         // Use new leave calculation service
         let leaveBalance;
         try {
-          leaveBalance = await calculateLeaveBalance(e.id, e.hiredAt);
+          const manualCarryOverDays = (e as any).manualCarryOverDays;
+          const manualOverride = typeof manualCarryOverDays === 'number' && manualCarryOverDays > 0
+            ? manualCarryOverDays
+            : undefined;
+          // For inactive employees, freeze calculations at deactivation date
+          const calcDate = e.isActive === false && e.deactivatedAt
+            ? new Date(e.deactivatedAt)
+            : new Date();
+          leaveBalance = await calculateLeaveBalance(e.id, e.hiredAt, manualOverride, calcDate);
         } catch (error) {
           // Fallback to old calculation if service fails
           console.warn(`Failed to calculate leave for ${e.name}, using fallback:`, error);
@@ -377,7 +434,7 @@ app.get('/employees', async (_req, res) => {
 /** POST /employees */
 app.post('/employees', async (req, res) => {
   try {
-    const { name, qualifications = [], hiredAt } = (req.body || {}) as EmployeePayload;
+    const { name, qualifications = [], hiredAt, isActive } = (req.body || {}) as EmployeePayload;
     if (!name || !hiredAt) {
       return res.status(400).json({ error: 'Nume și Data angajării sunt obligatorii' });
     }
@@ -388,6 +445,7 @@ app.post('/employees', async (req, res) => {
       data: {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
+        isActive: typeof isActive === 'boolean' ? isActive : true,
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
         cnp: cleanOptional(req.body?.cnp),
         phone: cleanOptional(req.body?.phone),
@@ -398,6 +456,7 @@ app.post('/employees', async (req, res) => {
         county: cleanOptional(req.body?.county),
         locality: cleanOptional(req.body?.locality),
         address: cleanOptional(req.body?.address),
+        manualCarryOverDays: req.body?.manualCarryOverDays !== undefined ? Number(req.body.manualCarryOverDays) : 0,
         qualifications: {
           connectOrCreate: qualNames.map((n) => ({
             where: { name: n },
@@ -419,7 +478,7 @@ app.post('/employees', async (req, res) => {
 app.put('/employees/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const { name, qualifications = [], hiredAt } = (req.body || {}) as EmployeePayload;
+    const { name, qualifications = [], hiredAt, isActive, deactivatedAt } = (req.body || {}) as EmployeePayload;
     if (!name || !hiredAt) {
       return res.status(400).json({ error: 'Nume și Data angajării sunt obligatorii' });
     }
@@ -431,11 +490,21 @@ app.put('/employees/:id', async (req, res) => {
       ? Array.from(new Set(qualifications.map(q => String(q).trim()).filter(Boolean)))
       : [];
 
+    // Handle deactivatedAt: can be set (string), cleared (null), or unchanged (undefined)
+    let deactivatedAtValue: Date | null | undefined = undefined;
+    if (deactivatedAt === null) {
+      deactivatedAtValue = null; // Clear the date (reactivating)
+    } else if (typeof deactivatedAt === 'string') {
+      deactivatedAtValue = toDate(deactivatedAt); // Set the date (deactivating)
+    }
+
     const updated = await (prisma as any).employee.update({
       where: { id },
       data: {
         name: cleanRequired(name),
         hiredAt: toDate(hiredAt),
+        isActive: typeof isActive === 'boolean' ? isActive : existing.isActive,
+        ...(deactivatedAtValue !== undefined && { deactivatedAt: deactivatedAtValue }),
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
         cnp: cleanOptional(req.body?.cnp),
         phone: cleanOptional(req.body?.phone),
@@ -446,6 +515,7 @@ app.put('/employees/:id', async (req, res) => {
         county: cleanOptional(req.body?.county),
         locality: cleanOptional(req.body?.locality),
         address: cleanOptional(req.body?.address),
+        manualCarryOverDays: req.body?.manualCarryOverDays !== undefined ? Number(req.body.manualCarryOverDays) : undefined,
         qualifications: {
           set: [],
           connectOrCreate: qualNames.map((n) => ({ where: { name: n }, create: { name: n } })),
@@ -708,6 +778,7 @@ type CarPayload = {
   expItp?: string | null;  // 'YYYY-MM-DD' or ISO
   expRca?: string | null;
   expRovi?: string | null;
+  rcaDecontareDirecta?: boolean | null;
 };
 
 // helpers
@@ -764,6 +835,7 @@ app.post('/cars', async (req, res) => {
         expItp: optDate(p.expItp),
         expRca: optDate(p.expRca),
         expRovi: optDate(p.expRovi),
+        rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
       },
       include: { driver: { select: { id: true, name: true } } },
     });
@@ -807,6 +879,7 @@ app.put('/cars/:id', async (req, res) => {
         expItp: optDate(p.expItp),
         expRca: optDate(p.expRca),
         expRovi: optDate(p.expRovi),
+        rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
       },
       include: { driver: { select: { id: true, name: true } } },
     });
@@ -1211,7 +1284,16 @@ type EquipmentPayload = {
 // GET /equipment
 app.get('/equipment', async (_req, res) => {
   try {
-    const list = await (prisma as any).equipment.findMany({ orderBy: [{ category: 'asc' }, { code: 'asc' }] });
+    // Use raw query with COALESCE for status to tolerate existing NULL values in DB
+    const list = await (prisma as any).$queryRaw`
+      SELECT id, category, code, description,
+             COALESCE(status, '') AS status,
+             "serialNumber", "referenceNumber", "lastRepairDate",
+             "repairCost", "repairCount", warranty, "equipmentNumber",
+             generation, "purchasePrice", "hourlyCost", "createdAt", "updatedAt"
+      FROM "Equipment"
+      ORDER BY category ASC, code ASC;
+    `;
     res.json(list);
   } catch (error: unknown) {
     console.error('GET /equipment error:', error);
@@ -1329,6 +1411,7 @@ type POCreatePayload = {
   projectId?: string;
   deliveryAddress?: string;
   priority?: string;
+  status?: string;
   notes?: string;
   promisedDeliveryDate?: string;
   currency?: string;
@@ -1376,6 +1459,24 @@ app.post('/orders', async (req, res) => {
   }
   try {
   const orderDate = p.orderDate ? new Date(p.orderDate) : new Date();
+    const allowedStatuses = new Set([
+      'DRAFT',
+      'WAITING_APPROVAL',
+      'APPROVED',
+      'ORDERED',
+      'PARTIALLY_RECEIVED',
+      'RECEIVED',
+      'CLOSED',
+      'CANCELLED',
+      'SUPPLIER_OUT_OF_STOCK',
+      'UNPAID_ORDER',
+      'PAID_FULL_ORDER',
+      'PAID_PARTIAL_ORDER',
+      'IN_DELIVERY',
+      'RETURNED_REFUSED',
+    ]);
+    const requestedStatus = typeof p.status === 'string' ? p.status.trim().toUpperCase() : undefined;
+    const desiredStatus = requestedStatus && allowedStatuses.has(requestedStatus) ? requestedStatus : undefined;
   // Generate / retry logic to avoid 409 on concurrent inserts
     let attempts = 0; let created: any; let lastError: any; let poNumber = p.poNumber?.trim();
     while (attempts < 5) {
@@ -1394,6 +1495,7 @@ app.post('/orders', async (req, res) => {
             projectId: cleanOptional(p.projectId),
             deliveryAddress: cleanOptional(p.deliveryAddress),
             priority: (p.priority?.toUpperCase() as any) || 'MEDIUM',
+            ...(desiredStatus ? { status: desiredStatus } : {}),
             notes: cleanOptional(p.notes),
             promisedDeliveryDate: p.promisedDeliveryDate ? new Date(p.promisedDeliveryDate) : null,
             currency: (p.currency as any) || 'RON',
@@ -1901,14 +2003,16 @@ app.delete('/company-shutdowns/:id', async (req, res) => {
 /* ===================== BOOT ===================== */
 
 const PORT = Number(process.env.PORT || 4000);
+const HOST = process.env.HOST || '0.0.0.0';
 
 (async () => {
   try {
     await prisma.$connect();
   console.log('Prisma connected to DB');
     console.log('DB URL:', process.env.DATABASE_URL);
-    app.listen(PORT, () =>
-      console.log(`API running on http://localhost:${PORT}`)
+    await ensureOrderStatusEnum();
+    app.listen(PORT, HOST, () =>
+      console.log(`API running on http://${HOST}:${PORT}`)
     );
   } catch (error: unknown) {
   console.error('Prisma failed to connect:', error);

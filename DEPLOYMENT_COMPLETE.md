@@ -151,7 +151,7 @@ Replace with `teamPage.improved.tsx`:
 
 Drept Total:        23 zile (21 bază + 2 vechime)
 Acumulat până azi:  15 zile
-Report din 2024:    3 zile (expiră 31 Martie)
+Report din 2024:    3 zile
 
 Folosit:            8 zile
   └ Voluntar:       5 zile

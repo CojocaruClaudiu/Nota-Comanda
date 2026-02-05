@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -17,6 +17,7 @@ import {
   InputAdornment,
   Alert,
   Chip,
+  Checkbox,
   Divider,
   alpha,
 } from '@mui/material';
@@ -54,6 +55,8 @@ export type MaterialItem = {
   supplier?: string; // Furnizor
   packageSize?: number | null; // Mărime pachet (ex: 25 kg/buc)
   packageUnit?: string; // Unitate pachet (ex: kg, buc)
+  markupUsesStandard?: boolean;
+  discountUsesStandard?: boolean;
 };
 
 // Labor (Manopera) Types
@@ -70,6 +73,8 @@ export type LaborItem = {
   valueWithMarkup: number | null;
   discountPercent: number | null;
   finalValue: number | null;
+  markupUsesStandard?: boolean;
+  discountUsesStandard?: boolean;
 };
 
 interface DevizeModalProps {
@@ -109,6 +114,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const [stdMarkup, setStdMarkup] = useState<number>(standardMarkup || 0);
   const [stdDiscount, setStdDiscount] = useState<number>(standardDiscount || 0);
   const [stdIndirect, setStdIndirect] = useState<number>(standardIndirectCosts || 0);
+  const debugDevize = import.meta.env.DEV;
 
   // Sync incoming props when Devize opens
   useEffect(() => {
@@ -155,22 +161,32 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     };
   }, [open]);
 
-  // Helper function to calculate values
-  const calculateMaterialValues = (item: Partial<MaterialItem>): Partial<MaterialItem> => {
+  // Helper function to calculate values - takes standard values as params to avoid stale closures
+  const calculateMaterialValues = (
+    item: Partial<MaterialItem>,
+    standardMarkupValue: number = stdMarkup,
+    standardDiscountValue: number = stdDiscount
+  ): Partial<MaterialItem> => {
     const qty = item.quantity || 0;
     const price = item.unitPrice || 0;
     const baseValue = qty * price;
-    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
-    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
-    const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
-    const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
+    const usesStdMarkup = item.markupUsesStandard ?? true;
+    const usesStdDiscount = item.discountUsesStandard ?? true;
+    const markupValue = usesStdMarkup
+      ? standardMarkupValue
+      : (item.markupPercent ?? standardMarkupValue);
+    const discountValue = usesStdDiscount
+      ? standardDiscountValue
+      : (item.discountPercent ?? standardDiscountValue);
+  const valueWithMarkup = baseValue * (1 + (markupValue || 0) / 100);
+    const finalValue = valueWithMarkup * (1 - (discountValue || 0) / 100);
 
     return {
       ...item,
       baseValue,
-      markupPercent: markup,
+      markupPercent: markupValue,
       valueWithMarkup,
-      discountPercent: discount,
+      discountPercent: discountValue,
       finalValue,
     };
   };
@@ -190,10 +206,29 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         ...m,
         orderNum: idx + 1,
       }))
-      .map((m) => calculateMaterialValues(m) as MaterialItem);
+      .map((m) => {
+        // Default to using standard values unless explicitly set to false
+        // This ensures items follow the standard percentage when reopened
+        const usesStdMarkup = m.markupUsesStandard !== false;
+        const usesStdDiscount = m.discountUsesStandard !== false;
+        
+        // If using standard, update the percent values to current standard
+        const materialWithStandards: MaterialItem = {
+          ...m,
+          markupPercent: usesStdMarkup ? stdMarkup : m.markupPercent,
+          discountPercent: usesStdDiscount ? stdDiscount : m.discountPercent,
+        };
+        
+        const calculated = calculateMaterialValues(materialWithStandards, stdMarkup, stdDiscount) as MaterialItem;
+        return {
+          ...calculated,
+          markupUsesStandard: usesStdMarkup,
+          discountUsesStandard: usesStdDiscount,
+        };
+      });
     
     setMaterials(seeded);
-  }, [open, initialMaterials, stdMarkup, stdDiscount]);
+  }, [open, initialMaterials]);
 
   // Seed labor when parent provides initial list
   React.useEffect(() => {
@@ -209,35 +244,111 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
         ...l,
         orderNum: idx + 1,
       }))
-      .map((l) => calculateLaborValues(l) as LaborItem);
+      .map((l) => {
+        // Default to using standard values unless explicitly set to false
+        // This ensures items follow the standard percentage when reopened
+        const usesStdMarkup = l.markupUsesStandard !== false;
+        const usesStdDiscount = l.discountUsesStandard !== false;
+        
+        // If using standard, update the percent values to current standard
+        const laborWithStandards: LaborItem = {
+          ...l,
+          markupPercent: usesStdMarkup ? stdMarkup : l.markupPercent,
+          discountPercent: usesStdDiscount ? stdDiscount : l.discountPercent,
+        };
+        
+        const calculated = calculateLaborValues(laborWithStandards, stdMarkup, stdDiscount) as LaborItem;
+        return {
+          ...calculated,
+          markupUsesStandard: usesStdMarkup,
+          discountUsesStandard: usesStdDiscount,
+        };
+      });
     
     setLabor(seeded);
-  }, [open, initialLabor, stdMarkup, stdDiscount]);
+  }, [open, initialLabor]);
 
-  const calculateLaborValues = (item: Partial<LaborItem>): Partial<LaborItem> => {
+  const calculateLaborValues = (
+    item: Partial<LaborItem>,
+    standardMarkupValue: number = stdMarkup,
+    standardDiscountValue: number = stdDiscount
+  ): Partial<LaborItem> => {
     const qty = item.quantity || 0;
     const price = item.unitPrice || 0;
     const baseValue = qty * price;
-    const markup = item.markupPercent !== undefined && item.markupPercent !== null ? item.markupPercent : stdMarkup;
-    const discount = item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : stdDiscount;
-    const valueWithMarkup = baseValue * (1 + (markup || 0) / 100);
-    const finalValue = valueWithMarkup * (1 - (discount || 0) / 100);
+    const usesStdMarkup = item.markupUsesStandard ?? true;
+    const usesStdDiscount = item.discountUsesStandard ?? true;
+    const markupValue = usesStdMarkup
+      ? standardMarkupValue
+      : (item.markupPercent ?? standardMarkupValue);
+    const discountValue = usesStdDiscount
+      ? standardDiscountValue
+      : (item.discountPercent ?? standardDiscountValue);
+    const valueWithMarkup = baseValue * (1 + (markupValue || 0) / 100);
+    const finalValue = valueWithMarkup * (1 - (discountValue || 0) / 100);
 
     return {
       ...item,
       baseValue,
-      markupPercent: markup,
+      markupPercent: markupValue,
       valueWithMarkup,
-      discountPercent: discount,
+      discountPercent: discountValue,
       finalValue,
     };
   };
 
-  // Recompute rows when standard parameters change
   useEffect(() => {
-    setMaterials(prev => prev.map(m => calculateMaterialValues(m) as MaterialItem));
-    setLabor(prev => prev.map(l => calculateLaborValues(l) as LaborItem));
-  }, [stdMarkup, stdDiscount]);
+    if (!debugDevize) return;
+    console.groupCollapsed('[Devize] Standard change');
+    console.log('stdMarkup', stdMarkup, 'stdDiscount', stdDiscount);
+    console.table(
+      materials.map((m) => ({
+        id: m.id,
+        code: m.materialCode,
+        markup: m.markupPercent,
+        inheritsMarkup: m.markupUsesStandard,
+        discount: m.discountPercent,
+        inheritsDiscount: m.discountUsesStandard,
+      })),
+    );
+    console.table(
+      labor.map((l) => ({
+        id: l.id,
+        description: l.laborDescription,
+        markup: l.markupPercent,
+        inheritsMarkup: l.markupUsesStandard,
+        discount: l.discountPercent,
+        inheritsDiscount: l.discountUsesStandard,
+      })),
+    );
+    console.groupEnd();
+  }, [stdMarkup, stdDiscount, materials, labor, debugDevize]);
+
+  const materialsView = useMemo(() =>
+    materials.map((m) => {
+      const updated: MaterialItem = {
+        ...m,
+        markupUsesStandard: m.markupUsesStandard ?? true,
+        discountUsesStandard: m.discountUsesStandard ?? true,
+        markupPercent: (m.markupUsesStandard ?? true) ? stdMarkup : m.markupPercent,
+        discountPercent: (m.discountUsesStandard ?? true) ? stdDiscount : m.discountPercent,
+      };
+      return calculateMaterialValues(updated, stdMarkup, stdDiscount) as MaterialItem;
+    }),
+    [materials, stdMarkup, stdDiscount]);
+
+  const laborView = useMemo(() =>
+    labor.map((l) => {
+      const updated: LaborItem = {
+        ...l,
+        markupUsesStandard: l.markupUsesStandard ?? true,
+        discountUsesStandard: l.discountUsesStandard ?? true,
+        markupPercent: (l.markupUsesStandard ?? true) ? stdMarkup : l.markupPercent,
+        discountPercent: (l.discountUsesStandard ?? true) ? stdDiscount : l.discountPercent,
+      };
+      return calculateLaborValues(updated, stdMarkup, stdDiscount) as LaborItem;
+    }),
+    [labor, stdMarkup, stdDiscount]);
 
   // Bubble parameter updates to parent
   useEffect(() => {
@@ -266,6 +377,8 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       supplier: '',
       packageSize: null,
       packageUnit: '',
+      markupUsesStandard: true,
+      discountUsesStandard: true,
     };
     setMaterials([...materials, newMaterial]);
   };
@@ -273,8 +386,43 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const handleUpdateMaterial = (id: string, updates: Partial<MaterialItem>) => {
     setMaterials(prev => prev.map(m => {
       if (m.id === id) {
-        const updated = { ...m, ...updates };
-        return calculateMaterialValues(updated) as MaterialItem;
+        const updated: MaterialItem = { ...m, ...updates };
+
+        const hasMarkupStandardUpdate = Object.prototype.hasOwnProperty.call(updates, 'markupUsesStandard');
+        const hasDiscountStandardUpdate = Object.prototype.hasOwnProperty.call(updates, 'discountUsesStandard');
+        const hasMarkupPercentUpdate = Object.prototype.hasOwnProperty.call(updates, 'markupPercent');
+        const hasDiscountPercentUpdate = Object.prototype.hasOwnProperty.call(updates, 'discountPercent');
+
+        if (hasMarkupStandardUpdate) {
+          const usesStandard = Boolean(updates.markupUsesStandard);
+          updated.markupUsesStandard = usesStandard;
+          if (usesStandard) updated.markupPercent = stdMarkup;
+        }
+        if (hasDiscountStandardUpdate) {
+          const usesStandard = Boolean(updates.discountUsesStandard);
+          updated.discountUsesStandard = usesStandard;
+          if (usesStandard) updated.discountPercent = stdDiscount;
+        }
+
+        if (hasMarkupPercentUpdate && !hasMarkupStandardUpdate) {
+          const val = updates.markupPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdMarkup;
+          updated.markupUsesStandard = usesStandard;
+          updated.markupPercent = usesStandard ? stdMarkup : (val != null ? Number(val) : null);
+        }
+        if (hasDiscountPercentUpdate && !hasDiscountStandardUpdate) {
+          const val = updates.discountPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdDiscount;
+          updated.discountUsesStandard = usesStandard;
+          updated.discountPercent = usesStandard ? stdDiscount : (val != null ? Number(val) : null);
+        }
+
+        const calculated = calculateMaterialValues(updated, stdMarkup, stdDiscount) as MaterialItem;
+        return {
+          ...calculated,
+          markupUsesStandard: updated.markupUsesStandard ?? m.markupUsesStandard ?? true,
+          discountUsesStandard: updated.discountUsesStandard ?? m.discountUsesStandard ?? true,
+        };
       }
       return m;
     }));
@@ -297,6 +445,8 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
       valueWithMarkup: null,
       discountPercent: stdDiscount,
       finalValue: null,
+      markupUsesStandard: true,
+      discountUsesStandard: true,
     };
     setLabor([...labor, newLabor]);
   };
@@ -304,8 +454,40 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   const handleUpdateLabor = (id: string, updates: Partial<LaborItem>) => {
     setLabor(prev => prev.map(l => {
       if (l.id === id) {
-        const updated = { ...l, ...updates };
-        return calculateLaborValues(updated) as LaborItem;
+        const updated: LaborItem = { ...l, ...updates };
+        const hasMarkupStandardUpdate = Object.prototype.hasOwnProperty.call(updates, 'markupUsesStandard');
+        const hasDiscountStandardUpdate = Object.prototype.hasOwnProperty.call(updates, 'discountUsesStandard');
+        const hasMarkupPercentUpdate = Object.prototype.hasOwnProperty.call(updates, 'markupPercent');
+        const hasDiscountPercentUpdate = Object.prototype.hasOwnProperty.call(updates, 'discountPercent');
+
+        if (hasMarkupStandardUpdate) {
+          const usesStandard = Boolean(updates.markupUsesStandard);
+          updated.markupUsesStandard = usesStandard;
+          if (usesStandard) updated.markupPercent = stdMarkup;
+        }
+        if (hasDiscountStandardUpdate) {
+          const usesStandard = Boolean(updates.discountUsesStandard);
+          updated.discountUsesStandard = usesStandard;
+          if (usesStandard) updated.discountPercent = stdDiscount;
+        }
+        if (hasMarkupPercentUpdate && !hasMarkupStandardUpdate) {
+          const val = updates.markupPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdMarkup;
+          updated.markupUsesStandard = usesStandard;
+          updated.markupPercent = usesStandard ? stdMarkup : (val != null ? Number(val) : null);
+        }
+        if (hasDiscountPercentUpdate && !hasDiscountStandardUpdate) {
+          const val = updates.discountPercent as number | null | undefined;
+          const usesStandard = val == null || val === stdDiscount;
+          updated.discountUsesStandard = usesStandard;
+          updated.discountPercent = usesStandard ? stdDiscount : (val != null ? Number(val) : null);
+        }
+        const calculated = calculateLaborValues(updated, stdMarkup, stdDiscount) as LaborItem;
+        return {
+          ...calculated,
+          markupUsesStandard: updated.markupUsesStandard ?? l.markupUsesStandard ?? true,
+          discountUsesStandard: updated.discountUsesStandard ?? l.discountUsesStandard ?? true,
+        };
       }
       return l;
     }));
@@ -356,7 +538,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     ]);
 
     // Material rows
-    materials.forEach((material, index) => {
+  materialsView.forEach((material, index) => {
       const quantity = material.quantity || 0;
       const packageSize = material.packageSize || 0;
       const packageUnit = material.packageUnit || '';
@@ -470,7 +652,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     ]);
 
     // Labor rows
-    labor.forEach((item, index) => {
+  laborView.forEach((item, index) => {
       wsData.push([
         index + 1,
         item.operationCode || '-',
@@ -491,10 +673,10 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     wsData.push([]);
 
     // Totals section
-    const totalBase = labor.reduce((sum, l) => sum + (l.baseValue || 0), 0);
-    const totalWithMarkup = labor.reduce((sum, l) => sum + (l.valueWithMarkup || 0), 0);
+  const totalBase = laborView.reduce((sum, l) => sum + (l.baseValue || 0), 0);
+  const totalWithMarkup = laborView.reduce((sum, l) => sum + (l.valueWithMarkup || 0), 0);
     const totalMarkupAmount = totalWithMarkup - totalBase;
-    const totalDiscountAmount = totalWithMarkup - labor.reduce((sum, l) => sum + (l.finalValue || 0), 0);
+  const totalDiscountAmount = totalWithMarkup - laborView.reduce((sum, l) => sum + (l.finalValue || 0), 0);
     
     wsData.push(['', '', '', '', '', '', '', 'TOTAL BAZĂ:', totalBase]);
     wsData.push(['', '', '', '', '', '', '', `Adaos Mediu (${stdMarkup}%):`, totalMarkupAmount]);
@@ -545,270 +727,480 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
   };
 
   // Totals
-  const materialsTotal = useMemo(() => materials.reduce((sum, m) => sum + (m.finalValue || 0), 0), [materials]);
-  const laborTotal = useMemo(() => labor.reduce((sum, l) => sum + (l.finalValue || 0), 0), [labor]);
+  const materialsTotal = useMemo(() => materialsView.reduce((sum, m) => sum + (m.finalValue || 0), 0), [materialsView]);
+  const laborTotal = useMemo(() => laborView.reduce((sum, l) => sum + (l.finalValue || 0), 0), [laborView]);
   const indirectAmount = useMemo(() => ((materialsTotal + laborTotal) * (stdIndirect || 0)) / 100, [materialsTotal, laborTotal, stdIndirect]);
   const grandTotal = useMemo(() => materialsTotal + laborTotal + indirectAmount, [materialsTotal, laborTotal, indirectAmount]);
 
-  // Materials Table Columns
+  // Materials Table Columns - Compact design
   const materialsColumns = useMemo<MRT_ColumnDef<MaterialItem>[]>(
     () => [
       {
-        accessorKey: 'operationCode',
-        header: 'Cod Operație',
-        size: 100,
+        id: 'operation',
+        header: 'Operație',
+        size: 140,
         enableEditing: false,
+        accessorFn: (row) => `${row.operationCode} - ${row.operationDescription}`,
+        Cell: ({ row }) => (
+          <Tooltip title={row.original.operationDescription} arrow>
+            <Box>
+              <Typography variant="caption" fontWeight="bold" color="primary.main">
+                {row.original.operationCode}
+              </Typography>
+              <Typography variant="caption" display="block" noWrap sx={{ maxWidth: 120 }}>
+                {row.original.operationDescription}
+              </Typography>
+            </Box>
+          </Tooltip>
+        ),
       },
       {
-        accessorKey: 'operationDescription',
-        header: 'Descriere Operație',
-        size: 150,
-        enableEditing: false,
-      },
-      {
-        accessorKey: 'materialCode',
-        header: 'Cod Material',
-        size: 120,
-      },
-      {
-        accessorKey: 'materialDescription',
-        header: 'Descriere Material',
-        size: 200,
+        id: 'material',
+        header: 'Material',
+        size: 180,
+        accessorFn: (row) => `${row.materialCode} ${row.materialDescription}`,
+        Cell: ({ row }) => (
+          <Tooltip title={`${row.original.materialCode} - ${row.original.materialDescription}`} arrow>
+            <Box>
+              <Typography variant="caption" fontWeight="bold" color="secondary.main">
+                {row.original.materialCode || '—'}
+              </Typography>
+              <Typography variant="caption" display="block" noWrap sx={{ maxWidth: 160 }}>
+                {row.original.materialDescription || '—'}
+              </Typography>
+            </Box>
+          </Tooltip>
+        ),
       },
       {
         accessorKey: 'supplier',
         header: 'Furnizor',
-        size: 150,
+        size: 100,
+        Cell: ({ cell }) => (
+          <Tooltip title={cell.getValue<string>() || ''} arrow>
+            <Typography variant="caption" noWrap sx={{ maxWidth: 90 }}>
+              {cell.getValue<string>() || '—'}
+            </Typography>
+          </Tooltip>
+        ),
       },
       {
-        accessorKey: 'packageSize',
-        header: 'Mărime Pachet',
-        size: 120,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.01, min: 0 },
-        },
-        Cell: ({ cell, row }) => {
-          const val = cell.getValue<number | null>();
-          const unit = row.original.packageUnit;
-          if (val != null && unit) {
-            return `${val.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} ${unit}`;
-          }
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
-        },
-      },
-      {
-        id: 'packagesNeeded',
-        header: 'Nr. Pachete Necesare',
-        size: 150,
+        id: 'package',
+        header: 'Pachet',
+        size: 100,
         enableEditing: false,
         Cell: ({ row }) => {
+          const pkg = row.original.packageSize;
+          const unit = row.original.packageUnit || row.original.unit;
           const qty = row.original.quantity ?? 0;
-          const pkg = row.original.packageSize ?? 0;
-          if (qty > 0 && pkg > 0) {
-            const calc = qty / pkg;
-            return calc.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          }
-          return '—';
+          const needed = pkg && pkg > 0 && qty > 0 ? (qty / pkg) : null;
+          
+          if (!pkg) return <Typography variant="caption" color="text.disabled">—</Typography>;
+          
+          return (
+            <Tooltip title={`${pkg} ${unit} per pachet${needed ? ` • ${needed.toFixed(2)} pachete necesare` : ''}`} arrow>
+              <Box>
+                <Typography variant="caption" fontWeight="medium">
+                  {pkg} {unit}
+                </Typography>
+                {needed != null && (
+                  <Typography variant="caption" display="block" color="info.main" fontWeight="bold">
+                    ×{needed.toFixed(2)}
+                  </Typography>
+                )}
+              </Box>
+            </Tooltip>
+          );
         },
       },
       {
-        accessorKey: 'packageUnit',
-        header: 'UM Pachet',
+        id: 'qtyUnit',
+        header: 'Cant.',
         size: 100,
-      },
-      {
-        accessorKey: 'unit',
-        header: 'UM',
-        size: 80,
-      },
-      {
-        accessorKey: 'quantity',
-        header: 'Cantitate',
-        size: 100,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.01, min: 0 },
-        },
-        Cell: ({ cell }) => {
-          const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+        accessorFn: (row) => row.quantity,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const qty = row.original.quantity;
+          const unit = row.original.packageUnit || row.original.unit || 'buc';
+          return (
+            <Tooltip
+              title={
+                `Cantitate: ${qty != null ? qty.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'} ${unit}`
+              }
+              arrow
+            >
+              <Box>
+                <Typography variant="caption" fontWeight="medium">
+                  {qty != null ? qty.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'} {unit}
+                </Typography>
+              </Box>
+            </Tooltip>
+          );
         },
       },
       {
         accessorKey: 'unitPrice',
-        header: 'Preț Unitar',
-        size: 110,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.01, min: 0 },
-        },
+        header: 'Preț',
+        size: 80,
+        enableEditing: false,
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          const row = cell.row.original;
+          const unit = row.packageUnit || row.unit || 'buc';
+          return (
+            <Box>
+              <Typography variant="caption" fontWeight="medium">
+                {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'} LEI
+              </Typography>
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ lineHeight: 1.1 }}>
+                / {unit}
+              </Typography>
+            </Box>
+          );
         },
       },
       {
         accessorKey: 'baseValue',
-        header: 'Valoare Bază',
-        size: 120,
+        header: 'Bază',
+        size: 90,
         enableEditing: false,
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          return (
+            <Typography variant="body2" color="text.secondary">
+              {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'}
+            </Typography>
+          );
         },
       },
       {
-        accessorKey: 'markupPercent',
-        header: 'Adaos %',
-        size: 100,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.1, min: 0 },
-        },
-      },
-      {
-        accessorKey: 'valueWithMarkup',
-        header: 'Valoare cu Adaos',
-        size: 130,
+        id: 'markupCombined',
+        header: 'Adaos',
+        size: 110,
         enableEditing: false,
-        Cell: ({ cell }) => {
-          const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+        Cell: ({ row }) => {
+          const usesStandard = row.original.markupUsesStandard ?? true;
+          const value = usesStandard ? stdMarkup : (row.original.markupPercent ?? stdMarkup);
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Checkbox
+                size="small"
+                checked={usesStandard}
+                color="success"
+                onChange={(e) => {
+                  handleUpdateMaterial(
+                    row.original.id,
+                    e.target.checked
+                      ? { markupUsesStandard: true, markupPercent: stdMarkup }
+                      : { markupUsesStandard: false },
+                  );
+                }}
+                sx={{ p: 0.25 }}
+              />
+              {usesStandard ? (
+                <Typography variant="body2" color="success.main">
+                  {value?.toFixed(1)}%
+                </Typography>
+              ) : (
+                <TextField
+                  size="small"
+                  type="number"
+                  value={row.original.markupPercent ?? ''}
+                  onChange={(e) => {
+                    const newVal = e.target.value === '' ? null : parseFloat(e.target.value);
+                    handleUpdateMaterial(row.original.id, { markupPercent: newVal ?? 0 });
+                  }}
+                  inputProps={{ step: 0.1, min: 0, style: { textAlign: 'right', padding: '4px' } }}
+                  sx={{ 
+                    width: 55,
+                    '& .MuiInputBase-input': { fontSize: '0.875rem', fontWeight: 600, color: 'success.main' }
+                  }}
+                />
+              )}
+            </Box>
+          );
         },
       },
       {
-        accessorKey: 'discountPercent',
-        header: 'Discount %',
-        size: 100,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.1, min: 0, max: 100 },
+        id: 'discountCombined',
+        header: 'Disc.',
+        size: 110,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const usesStandard = row.original.discountUsesStandard ?? true;
+          const value = usesStandard ? stdDiscount : (row.original.discountPercent ?? stdDiscount);
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Checkbox
+                size="small"
+                checked={usesStandard}
+                color="warning"
+                onChange={(e) => {
+                  handleUpdateMaterial(
+                    row.original.id,
+                    e.target.checked
+                      ? { discountUsesStandard: true, discountPercent: stdDiscount }
+                      : { discountUsesStandard: false },
+                  );
+                }}
+                sx={{ p: 0.25 }}
+              />
+              {usesStandard ? (
+                <Typography variant="body2" color="warning.main">
+                  {value?.toFixed(1)}%
+                </Typography>
+              ) : (
+                <TextField
+                  size="small"
+                  type="number"
+                  value={row.original.discountPercent ?? ''}
+                  onChange={(e) => {
+                    const newVal = e.target.value === '' ? null : parseFloat(e.target.value);
+                    handleUpdateMaterial(row.original.id, { discountPercent: newVal ?? 0 });
+                  }}
+                  inputProps={{ step: 0.1, min: 0, max: 100, style: { textAlign: 'right', padding: '4px' } }}
+                  sx={{ 
+                    width: 55,
+                    '& .MuiInputBase-input': { fontSize: '0.875rem', fontWeight: 600, color: 'warning.main' }
+                  }}
+                />
+              )}
+            </Box>
+          );
         },
       },
       {
         accessorKey: 'finalValue',
-        header: 'Valoare Finală',
-        size: 130,
+        header: 'Total',
+        size: 100,
         enableEditing: false,
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
           return (
             <Typography variant="body2" fontWeight="bold" color="success.main">
-              {val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—'}
+              {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'}
             </Typography>
           );
         },
       },
     ],
-    []
+    [stdMarkup, stdDiscount]
   );
 
-  // Labor Table Columns
+  // Labor Table Columns - Compact design
   const laborColumns = useMemo<MRT_ColumnDef<LaborItem>[]>(
     () => [
       {
-        accessorKey: 'operationCode',
-        header: 'Cod Operație',
-        size: 100,
+        id: 'operation',
+        header: 'Operație',
+        size: 140,
         enableEditing: false,
-      },
-      {
-        accessorKey: 'operationDescription',
-        header: 'Descriere Operație',
-        size: 180,
-        enableEditing: false,
+        accessorFn: (row) => `${row.operationCode} - ${row.operationDescription}`,
+        Cell: ({ row }) => (
+          <Tooltip title={row.original.operationDescription} arrow>
+            <Box>
+              <Typography variant="caption" fontWeight="bold" color="primary.main">
+                {row.original.operationCode}
+              </Typography>
+              <Typography variant="caption" display="block" noWrap sx={{ maxWidth: 120 }}>
+                {row.original.operationDescription}
+              </Typography>
+            </Box>
+          </Tooltip>
+        ),
       },
       {
         accessorKey: 'laborDescription',
-        header: 'Descriere Linie Manoperă',
-        size: 250,
+        header: 'Descriere Manoperă',
+        size: 200,
+        Cell: ({ cell }) => (
+          <Tooltip title={cell.getValue<string>() || ''} arrow>
+            <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>
+              {cell.getValue<string>() || '—'}
+            </Typography>
+          </Tooltip>
+        ),
       },
       {
         accessorKey: 'quantity',
-        header: 'Cantitate',
-        size: 100,
+        header: 'Cant.',
+        size: 80,
         muiEditTextFieldProps: {
           type: 'number',
           inputProps: { step: 0.01, min: 0 },
+          helperText: 'ore',
+          FormHelperTextProps: {
+            sx: { mt: 0.25, fontSize: 11, lineHeight: 1, color: 'text.secondary' },
+          },
         },
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          return (
+            <Box>
+              <Typography variant="caption" fontWeight="medium">
+                {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'} ore
+              </Typography>
+            </Box>
+          );
         },
       },
       {
         accessorKey: 'unitPrice',
-        header: 'Preț Unitar',
-        size: 110,
+        header: 'Preț',
+        size: 80,
         muiEditTextFieldProps: {
           type: 'number',
           inputProps: { step: 0.01, min: 0 },
+          helperText: 'LEI / oră',
+          FormHelperTextProps: {
+            sx: { mt: 0.25, fontSize: 11, lineHeight: 1, color: 'text.secondary' },
+          },
         },
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          return (
+            <Box>
+              <Typography variant="caption" fontWeight="medium">
+                {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'} LEI
+              </Typography>
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ lineHeight: 1.1 }}>
+                / ore
+              </Typography>
+            </Box>
+          );
         },
       },
       {
         accessorKey: 'baseValue',
-        header: 'Valoare Bază',
-        size: 120,
+        header: 'Bază',
+        size: 90,
         enableEditing: false,
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+          return (
+            <Typography variant="body2" color="text.secondary">
+              {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'}
+            </Typography>
+          );
         },
       },
       {
-        accessorKey: 'markupPercent',
-        header: 'Adaos %',
-        size: 100,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.1, min: 0 },
-        },
-      },
-      {
-        accessorKey: 'valueWithMarkup',
-        header: 'Valoare cu Adaos',
-        size: 130,
+        id: 'markupCombined',
+        header: 'Adaos',
+        size: 110,
         enableEditing: false,
-        Cell: ({ cell }) => {
-          const val = cell.getValue<number | null>();
-          return val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—';
+        Cell: ({ row }) => {
+          const usesStandard = row.original.markupUsesStandard ?? true;
+          const value = usesStandard ? stdMarkup : (row.original.markupPercent ?? stdMarkup);
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Checkbox
+                size="small"
+                checked={usesStandard}
+                color="success"
+                onChange={(e) => {
+                  handleUpdateLabor(
+                    row.original.id,
+                    e.target.checked
+                      ? { markupUsesStandard: true, markupPercent: stdMarkup }
+                      : { markupUsesStandard: false },
+                  );
+                }}
+                sx={{ p: 0.25 }}
+              />
+              {usesStandard ? (
+                <Typography variant="body2" color="success.main">
+                  {value?.toFixed(1)}%
+                </Typography>
+              ) : (
+                <TextField
+                  size="small"
+                  type="number"
+                  value={row.original.markupPercent ?? ''}
+                  onChange={(e) => {
+                    const newVal = e.target.value === '' ? null : parseFloat(e.target.value);
+                    handleUpdateLabor(row.original.id, { markupPercent: newVal ?? 0 });
+                  }}
+                  inputProps={{ step: 0.1, min: 0, style: { textAlign: 'right', padding: '4px' } }}
+                  sx={{ 
+                    width: 55,
+                    '& .MuiInputBase-input': { fontSize: '0.875rem', fontWeight: 600, color: 'success.main' }
+                  }}
+                />
+              )}
+            </Box>
+          );
         },
       },
       {
-        accessorKey: 'discountPercent',
-        header: 'Discount %',
-        size: 100,
-        muiEditTextFieldProps: {
-          type: 'number',
-          inputProps: { step: 0.1, min: 0, max: 100 },
+        id: 'discountCombined',
+        header: 'Disc.',
+        size: 110,
+        enableEditing: false,
+        Cell: ({ row }) => {
+          const usesStandard = row.original.discountUsesStandard ?? true;
+          const value = usesStandard ? stdDiscount : (row.original.discountPercent ?? stdDiscount);
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Checkbox
+                size="small"
+                checked={usesStandard}
+                color="warning"
+                onChange={(e) => {
+                  handleUpdateLabor(
+                    row.original.id,
+                    e.target.checked
+                      ? { discountUsesStandard: true, discountPercent: stdDiscount }
+                      : { discountUsesStandard: false },
+                  );
+                }}
+                sx={{ p: 0.25 }}
+              />
+              {usesStandard ? (
+                <Typography variant="body2" color="warning.main">
+                  {value?.toFixed(1)}%
+                </Typography>
+              ) : (
+                <TextField
+                  size="small"
+                  type="number"
+                  value={row.original.discountPercent ?? ''}
+                  onChange={(e) => {
+                    const newVal = e.target.value === '' ? null : parseFloat(e.target.value);
+                    handleUpdateLabor(row.original.id, { discountPercent: newVal ?? 0 });
+                  }}
+                  inputProps={{ step: 0.1, min: 0, max: 100, style: { textAlign: 'right', padding: '4px' } }}
+                  sx={{ 
+                    width: 55,
+                    '& .MuiInputBase-input': { fontSize: '0.875rem', fontWeight: 600, color: 'warning.main' }
+                  }}
+                />
+              )}
+            </Box>
+          );
         },
       },
       {
         accessorKey: 'finalValue',
-        header: 'Valoare Finală',
-        size: 130,
+        header: 'Total',
+        size: 100,
         enableEditing: false,
         Cell: ({ cell }) => {
           const val = cell.getValue<number | null>();
           return (
             <Typography variant="body2" fontWeight="bold" color="success.main">
-              {val != null ? val.toLocaleString('ro-RO', { minimumFractionDigits: 2 }) : '—'}
+              {val != null ? val.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) : '—'}
             </Typography>
           );
         },
       },
     ],
-    []
+    [stdMarkup, stdDiscount]
   );
 
   const materialsTable = useMaterialReactTable({
     columns: materialsColumns,
-    data: materials,
+    data: materialsView,
     getRowId: (row) => row.id,
     localization: tableLocalization,
     enablePagination: true,
@@ -892,19 +1284,48 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
     ),
     renderBottomToolbarCustomActions: () => {
       const total = materialsTotal;
+      const customMarkupCount = materialsView.filter(m => !(m.markupUsesStandard ?? true)).length;
+      const customDiscountCount = materialsView.filter(m => !(m.discountUsesStandard ?? true)).length;
+      const baseTotal = materialsView.reduce((sum, m) => sum + (m.baseValue || 0), 0);
+      
       return (
-        <Box sx={{ p: 1 }}>
-          <Typography variant="subtitle1" fontWeight="bold" color="primary">
-            TOTAL MATERIALE: {total.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ p: 1 }} flexWrap="wrap">
+          <Chip 
+            size="small" 
+            label={`${materials.length} materiale`} 
+            variant="outlined"
+          />
+          {customMarkupCount > 0 && (
+            <Chip 
+              size="small" 
+              label={`${customMarkupCount} adaos custom`} 
+              color="success"
+              variant="outlined"
+            />
+          )}
+          {customDiscountCount > 0 && (
+            <Chip 
+              size="small" 
+              label={`${customDiscountCount} discount custom`} 
+              color="warning"
+              variant="outlined"
+            />
+          )}
+          <Divider orientation="vertical" flexItem />
+          <Typography variant="caption" color="text.secondary">
+            Bază: {baseTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI
           </Typography>
-        </Box>
+          <Typography variant="subtitle1" fontWeight="bold" color="primary">
+            TOTAL: {total.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI
+          </Typography>
+        </Stack>
       );
     },
   });
 
   const laborTable = useMaterialReactTable({
     columns: laborColumns,
-    data: labor,
+    data: laborView,
     getRowId: (row) => row.id,
     localization: tableLocalization,
     enablePagination: true,
@@ -973,7 +1394,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
             <Chip label={`Materiale: ${materialsTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="default" />
             <Chip label={`Manoperă: ${laborTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="default" />
             {stdIndirect > 0 && (
-              <Chip label={`Indirecte (${stdIndirect}%): ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="warning" />
+              <Chip label={`Indirecte (${stdIndirect}%): ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} size="small" color="info" />
             )}
             <IconButton onClick={onClose} size="small">
               <CloseIcon />
@@ -1256,7 +1677,12 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
                     size="medium"
                     type="number"
                     value={stdIndirect}
-                    onChange={(e) => setStdIndirect(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const normalized = raw.replace(/^0+(?=\d)/, "");
+                      const parsed = Number(normalized);
+                      setStdIndirect(Number.isFinite(parsed) ? parsed : 0);
+                    }}
                     inputProps={{ step: '0.5', min: '0', max: '100' }}
                     InputProps={{
                       startAdornment: (
@@ -1369,7 +1795,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
                 Nu există materiale în listă. Folosește butonul „Adaugă Material” pentru a începe.
               </Alert>
             ) : null}
-            <MaterialReactTable table={materialsTable} />
+            <MaterialReactTable key={`mat-${stdMarkup}-${stdDiscount}`} table={materialsTable} />
           </Box>
         )}
 
@@ -1380,7 +1806,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
                 Nu există linii de manoperă. Folosește butonul „Adaugă Manoperă” pentru a adăuga.
               </Alert>
             ) : null}
-            <MaterialReactTable table={laborTable} />
+            <MaterialReactTable key={`lab-${stdMarkup}-${stdDiscount}`} table={laborTable} />
           </Box>
         )}
       </DialogContent>
@@ -1392,7 +1818,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
               <Chip size="small" label={`Total materiale: ${materialsTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
               <Chip size="small" label={`Total manoperă: ${laborTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
               {stdIndirect > 0 && (
-                <Chip size="small" color="warning" label={`Indirecte ${stdIndirect}%: ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
+                <Chip size="small" color="info" label={`Indirecte ${stdIndirect}%: ${indirectAmount.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
               )}
               <Chip size="small" color="success" label={`Total general: ${grandTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} LEI`} />
             </Stack>
@@ -1401,7 +1827,7 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
             <Button onClick={onClose} variant="outlined">Anulează</Button>
             <Button
               onClick={() => {
-                onSave(materials, labor);
+                onSave(materialsView, laborView);
                 onClose();
               }}
               variant="contained"
@@ -1416,3 +1842,9 @@ const DevizeModal: React.FC<DevizeModalProps> = ({
 };
 
 export default DevizeModal;
+
+
+
+
+
+

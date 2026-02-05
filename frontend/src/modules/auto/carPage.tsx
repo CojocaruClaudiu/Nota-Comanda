@@ -1,4 +1,4 @@
-// src/pages/auto/CarPage.tsx
+﻿// src/pages/auto/CarPage.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Paper, Stack, Typography, Button, Chip, Tooltip, CircularProgress, Alert, IconButton } from '@mui/material';
 import {
@@ -56,8 +56,8 @@ const daysLeft = (iso?: string | null) => {
   if (!d.isValid()) return null;
   return d.startOf('day').diff(dayjs().startOf('day'), 'day');
 };
-const chipFor = (label: string, iso?: string | null) => {
-  const n = daysLeft(iso);
+const chipFor = (label: string, iso?: string | null, days?: number | null) => {
+  const n = typeof days === 'number' ? days : daysLeft(iso);
   let color: 'default' | 'success' | 'warning' | 'error' = 'default';
   let text = '—';
   if (n !== null) {
@@ -78,6 +78,55 @@ const chipFor = (label: string, iso?: string | null) => {
   return (
     <Tooltip title={`${label}: ${iso ? dmy(iso) : '—'}`}>
       <Chip label={`${label}: ${text}`} color={color} size="small" />
+    </Tooltip>
+  );
+};
+const expiryLabel = (days?: number | null) => {
+  if (days == null) return '—';
+  if (days <= 0) return 'EXPIRAT';
+  return `${days} zile`;
+};
+const rcaDirectLabel = (direct?: boolean | null) => (direct ? 'DD' : '');
+const chipForRca = (iso?: string | null, days?: number | null, direct?: boolean | null) => {
+  const n = typeof days === 'number' ? days : daysLeft(iso);
+  const text = expiryLabel(n);
+  let color: 'default' | 'success' | 'warning' | 'error' = 'default';
+  if (n !== null) {
+    if (n <= 0) color = 'error';
+    else if (n <= 30) color = 'error';
+    else if (n <= 90) color = 'warning';
+    else color = 'success';
+  }
+
+  const ddLabel = rcaDirectLabel(direct);
+  const suffix = ddLabel ? ` • ${ddLabel}` : '';
+  return (
+    <Tooltip title={`RCA: ${iso ? dmy(iso) : '—'}${suffix}`}>
+      <Chip
+        color={color}
+        size="small"
+        label={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+            <span>{`RCA: ${text}`}</span>
+            {ddLabel ? (
+              <Chip
+                size="small"
+                label="DD"
+                variant="outlined"
+                sx={{
+                  height: 18,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  bgcolor: 'common.white',
+                  borderColor: 'rgba(0,0,0,0.25)',
+                  color: 'text.primary',
+                  '& .MuiChip-label': { px: 0.75 },
+                }}
+              />
+            ) : null}
+          </Box>
+        }
+      />
     </Tooltip>
   );
 };
@@ -145,16 +194,37 @@ export default function CarPage() {
     void load();
   }, [load]);
 
+  const expiryMeta = useMemo(() => {
+    const map = new Map<string, { itp?: number | null; rca?: number | null; rovi?: number | null; urgency: number }>();
+    rows.forEach((r) => {
+      const itp = daysLeft(r.expItp);
+      const rca = daysLeft(r.expRca);
+      const rovi = daysLeft(r.expRovi);
+      const list = [itp, rca, rovi].filter((x): x is number => typeof x === 'number');
+      map.set(r.id, {
+        itp,
+        rca,
+        rovi,
+        urgency: list.length ? Math.min(...list) : Number.POSITIVE_INFINITY,
+      });
+    });
+    return map;
+  }, [rows]);
+
   const columns = useMemo<MRT_ColumnDef<Car>[]>(() => [
     { accessorKey: 'placute', header: 'Plăcuțe', size: 140 },
     { accessorKey: 'marca', header: 'Marcă', size: 120 },
     { accessorKey: 'model', header: 'Model', size: 140 },
-    { accessorKey: 'an', header: 'An', size: 80 },
+    { accessorKey: 'an', header: 'An', size: 100 },
     { accessorKey: 'culoare', header: 'Culoare', size: 120, Cell: ({ cell }) => cell.getValue<string>() || '—' },
-    {
-      accessorKey: 'driver.name',
+        {
+      // Use accessorFn to safely read nested driver name without warnings when missing
+      accessorFn: (row) => row.driver?.name || '',
+      id: 'driverName',
       header: 'Șofer',
       size: 220,
+      enableGlobalFilter: true,
+      filterFn: 'includesString',
       Cell: ({ row }) => row.original.driver?.name || '—',
     },
     {
@@ -179,10 +249,12 @@ export default function CarPage() {
       id: 'itp',
       header: 'ITP',
       size: 160,
-      Cell: ({ row }) => chipFor('ITP', row.original.expItp),
+      enableSorting: true,
+      accessorFn: (row) => expiryLabel(expiryMeta.get(row.id)?.itp ?? null),
+      Cell: ({ row }) => chipFor('ITP', row.original.expItp, expiryMeta.get(row.original.id)?.itp ?? null),
       sortingFn: (a, b) => {
-        const da = daysLeft(a.original.expItp) ?? Number.POSITIVE_INFINITY;
-        const db = daysLeft(b.original.expItp) ?? Number.POSITIVE_INFINITY;
+        const da = expiryMeta.get(a.original.id)?.itp ?? Number.POSITIVE_INFINITY;
+        const db = expiryMeta.get(b.original.id)?.itp ?? Number.POSITIVE_INFINITY;
         return da - db;
       },
     },
@@ -190,10 +262,15 @@ export default function CarPage() {
       id: 'rca',
       header: 'RCA',
       size: 160,
-      Cell: ({ row }) => chipFor('RCA', row.original.expRca),
+      enableSorting: true,
+      accessorFn: (row) => {
+        const label = rcaDirectLabel(row.rcaDecontareDirecta ?? false);
+        return `${expiryLabel(expiryMeta.get(row.id)?.rca ?? null)}${label ? ` ${label}` : ''}`;
+      },
+      Cell: ({ row }) => chipForRca(row.original.expRca, expiryMeta.get(row.original.id)?.rca ?? null, row.original.rcaDecontareDirecta),
       sortingFn: (a, b) => {
-        const da = daysLeft(a.original.expRca) ?? Number.POSITIVE_INFINITY;
-        const db = daysLeft(b.original.expRca) ?? Number.POSITIVE_INFINITY;
+        const da = expiryMeta.get(a.original.id)?.rca ?? Number.POSITIVE_INFINITY;
+        const db = expiryMeta.get(b.original.id)?.rca ?? Number.POSITIVE_INFINITY;
         return da - db;
       },
     },
@@ -201,16 +278,18 @@ export default function CarPage() {
       id: 'rovi',
       header: 'Rovinietă',
       size: 180,
-      Cell: ({ row }) => chipFor('Rovinietă', row.original.expRovi),
+      enableSorting: true,
+      accessorFn: (row) => expiryLabel(expiryMeta.get(row.id)?.rovi ?? null),
+      Cell: ({ row }) => chipFor('Rovinietă', row.original.expRovi, expiryMeta.get(row.original.id)?.rovi ?? null),
       sortingFn: (a, b) => {
-        const da = daysLeft(a.original.expRovi) ?? Number.POSITIVE_INFINITY;
-        const db = daysLeft(b.original.expRovi) ?? Number.POSITIVE_INFINITY;
+        const da = expiryMeta.get(a.original.id)?.rovi ?? Number.POSITIVE_INFINITY;
+        const db = expiryMeta.get(b.original.id)?.rovi ?? Number.POSITIVE_INFINITY;
         return da - db;
       },
     },
     // hidden for default sort
-    { id: 'urgent', header: 'Urgent', accessorFn: (r) => urgency(r), enableHiding: true, enableColumnFilter: false, size: 1 },
-  ], []);
+    { id: 'urgent', header: 'Urgent', accessorFn: (r) => expiryMeta.get(r.id)?.urgency ?? Number.POSITIVE_INFINITY, enableHiding: true, enableColumnFilter: false, size: 1 },
+  ], [expiryMeta]);
 
   // CRUD handlers
   // creation handled in AddCarModal; edit handled in EditCarModal
@@ -279,7 +358,7 @@ export default function CarPage() {
     onPaginationChange: setPagination,
     initialState: {
       sorting: [{ id: 'urgent', desc: false }],
-      density: 'comfortable',
+      density: 'compact',
       pagination: { pageIndex: 0, pageSize: 10 },
       columnVisibility: { urgent: false },
     },
@@ -312,7 +391,7 @@ export default function CarPage() {
     // Row styling by urgency with zebra stripes
     muiTableBodyRowProps: ({ row }) => ({
       sx: (theme) => {
-        const n = urgency(row.original);
+        const n = expiryMeta.get(row.original.id)?.urgency ?? Number.POSITIVE_INFINITY;
         const isEvenRow = row.index % 2 === 0;
         
         // Priority 1: Urgency-based coloring
@@ -333,6 +412,8 @@ export default function CarPage() {
     muiPaginationProps: { rowsPerPageOptions: [10, 25, 50, 100] },
     muiTablePaperProps: { sx: { display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' } },
     muiTableContainerProps: { sx: { flex: 1, minHeight: 0 } },
+  muiTableHeadCellProps: { sx: { py: 0.75 } },
+  muiTableBodyCellProps: { sx: { py: 0.5 } },
 
     localization: roLoc,
   });
@@ -383,3 +464,5 @@ export default function CarPage() {
     </Box>
   );
 }
+
+

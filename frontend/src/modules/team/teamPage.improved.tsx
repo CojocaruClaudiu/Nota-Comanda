@@ -5,8 +5,10 @@ import { MRT_Localization_RO } from 'material-react-table/locales/ro';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
   CircularProgress, Chip, Alert, Card, CardContent,
-  LinearProgress, Divider, Grid
+  LinearProgress, Divider, Grid, ButtonBase
 } from '@mui/material';
+import PersonOffIcon from '@mui/icons-material/PersonOff';
+import Groups2RoundedIcon from '@mui/icons-material/Groups2Rounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
@@ -33,10 +35,40 @@ import type { EmployeeWithStats } from '../../api/employees';
 dayjs.locale('ro');
 
 /** ───────────────── Utility Functions ───────────────── **/
+const PRO_RATA_ROUND = Math.floor;
+
 const formatDate = (value?: string | Date | null): string => {
   if (!value) return '—';
   const d = typeof value === 'string' ? dayjs(value) : dayjs(value);
   return d.isValid() ? d.format('DD/MM/YYYY') : '—';
+};
+
+const isLegacyEmployee = (hiredAt?: string | Date | null): boolean => {
+  if (!hiredAt) return true;
+  const d = dayjs(hiredAt).startOf('day');
+  if (!d.isValid()) return true;
+  const now = dayjs().startOf('day');
+  const years = now.diff(d, 'year');
+  return years >= 1;
+};
+
+const getAccruedForDisplay = (employee: EmployeeWithStats, year = dayjs().year()): number => {
+  const annualEntitlement = employee.entitledDays ?? 21;
+  if (isLegacyEmployee(employee.hiredAt)) return annualEntitlement;
+
+  if (employee.leaveBalance?.accrued !== undefined) {
+    return employee.leaveBalance.accrued;
+  }
+
+  const hire = dayjs(employee.hiredAt);
+  if (!hire.isValid()) return annualEntitlement;
+
+  const yEnd = dayjs(`${year}-12-31`);
+  const denom = yEnd.diff(hire, 'day') + 1;
+  const daysSoFar = dayjs().diff(hire, 'day') + 1;
+  if (denom <= 0) return 0;
+  const safeDays = Math.max(0, Math.min(daysSoFar, denom));
+  return PRO_RATA_ROUND((annualEntitlement * safeDays) / denom);
 };
 
 /** ───────────────── Table Columns ───────────────── **/
@@ -50,12 +82,28 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
         <Typography variant="body2" fontWeight={600}>
           {cell.getValue() as string}
         </Typography>
+        {row.original.isActive === false && (
+          <Chip size="small" color="default" label="Inactiv" variant="outlined" />
+        )}
         {row.original.leaveBalance?.pendingDays !== undefined && row.original.leaveBalance.pendingDays > 0 && (
           <Tooltip title={`${row.original.leaveBalance.pendingDays} zile în așteptare aprobare`}>
             <WarningAmberIcon fontSize="small" color="warning" />
           </Tooltip>
         )}
       </Stack>
+    ),
+  },
+  {
+    accessorKey: 'isActive',
+    header: 'Status',
+    size: 100,
+    Cell: ({ cell }) => (
+      <Chip 
+        size="small" 
+        label={cell.getValue() !== false ? 'Activ' : 'Inactiv'} 
+        color={cell.getValue() !== false ? 'success' : 'default'} 
+        variant={cell.getValue() !== false ? 'filled' : 'outlined'} 
+      />
     ),
   },
   {
@@ -115,23 +163,38 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
   {
     id: 'leaveStatus',
     header: 'Concediu',
-    accessorFn: (row) => row.remainingDays ?? 0,
+    accessorFn: (row) => {
+      const currentYear = dayjs().year();
+      const accrued = getAccruedForDisplay(row, currentYear);
+      const carriedOver = row.leaveBalance?.carriedOver ?? 0;
+      const companyShutdown = row.leaveBalance?.companyShutdownDays ?? 0;
+      const voluntary = row.leaveBalance?.voluntaryDays ?? 0;
+      const taken = (companyShutdown + voluntary) || row.takenDays || 0;
+      return Math.max(0, accrued + carriedOver - taken);
+    },
     sortingFn: 'basic',
     size: 240,
     Cell: ({ row }) => {
       const employee = row.original;
       const lb = employee.leaveBalance;
+      const currentYear = dayjs().year();
+      const isLegacy = isLegacyEmployee(employee.hiredAt);
+      const annualEntitlement = employee.entitledDays ?? 21;
       
       // Use leaveBalance if available (more accurate), fallback to legacy fields
-      const accrued = lb?.accrued ?? employee.entitledDays ?? 21;
+      const accrued = getAccruedForDisplay(employee, currentYear);
       const carriedOver = lb?.carriedOver ?? 0;
       const pending = lb?.pendingDays ?? 0;
       const companyShutdown = lb?.companyShutdownDays ?? 0;
       const voluntary = lb?.voluntaryDays ?? 0;
       
-      // Calculate taken and remaining
+      // Calculate taken and remaining (consume carryover first)
       const taken = (companyShutdown + voluntary) || employee.takenDays || 0;
-      const remaining = employee.remainingDays ?? Math.max(0, accrued + carriedOver - taken);
+      const carryoverUsed = Math.min(carriedOver, taken);
+      const currentUsed = Math.max(0, taken - carryoverUsed);
+      const remainingCarryover = Math.max(0, carriedOver - taken);
+      const remainingCurrent = Math.max(0, accrued - currentUsed);
+      const remaining = Math.max(0, remainingCarryover + remainingCurrent);
       
       // Calculate total available (accrued + carryover) - this is the max possible
       const totalAvailable = accrued + carriedOver;
@@ -158,11 +221,11 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
               <Divider sx={{ mb: 0.5, borderColor: 'rgba(255,255,255,0.2)' }} />
               
               <Typography variant="caption" display="block" color="primary.light" sx={{ mb: 0.5 }}>
-                📅 Drept anual: <strong>{employee.entitledDays || 21}</strong> zile/an
+                📅 Drept anual: <strong>{annualEntitlement}</strong> zile/an
               </Typography>
               
               <Typography variant="caption" display="block">
-                ✓ Acumulat (pro-rata): <strong>{accrued}</strong> zile
+                ✓ Acumulat {isLegacy ? '(an întreg)' : '(pro-rata)'}: <strong>{accrued}</strong> zile
               </Typography>
               
               {carriedOver > 0 && (
@@ -175,6 +238,11 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
                 ✕ Folosite: <strong>{taken}</strong> zile
                 {companyShutdown > 0 && voluntary > 0 && ` (${voluntary} personale + ${companyShutdown} firmă)`}
               </Typography>
+              {(carriedOver > 0 || accrued > 0) && (
+                <Typography variant="caption" display="block" color="info.light">
+                  ↘ Consum: <strong>{carryoverUsed}</strong> reportate, <strong>{currentUsed}</strong> an curent
+                </Typography>
+              )}
               
               {pending > 0 && (
                 <Typography variant="caption" display="block" color="orange">
@@ -185,6 +253,9 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
               <Divider sx={{ my: 0.5, borderColor: 'rgba(255,255,255,0.2)' }} />
               <Typography variant="caption" display="block" fontWeight={700} color={remaining > 0 ? 'success.light' : 'error.light'}>
                 = Disponibile: <strong>{remaining}</strong> zile
+                {carriedOver > 0 && (
+                  <> (din care <strong>{remainingCarryover}</strong> reportate)</>
+                )}
               </Typography>
             </Box>
           }
@@ -192,7 +263,21 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
           <Box sx={{ width: '100%' }}>
             <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" flexWrap="wrap">
               <Chip
-                label={`${remaining}/${totalAvailable}`}
+                label={
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.2 }}>
+                    <Box component="span" sx={{ fontWeight: 700 }}>{remaining}</Box>
+                    <Box component="span" sx={{ mx: 0.2 }}>/</Box>
+                    <Box
+                      component="span"
+                      sx={{
+                        fontWeight: 700,
+                        color: 'inherit',
+                      }}
+                    >
+                      {annualEntitlement}
+                    </Box>
+                  </Box>
+                }
                 size="small"
                 color={color}
                 icon={hasWarnings ? <WarningAmberIcon /> : remaining > 0 ? <CheckCircleIcon /> : <WarningAmberIcon />}
@@ -200,9 +285,9 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
               />
               
               {carriedOver > 0 && (
-                <Tooltip title="Zile reportate din anul trecut (expiră 31 martie)">
+                <Tooltip title="Zile reportate din anul trecut">
                   <Chip
-                    label={`+${carriedOver}`}
+                    label={`+${carriedOver} din ${dayjs().year() - 1}`}
                     size="small"
                     color="info"
                     variant="outlined"
@@ -224,7 +309,7 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
               )}
             </Stack>
             
-            {/* Multi-layer progress bar showing full year allocation */}
+            {/* Main progress bar (no split) */}
             <Box sx={{ position: 'relative', mt: 0.5 }}>
               {/* Background layer: Full annual entitlement (greyed out) */}
               <Box
@@ -237,28 +322,13 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
                   overflow: 'hidden',
                 }}
               >
-                {/* Layer 1: Total available (accrued + carryover) - lighter shade */}
                 <Box
                   sx={{
                     position: 'absolute',
                     left: 0,
                     top: 0,
                     height: '100%',
-                    width: `${Math.min(100, (totalAvailable / (employee.entitledDays || 21)) * 100)}%`,
-                    bgcolor: color === 'error' ? 'error.light' : color === 'warning' ? 'warning.light' : 'success.light',
-                    opacity: 0.3,
-                    borderRadius: 2,
-                  }}
-                />
-                
-                {/* Layer 2: Remaining days (solid color) */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    height: '100%',
-                    width: `${Math.min(100, (remaining / (employee.entitledDays || 21)) * 100)}%`,
+                    width: `${Math.min(100, (remaining / annualEntitlement) * 100)}%`,
                     bgcolor: color === 'error' ? 'error.main' : color === 'warning' ? 'warning.main' : 'success.main',
                     borderRadius: 2,
                     transition: 'width 0.3s ease',
@@ -270,7 +340,7 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
               {carriedOver > 0 && (
                 <LinearProgress
                   variant="determinate"
-                  value={Math.min(100, (carriedOver / (employee.entitledDays || 21)) * 100)}
+                  value={Math.min(100, (carriedOver / annualEntitlement) * 100)}
                   color="info"
                   sx={{ 
                     mt: 0.25, 
@@ -282,6 +352,12 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
                 />
               )}
             </Box>
+            
+            {carriedOver > 0 && (
+               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, fontSize: '0.65rem' }}>
+                 Include {carriedOver} zile din {dayjs().year() - 1}
+               </Typography>
+            )}
           </Box>
         </Tooltip>
       );
@@ -299,243 +375,231 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
   const leaveBalance = employee.leaveBalance;
   const { formatted: tenureFormatted } = useTenure(employee.hiredAt);
   
-  // Use backend calculations (source of truth) instead of frontend recalculation
-  // Backend uses proper leave calculation service with correct rounding
+  // Display rule: legacy employees show full-year entitlement; new hires stay pro-rata.
   const annualEntitlement = employee.entitledDays || 21;
-  const accruedToday = leaveBalance?.accrued || 0;
+  const seniorityBonus = Math.max(0, annualEntitlement - 21);
+  const isLegacy = isLegacyEmployee(employee.hiredAt);
+  const accruedToday = getAccruedForDisplay(employee, currentYear);
+  const carriedOver = leaveBalance?.carriedOver ?? 0;
   const takenDays = leaveBalance ? (leaveBalance.voluntaryDays + leaveBalance.companyShutdownDays) : employee.takenDays || 0;
-  const remainingDays = employee.remainingDays || 0;
+  const remainingDays = Math.max(0, accruedToday + carriedOver - takenDays);
+  const totalAvailable = accruedToday + carriedOver;
+  const usagePercent = totalAvailable > 0 ? (takenDays / totalAvailable) * 100 : 0;
+  const isInactive = employee.isActive === false;
 
   return (
-    <Box sx={{ p: 3, bgcolor: 'background.default', borderRadius: 2 }}>
-      {/* Employee Info Section */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={12}>
-          <Typography variant="h6" fontWeight={600} gutterBottom>
-            {employee.name}
+    <Box sx={{ p: 2, bgcolor: 'background.default', width: '100%' }}>
+      {/* Inactive Employee Banner */}
+      {isInactive && (
+        <Alert 
+          severity="warning" 
+          icon={<PersonOffIcon fontSize="small" />}
+          sx={{ mb: 2, py: 0.5 }}
+        >
+          <Typography variant="caption">
+            <strong>Angajat inactiv</strong> – datele de concediu sunt înghețate la data plecării
           </Typography>
-          <Divider sx={{ mb: 2 }} />
-        </Grid>
-
-        {/* Tenure Info */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <TrendingUpIcon color="primary" />
-                <Typography variant="subtitle2" fontWeight={600}>
-                  Vechime & Angajare
-                </Typography>
-              </Stack>
-              <Stack spacing={1}>
-                <Chip
-                  color="primary"
-                  label={`Vechime: ${tenureFormatted}`}
-                  sx={{ fontWeight: 600 }}
-                />
-                <Chip label={`Angajat din: ${formatDate(employee.hiredAt)}`} />
-                {employee.age !== null && employee.age !== undefined && (
-                  <Chip label={`Vârstă: ${employee.age} ani`} variant="outlined" />
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Annual Leave Entitlement */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                <BeachAccessIcon color="success" />
-                <Typography variant="subtitle2" fontWeight={600}>
-                  Drept Concediu Anual
-                </Typography>
-              </Stack>
-              <Stack spacing={1}>
-                <Chip
-                  color="success"
-                  label={`Drept/an: ${annualEntitlement} zile`}
-                  sx={{ fontWeight: 600 }}
-                />
-                {annualEntitlement > 21 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
-                    (21 zile bază + {annualEntitlement - 21} {annualEntitlement - 21 === 1 ? 'zi' : 'zile'} bonus vechime)
-                  </Typography>
-                )}
-                <Chip 
-                  label={`Acumulat până azi: ${accruedToday} zile`}
-                  color="info"
-                  variant="outlined"
-                />
-                {leaveBalance?.carriedOver !== undefined && leaveBalance.carriedOver > 0 && (
-                  <Chip 
-                    label={`+ ${leaveBalance.carriedOver} reportate din ${currentYear - 1}`}
-                    color="info"
-                    variant="outlined"
-                  />
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Leave Balance Breakdown */}
-      {leaveBalance && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid size={12}>
-            <Typography variant="subtitle2" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <EventAvailableIcon fontSize="small" />
-              Detalii Concediu
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-          </Grid>
-
-          {/* Accrued Days */}
-          <Grid size={{ xs: 6, md: 3 }}>
-            <Card variant="outlined" sx={{ bgcolor: 'primary.50', borderColor: 'primary.200' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h4" color="primary" fontWeight={700}>
-                  {leaveBalance.accrued}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Zile acumulate (pro-rata)
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Carried Over */}
-          {leaveBalance.carriedOver > 0 && (
-            <Grid size={{ xs: 6, md: 3 }}>
-              <Card variant="outlined" sx={{ bgcolor: 'info.50', borderColor: 'info.200' }}>
-                <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                  <Stack direction="row" justifyContent="center" alignItems="center" spacing={0.5}>
-                    <Typography variant="h4" color="info.main" fontWeight={700}>
-                      +{leaveBalance.carriedOver}
-                    </Typography>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    Reportate din anul trecut
-                  </Typography>
-                  <Typography variant="caption" display="block" color="warning.main" sx={{ mt: 0.5 }}>
-                    (expiră 31 martie)
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          )}
-
-          {/* Voluntary Days Taken */}
-          <Grid size={{ xs: 6, md: 3 }}>
-            <Card variant="outlined" sx={{ bgcolor: 'warning.50', borderColor: 'warning.200' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h4" color="warning.main" fontWeight={700}>
-                  {leaveBalance.voluntaryDays}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Zile solicitate personal
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Company Shutdown Days */}
-          {leaveBalance.companyShutdownDays > 0 && (
-            <Grid size={{ xs: 6, md: 3 }}>
-              <Card variant="outlined" sx={{ bgcolor: 'info.50', borderColor: 'info.200' }}>
-                <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                  <Stack direction="row" justifyContent="center" alignItems="center" spacing={0.5}>
-                    <AcUnitIcon fontSize="small" color="info" />
-                    <Typography variant="h4" color="info.main" fontWeight={700}>
-                      {leaveBalance.companyShutdownDays}
-                    </Typography>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    Zile închidere firmă
-                  </Typography>
-                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-                    (ex: Crăciun, Revelion)
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          )}
-
-          {/* Pending Approval */}
-          {leaveBalance.pendingDays > 0 && (
-            <Grid size={{ xs: 6, md: 3 }}>
-              <Card variant="outlined" sx={{ bgcolor: 'warning.50', borderColor: 'warning.200' }}>
-                <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                  <Stack direction="row" justifyContent="center" alignItems="center" spacing={0.5}>
-                    <WarningAmberIcon fontSize="small" color="warning" />
-                    <Typography variant="h4" color="warning.main" fontWeight={700}>
-                      {leaveBalance.pendingDays}
-                    </Typography>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    În așteptare aprobare
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          )}
-        </Grid>
+        </Alert>
       )}
 
-      {/* Summary Section */}
-      <Grid container spacing={2}>
-        <Grid size={12}>
-          <Card variant="outlined" sx={{ bgcolor: 'success.50', borderColor: 'success.200' }}>
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Acumulat Total
-                  </Typography>
-                  <Typography variant="h5" color="primary.dark" fontWeight={700}>
-                    {accruedToday + (leaveBalance?.carriedOver || 0)} zile
-                  </Typography>
-                </Box>
+      {/* Compact Header with Key Stats */}
+      <Stack direction="row" spacing={3} alignItems="center" sx={{ mb: 2 }}>
+        {/* Employee Name & Status */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="h6" fontWeight={600} noWrap>
+              {employee.name}
+            </Typography>
+            {isInactive && (
+              <Chip size="small" label="Inactiv" color="default" variant="outlined" />
+            )}
+          </Stack>
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              {tenureFormatted} • Angajat din {formatDate(employee.hiredAt)}
+              {employee.age && ` • ${employee.age} ani`}
+            </Typography>
+          </Stack>
+        </Box>
 
-                <Divider orientation="vertical" flexItem />
+        {/* Big Available Days Counter */}
+        <Box sx={{ 
+          textAlign: 'center', 
+          bgcolor: isInactive ? 'grey.100' : 'success.50', 
+          px: 3, 
+          py: 1, 
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: isInactive ? 'grey.300' : 'success.200',
+          opacity: isInactive ? 0.7 : 1
+        }}>
+          <Typography variant="h4" color={isInactive ? 'text.secondary' : 'success.dark'} fontWeight={700} lineHeight={1}>
+            {remainingDays}
+          </Typography>
+          <Typography variant="caption" color={isInactive ? 'text.secondary' : 'success.dark'} fontWeight={500}>
+            zile disponibile
+          </Typography>
+        </Box>
+      </Stack>
 
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Zile Folosite
-                  </Typography>
-                  <Typography variant="h5" color="warning.dark" fontWeight={700}>
-                    {takenDays} zile
-                  </Typography>
-                </Box>
+      {/* Progress Bar with Usage */}
+      <Box sx={{ mb: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">
+            Concediu folosit
+          </Typography>
+          <Typography variant="caption" fontWeight={600}>
+            {takenDays} / {totalAvailable} zile
+          </Typography>
+        </Stack>
+        <LinearProgress 
+          variant="determinate" 
+          value={Math.min(usagePercent, 100)} 
+          sx={{ 
+            height: 8, 
+            borderRadius: 1,
+            bgcolor: 'grey.200',
+            '& .MuiLinearProgress-bar': {
+              bgcolor: usagePercent > 80 ? 'warning.main' : 'primary.main',
+              borderRadius: 1,
+            }
+          }} 
+        />
+      </Box>
 
-                <Divider orientation="vertical" flexItem />
-
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Disponibile Acum
-                  </Typography>
-                  <Typography variant="h5" color="success.dark" fontWeight={700}>
-                    {remainingDays} zile
-                  </Typography>
-                </Box>
+      {/* Compact Stats Grid */}
+      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+        {/* Entitlement Breakdown */}
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Box sx={{ 
+            p: 1.5, 
+            bgcolor: 'grey.50', 
+            borderRadius: 1.5,
+            border: '1px solid',
+            borderColor: 'grey.200'
+          }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <BeachAccessIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+              <Typography variant="caption" fontWeight={600} color="text.primary">
+                Drept Anual
+              </Typography>
+            </Stack>
+            <Stack spacing={0.25}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="caption" color="text.secondary">Bază</Typography>
+                <Typography variant="caption" fontWeight={500}>21 zile</Typography>
               </Stack>
-            </CardContent>
-          </Card>
+              {seniorityBonus > 0 && (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">Bonus vechime</Typography>
+                  <Typography variant="caption" fontWeight={500} color="success.main">+{seniorityBonus}</Typography>
+                </Stack>
+              )}
+              <Divider sx={{ my: 0.5 }} />
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="caption" fontWeight={600}>Total</Typography>
+                <Typography variant="caption" fontWeight={600}>{annualEntitlement} zile</Typography>
+              </Stack>
+            </Stack>
+          </Box>
+        </Grid>
+
+        {/* Accrued + Carryover */}
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Box sx={{ 
+            p: 1.5, 
+            bgcolor: 'primary.50', 
+            borderRadius: 1.5,
+            border: '1px solid',
+            borderColor: 'primary.200'
+          }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <TrendingUpIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+              <Typography variant="caption" fontWeight={600} color="text.primary">
+                Disponibil {currentYear}
+              </Typography>
+            </Stack>
+            <Stack spacing={0.25}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="caption" color="text.secondary">
+                  Acumulat {isLegacy ? '' : '(pro-rata)'}
+                </Typography>
+                <Typography variant="caption" fontWeight={500}>{accruedToday} zile</Typography>
+              </Stack>
+              {carriedOver > 0 && (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">Reportat {currentYear - 1}</Typography>
+                  <Typography variant="caption" fontWeight={500} color="info.main">+{carriedOver}</Typography>
+                </Stack>
+              )}
+              <Divider sx={{ my: 0.5 }} />
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="caption" fontWeight={600}>Total</Typography>
+                <Typography variant="caption" fontWeight={600}>{totalAvailable} zile</Typography>
+              </Stack>
+            </Stack>
+          </Box>
+        </Grid>
+
+        {/* Usage Breakdown */}
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <Box sx={{ 
+            p: 1.5, 
+            bgcolor: takenDays > 0 ? 'warning.50' : 'grey.50', 
+            borderRadius: 1.5,
+            border: '1px solid',
+            borderColor: takenDays > 0 ? 'warning.200' : 'grey.200'
+          }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <EventAvailableIcon sx={{ fontSize: 16, color: takenDays > 0 ? 'warning.main' : 'grey.500' }} />
+              <Typography variant="caption" fontWeight={600} color="text.primary">
+                Zile Folosite
+              </Typography>
+            </Stack>
+            <Stack spacing={0.25}>
+              {leaveBalance && leaveBalance.voluntaryDays > 0 && (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">Cereri personale</Typography>
+                  <Typography variant="caption" fontWeight={500}>{leaveBalance.voluntaryDays}</Typography>
+                </Stack>
+              )}
+              {leaveBalance && leaveBalance.companyShutdownDays > 0 && (
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">Închidere firmă</Typography>
+                  <Typography variant="caption" fontWeight={500}>{leaveBalance.companyShutdownDays}</Typography>
+                </Stack>
+              )}
+              {takenDays === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  Niciun concediu luat
+                </Typography>
+              )}
+              {takenDays > 0 && (
+                <>
+                  <Divider sx={{ my: 0.5 }} />
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="caption" fontWeight={600}>Total</Typography>
+                    <Typography variant="caption" fontWeight={600}>{takenDays} zile</Typography>
+                  </Stack>
+                </>
+              )}
+            </Stack>
+          </Box>
         </Grid>
       </Grid>
 
-      {/* Info Footer */}
-      <Alert severity="info" sx={{ mt: 2 }} icon={<CheckCircleIcon />}>
-        <Typography variant="caption">
-          <strong>Politica concediu:</strong> Fiecare angajat poate lua <strong>{annualEntitlement} zile/an</strong>{annualEntitlement > 21 && ` (21 bază + ${annualEntitlement - 21} bonus vechime)`}. 
-          Zilele se acumulează pro-rata pe parcursul anului (se calculează zilnic). Maximum 5 zile pot fi reportate din anul anterior (expiră 31 martie).
-          {leaveBalance?.companyShutdownDays !== undefined && leaveBalance.companyShutdownDays > 0 && (
-            <> Închiderile firmei (ex: Crăciun, Revelion) se deduc automat din dreptul de concediu.</>
-          )}
-        </Typography>
-      </Alert>
+      {/* Pending Warning if any */}
+      {leaveBalance && leaveBalance.pendingDays > 0 && (
+        <Alert 
+          severity="warning" 
+          icon={<WarningAmberIcon fontSize="small" />}
+          sx={{ py: 0.5, mb: 1 }}
+        >
+          <Typography variant="caption">
+            <strong>{leaveBalance.pendingDays} zile</strong> în așteptare aprobare
+          </Typography>
+        </Alert>
+      )}
     </Box>
   );
 };
@@ -544,6 +608,7 @@ const EmployeeDetailPanel: React.FC<DetailPanelProps> = ({ employee, currentYear
 export default function TeamPage() {
   const confirm = useConfirm();
   const currentYear = dayjs().year();
+  const [showInactive, setShowInactive] = useState(false);
 
   // React Query hooks
   const { data: employees = [], isLoading, error, refetch } = useEmployees();
@@ -558,6 +623,11 @@ export default function TeamPage() {
 
   // Table columns
   const columns = useMemo(() => createColumns(), []);
+
+  const visibleEmployees = useMemo(() => {
+    if (showInactive) return employees;
+    return employees.filter((e) => e.isActive !== false);
+  }, [employees, showInactive]);
 
   // Handlers
   const handleDelete = async (employee: EmployeeWithStats) => {
@@ -588,18 +658,66 @@ export default function TeamPage() {
       <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h5" fontWeight={600}>
-            Echipă
-            {employees.length > 0 && (
+
+          <Stack direction="row" gap={1} alignItems="center">
+            <Groups2RoundedIcon color="primary" />
+            <Typography variant="h5" fontWeight={600}>
+              Echipă
+            </Typography>
+            {visibleEmployees.length > 0 && (
               <Chip
-                label={`${employees.length} ${employees.length === 1 ? 'angajat' : 'angajați'}`}
+                label={`${visibleEmployees.length} ${visibleEmployees.length === 1 ? 'angajat' : 'angajați'}`}
                 size="small"
                 sx={{ ml: 2 }}
               />
             )}
-          </Typography>
+          </Stack>
 
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box
+              sx={{
+                display: 'flex',
+                bgcolor: 'action.hover',
+                borderRadius: 2,
+                p: 0.5,
+              }}
+            >
+              <ButtonBase
+                onClick={() => setShowInactive(false)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  borderRadius: 1.5,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: !showInactive ? 'primary.main' : 'text.secondary',
+                  bgcolor: !showInactive ? 'background.paper' : 'transparent',
+                  boxShadow: !showInactive ? 1 : 0,
+                  transition: 'all 0.2s ease',
+                  '&:hover': { bgcolor: !showInactive ? 'background.paper' : 'action.selected' },
+                }}
+              >
+                Activi
+              </ButtonBase>
+              <ButtonBase
+                onClick={() => setShowInactive(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  borderRadius: 1.5,
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: showInactive ? 'primary.main' : 'text.secondary',
+                  bgcolor: showInactive ? 'background.paper' : 'transparent',
+                  boxShadow: showInactive ? 1 : 0,
+                  transition: 'all 0.2s ease',
+                  '&:hover': { bgcolor: showInactive ? 'background.paper' : 'action.selected' },
+                }}
+              >
+                <PersonOffIcon sx={{ fontSize: 16, mr: 0.5 }} />
+                Toți
+              </ButtonBase>
+            </Box>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -627,7 +745,7 @@ export default function TeamPage() {
         {/* Table */}
         <MaterialReactTable
           columns={columns}
-          data={employees}
+          data={visibleEmployees}
           state={{ isLoading }}
           localization={MRT_Localization_RO}
 
@@ -690,16 +808,12 @@ export default function TeamPage() {
 
           // Pagination
           initialState={{
-            pagination: { pageIndex: 0, pageSize: 25 },
             sorting: [{ id: 'tenure', desc: true }],
-          }}
-          muiPaginationProps={{
-            rowsPerPageOptions: [10, 25, 50, 100],
+            columnVisibility: { isActive: false },
           }}
 
           // Performance
           enableRowVirtualization
-          enablePagination
           enableSorting
           enableColumnFilters
           enableGlobalFilter
@@ -707,8 +821,9 @@ export default function TeamPage() {
 
           // Styling
           muiTableContainerProps={{
-            sx: { maxHeight: 'calc(100vh - 200px)' },
+            sx: { maxHeight: 'calc(100vh - 260px)' },
           }}
+          enablePagination={false}
         />
       </Paper>
 

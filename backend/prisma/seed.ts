@@ -27,6 +27,7 @@ async function main() {
   });
 
   const adminRole = roles.find((r) => r.name === "ADMIN")!;
+  const staffRole = roles.find((r) => r.name === "STAFF")!;
   await prisma.userRole.upsert({
     where: { userId_roleId: { userId: admin.id, roleId: adminRole.id } },
     update: {},
@@ -42,12 +43,10 @@ async function main() {
     update: {},
     create: { email: razvanEmail, name: "Razvan", passwordHash: razvanHash },
   });
-  // Use STAFF as the default role for normal users
-  const staffRole = roles.find((r) => r.name === "STAFF")!;
   await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: razvan.id, roleId: staffRole.id } },
+    where: { userId_roleId: { userId: razvan.id, roleId: adminRole.id } },
     update: {},
-    create: { userId: razvan.id, roleId: staffRole.id },
+    create: { userId: razvan.id, roleId: adminRole.id },
   });
 
   // Add Claudiu
@@ -60,14 +59,46 @@ async function main() {
     create: { email: claudiuEmail, name: "Claudiu", passwordHash: claudiuHash },
   });
   await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: claudiu.id, roleId: staffRole.id } },
+    where: { userId_roleId: { userId: claudiu.id, roleId: adminRole.id } },
     update: {},
-    create: { userId: claudiu.id, roleId: staffRole.id },
+    create: { userId: claudiu.id, roleId: adminRole.id },
+  });
+
+  // Add Simona
+  const simonaEmail = "simona@topazconstruct.ro";
+  const simonaPass = "simona123";
+  const simonaHash = await bcrypt.hash(simonaPass, 10);
+  const simona = await prisma.user.upsert({
+    where: { email: simonaEmail },
+    update: {},
+    create: { email: simonaEmail, name: "Simona", passwordHash: simonaHash },
+  });
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: simona.id, roleId: adminRole.id } },
+    update: {},
+    create: { userId: simona.id, roleId: adminRole.id },
+  });
+
+  // Add Nicoleta
+  const nicoletaEmail = "nicoleta@topazconstruct.ro";
+  const nicoletaPass = "nicoleta123";
+  const nicoletaHash = await bcrypt.hash(nicoletaPass, 10);
+  const nicoleta = await prisma.user.upsert({
+    where: { email: nicoletaEmail },
+    update: {},
+    create: { email: nicoletaEmail, name: "Nicoleta", passwordHash: nicoletaHash },
+  });
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: nicoleta.id, roleId: staffRole.id } },
+    update: {},
+    create: { userId: nicoleta.id, roleId: staffRole.id },
   });
 
   console.log(`Seeded admin: ${email} / ${pass}`);
-  console.log(`Seeded user: ${razvanEmail} / ${razvanPass}`);
-  console.log(`Seeded user: ${claudiuEmail} / ${claudiuPass}`);
+  console.log(`Seeded admin: ${razvanEmail} / ${razvanPass}`);
+  console.log(`Seeded admin: ${claudiuEmail} / ${claudiuPass}`);
+  console.log(`Seeded admin: ${simonaEmail} / ${simonaPass}`);
+  console.log(`Seeded user: ${nicoletaEmail} / ${nicoletaPass}`);
 
   // Companies & Cash Accounts (idempotent upserts)
   const p: any = prisma as any;

@@ -101,6 +101,8 @@ model Client {
 model Employee {
   id             String    @id @default(uuid())
   name           String
+  isActive       Boolean   @default(true)
+  deactivatedAt  DateTime? // Date when employee left/became inactive (freezes leave calculations)
   cnp            String?  @unique // Cod Numeric Personal
   idSeries       String? // "PX"
   idNumber       String? // "821461"
@@ -119,6 +121,7 @@ model Employee {
   leaves         Leave[]
   cashEntries    CashEntry[] @relation("EmployeeCashEntries")
   policyOverride EmployeePolicyOverride?
+  manualCarryOverDays Int?  @default(0) // Manual override for carry-over days (e.g. from previous system)
 }
 
 model Leave {
@@ -291,6 +294,7 @@ model Car {
   expItp      DateTime?
   expRca      DateTime?
   expRovi     DateTime?
+  rcaDecontareDirecta Boolean? @default(false)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   driver      Employee? @relation(fields: [driverId], references: [id])
@@ -482,7 +486,7 @@ model ProjectSheetOperation {
   unit            String        // e.g., "mp", "mc"
   quantity        Float         // Cantitate
   unitPrice       Float         // Preț unitar
-  totalPrice      Float         // Auto-calculated: quantity × unitPrice
+  totalPrice      Float         // Auto-calculated: quantity Ã— unitPrice
   notes           String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -510,7 +514,7 @@ model ProjectDevizMaterial {
   // Supplier and packaging information (for Necesar Aprovizionare)
   supplier              String?  // Furnizor
   packageSize           Float?   // Mărime pachet (e.g., 25 for 25kg bag)
-  packageUnit           String?  // Unitate pachet (e.g., kg, buc, m²)
+  packageUnit           String?  // Unitate pachet (e.g., kg, buc, mÂ²)
   
   // Pricing and calculations
   quantity              Float    // Cantitate
@@ -593,6 +597,13 @@ enum OrderStatus {
   RECEIVED
   CLOSED
   CANCELLED
+  // Extended set to support distinct Romanian UI labels
+  SUPPLIER_OUT_OF_STOCK   // Lipsă Stoc Furnizor
+  UNPAID_ORDER            // Neachitată
+  PAID_FULL_ORDER         // Achitată Integral
+  PAID_PARTIAL_ORDER      // Achitată Parțial
+  IN_DELIVERY             // În Curs de Livrare
+  RETURNED_REFUSED        // Returnată / Refuzată
 }
 
 enum OrderPriority {
@@ -875,7 +886,7 @@ model Equipment {
   warranty        String?  // Garanție
   equipmentNumber String?  // Număr Echipament
   generation      String?  // Generație
-  purchasePrice   Float?   // Pret Achizitie
+  purchasePrice   Float?   // Preț Achiziție
   hourlyCost      Float
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -921,11 +932,26 @@ model MaterialGroup {
   materials   Material[]
 }
 
+// Material family - grouping of closely related material variants (e.g. CHIT CE40)
+model MaterialFamily {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  normalizedKey String?   // optional normalized key used by heuristics
+  confidence  String?    // e.g. 'auto' | 'manual' | 'suspect'
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  materials   Material[]
+
+  @@index([normalizedKey])
+}
+
 // Material catalog (Materiale) - can have multiple entries from different suppliers
 model Material {
   id              String         @id @default(uuid())
   groupId         String?                         // Optional - can be added manually
   group           MaterialGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  familyId        String?                         // Optional family grouping (new)
+  family          MaterialFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
   code            String                          // Cod material (not unique - same material from different suppliers)
   description     String                          // Descriere (from denumire_produs)
   supplierName    String?                         // Furnizor (from den_tert)
@@ -936,7 +962,7 @@ model Material {
   currency        Currency       @default(RON)
   purchaseDate    DateTime?                       // Data achiziției (from data in Excel)
   invoiceNumber   String?                         // Nr. Factură (ex: "ANR TGV 56836")
-  receptionType   ReceptionType? // Tip Recepție: SANTIER or MAGAZIE
+  receptionType   String?         // Tip Recepție: SANTIER or MAGAZIE
   receivedQuantity Decimal?      @db.Decimal(12, 4) // Cantitate recepționată (different from pack quantity)
   technicalSheet  String?                         // Path/URL to uploaded technical sheet document
   notes           String?
@@ -947,6 +973,7 @@ model Material {
   updatedAt       DateTime       @updatedAt
 
   @@index([groupId])
+  @@index([familyId])
   @@index([code])
   @@index([description])
   @@index([supplierName])
@@ -1080,3 +1107,53 @@ model OperationSheetModification {
   @@index([projectSheetId])
   @@index([timestamp])
 }
+
+// ================== OFFER MODULE ==================
+
+model Offer {
+  id          String       @id @default(uuid())
+  name        String?                          // optional offer name/reference
+  clientName  String
+  clientAddress String?
+  clientRegCom  String?
+  clientCif     String?
+  issueDate   DateTime
+  validUntil  DateTime
+  notes       String?
+  includeVat  Boolean      @default(false)
+  vatRate     Float        @default(19)
+  currency    String       @default("EUR")      // EUR or RON
+  grandTotal  Float        @default(0)
+  status      OfferStatus  @default(DRAFT)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  items       OfferItem[]
+  
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OfferItem {
+  id          String   @id @default(uuid())
+  offerId     String
+  offer       Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  sortOrder   Int      @default(0)
+  description String
+  quantity    Float
+  unit        String
+  observations String?
+  pricePerUnit Float
+  totalPrice  Float
+  
+  @@index([offerId])
+}
+
+enum OfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+

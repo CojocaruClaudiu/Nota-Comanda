@@ -4,10 +4,85 @@ import type {
   CreateTemplateRequest,
   UpdateTemplateRequest,
   OperationSheetTemplateDTO,
+  OperationSheetItemDTO,
 } from '../types/operationSheet';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// Helper: enrich items with pack info from Materials catalog
+async function enrichItemsWithPack(
+  items: Array<{
+    id: string;
+    itemType: string;
+    referenceId: string | null;
+    code: string;
+    description: string;
+    unit: string;
+    quantity: any;
+    unitPrice: any;
+    notes: string | null;
+  }>,
+): Promise<OperationSheetItemDTO[]> {
+  const result: OperationSheetItemDTO[] = [];
+  const materialLike = items.filter((i) => i.itemType === 'MATERIAL' || i.itemType === 'CONSUMABLE');
+  const refIds = Array.from(new Set(materialLike.map((i) => i.referenceId).filter(Boolean) as string[]));
+  const codes = Array.from(new Set(materialLike.filter((i) => !i.referenceId && i.code).map((i) => i.code)));
+
+  const matsById = new Map<string, any>();
+  const matsByCode = new Map<string, any>();
+
+  if (refIds.length) {
+    const mats = await prisma.material.findMany({
+      where: { id: { in: refIds } },
+      select: { id: true, packQuantity: true, packUnit: true },
+    });
+    mats.forEach((m) => matsById.set(m.id, m));
+  }
+  if (codes.length) {
+    const mats = await prisma.material.findMany({
+      where: { code: { in: codes } },
+      select: { id: true, code: true, packQuantity: true, packUnit: true, updatedAt: true },
+    });
+    for (const m of mats as any[]) {
+      const prev = matsByCode.get(m.code);
+      if (!prev || new Date(prev.updatedAt) < new Date(m.updatedAt)) matsByCode.set(m.code, m);
+    }
+  }
+
+  const normalizeUnit = (u?: string | null) => {
+    const t = (u ?? '').trim();
+    return t ? t : null;
+  };
+
+  for (const it of items) {
+    let packQuantity: number | null | undefined = null;
+    let packUnit: string | null | undefined = null;
+    if (it.itemType === 'MATERIAL' || it.itemType === 'CONSUMABLE') {
+      const m = (it.referenceId && matsById.get(it.referenceId)) || (it.code && matsByCode.get(it.code)) || null;
+      if (m) {
+        packQuantity = m.packQuantity != null ? Number(m.packQuantity) : null;
+        packUnit = normalizeUnit(m.packUnit);
+      }
+    }
+
+    result.push({
+      id: it.id,
+      itemType: it.itemType as any,
+      referenceId: it.referenceId || undefined,
+      code: it.code,
+      description: it.description,
+      unit: it.unit,
+      quantity: Number(it.quantity),
+      unitPrice: Number(it.unitPrice),
+      notes: it.notes || undefined,
+      packQuantity: packQuantity ?? null,
+      packUnit: packUnit ?? null,
+    });
+  }
+
+  return result;
+}
 
 // ==================== TEMPLATE ENDPOINTS ====================
 
@@ -32,28 +107,20 @@ router.get('/operations/:operationId/templates', async (req, res) => {
       ],
     });
 
-    const templatesDTO: OperationSheetTemplateDTO[] = templates.map((template) => ({
-      id: template.id,
-      operationId: template.operationItemId,
-      name: template.name,
-      description: template.description || undefined,
-      isDefault: template.isDefault,
-      isActive: template.isActive,
-      version: template.version,
-      items: template.items.map((item) => ({
-        id: item.id,
-        itemType: item.itemType as any,
-        referenceId: item.referenceId || undefined,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        notes: item.notes || undefined,
+    const templatesDTO: OperationSheetTemplateDTO[] = await Promise.all(
+      templates.map(async (template) => ({
+        id: template.id,
+        operationId: template.operationItemId,
+        name: template.name,
+        description: template.description || undefined,
+        isDefault: template.isDefault,
+        isActive: template.isActive,
+        version: template.version,
+        items: await enrichItemsWithPack(template.items as any),
+        createdAt: template.createdAt.toISOString(),
+        updatedAt: template.updatedAt.toISOString(),
       })),
-      createdAt: template.createdAt.toISOString(),
-      updatedAt: template.updatedAt.toISOString(),
-    }));
+    );
 
     res.json(templatesDTO);
   } catch (error) {
@@ -88,17 +155,7 @@ router.get('/operations/:operationId/templates/:templateId', async (req, res) =>
       isDefault: template.isDefault,
       isActive: template.isActive,
       version: template.version,
-      items: template.items.map((item) => ({
-        id: item.id,
-        itemType: item.itemType as any,
-        referenceId: item.referenceId || undefined,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        notes: item.notes || undefined,
-      })),
+      items: await enrichItemsWithPack(template.items as any),
       createdAt: template.createdAt.toISOString(),
       updatedAt: template.updatedAt.toISOString(),
     };
@@ -169,17 +226,7 @@ router.post('/operations/:operationId/templates', async (req, res) => {
       isDefault: template.isDefault,
       isActive: template.isActive,
       version: template.version,
-      items: template.items.map((item) => ({
-        id: item.id,
-        itemType: item.itemType as any,
-        referenceId: item.referenceId || undefined,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        notes: item.notes || undefined,
-      })),
+      items: await enrichItemsWithPack(template.items as any),
       createdAt: template.createdAt.toISOString(),
       updatedAt: template.updatedAt.toISOString(),
     };
@@ -265,17 +312,7 @@ router.put('/operations/:operationId/templates/:templateId', async (req, res) =>
       isDefault: updatedTemplate.isDefault,
       isActive: updatedTemplate.isActive,
       version: updatedTemplate.version,
-      items: updatedTemplate.items.map((item) => ({
-        id: item.id,
-        itemType: item.itemType as any,
-        referenceId: item.referenceId || undefined,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        notes: item.notes || undefined,
-      })),
+      items: await enrichItemsWithPack(updatedTemplate.items as any),
       createdAt: updatedTemplate.createdAt.toISOString(),
       updatedAt: updatedTemplate.updatedAt.toISOString(),
     };
@@ -337,17 +374,7 @@ router.post('/operations/:operationId/templates/:templateId/set-default', async 
       isDefault: template.isDefault,
       isActive: template.isActive,
       version: template.version,
-      items: template.items.map((item) => ({
-        id: item.id,
-        itemType: item.itemType as any,
-        referenceId: item.referenceId || undefined,
-        code: item.code,
-        description: item.description,
-        unit: item.unit,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        notes: item.notes || undefined,
-      })),
+      items: await enrichItemsWithPack(template.items as any),
       createdAt: template.createdAt.toISOString(),
       updatedAt: template.updatedAt.toISOString(),
     };

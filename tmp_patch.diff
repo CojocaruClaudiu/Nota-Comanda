@@ -1,0 +1,68 @@
+*** Begin Patch
+*** Update File: frontend/src/modules/materials/MaterialsPage.tsx
+@@
+-      const variants = (f.variants || []).map((v, vi) => ({
++      const variants = (f.variants || []).map((v, vi) => ({
+         type: 'material' as const,
+         // use materialId when available so downstream edits target the real material
+         id: v.materialId || v.id,
+         parentId: f.summary.id,
+         familyId: f.summary.id,
+         name: v.name,
+-        code: v.materialId ? undefined : undefined,
++        code: (v as any).code || undefined,
+         supplierName: v.defaultSupplier || undefined,
+         unit: v.packUnit || undefined,
+         packQuantity: v.packValue != null ? Number(v.packValue) : null,
+         packUnit: v.packUnit,
+         price: v.latestPrice ?? null,
+         currency: 'RON',
+-        purchaseDate: undefined,
++        purchaseDate: (v as any).purchaseDate || undefined,
+         technicalSheet: undefined,
+         number: `${fi + 1}.${vi + 1}`,
+         createdAt: v.updatedAt,
+         updatedAt: v.updatedAt,
+         purchaseCount: v.purchasesCount,
+         suppliers: v.defaultSupplier ? [v.defaultSupplier] : [],
+       }));
+@@
+-    // Also include materials that are NOT assigned to any family under a special "Fara familie" group
+-    try {
+-      const familyMaterialIds = new Set<string>();
+-      nodes.forEach((g) => (g.subRows || []).forEach((v) => familyMaterialIds.add(v.id)));
+-
+-      const unique = await fetchUniqueMaterials();
++    // Also enrich family variants with latest stats by material code and include unassigned materials
++    try {
++      const familyMaterialIds = new Set<string>();
++      nodes.forEach((g) => (g.subRows || []).forEach((v) => familyMaterialIds.add(v.id)));
++
++      const unique = await fetchUniqueMaterials();
++      const uniqueByCode = new Map<string, any>();
++      unique.forEach((m) => { if (m.code) uniqueByCode.set(m.code, m as any); });
++
++      // Merge unique stats into family variants based on material code
++      nodes.forEach((g) => {
++        g.subRows = (g.subRows || []).map((v) => {
++          if (v.code && uniqueByCode.has(v.code)) {
++            const um = uniqueByCode.get(v.code);
++            return {
++              ...v,
++              price: v.price ?? (um.price != null ? Number(um.price) : null),
++              currency: um.currency || v.currency,
++              purchaseDate: v.purchaseDate || um.purchaseDate || null,
++              purchaseCount: um.purchaseCount ?? v.purchaseCount,
++              avgPrice: um.avgPrice != null ? Number(um.avgPrice) : v.avgPrice,
++              minPrice: um.minPrice != null ? Number(um.minPrice) : v.minPrice,
++              maxPrice: um.maxPrice != null ? Number(um.maxPrice) : v.maxPrice,
++              suppliers: Array.isArray(um.suppliers) && um.suppliers.length ? um.suppliers : v.suppliers,
++            } as any;
++          }
++          return v;
++        }) as any;
++      });
+@@
+-          name: 'Fara familie',
++          name: 'Fara familie',
+*** End Patch

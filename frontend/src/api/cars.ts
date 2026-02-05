@@ -1,5 +1,14 @@
 // src/api/cars.ts
-import { type FuelType } from './types'; // optional: or duplicate the union here
+import { API_BASE_URL } from "./baseUrl";
+
+export type FuelType =
+  | 'MOTORINA'
+  | 'BENZINA'
+  | 'BENZINA_GPL'
+  | 'HIBRID_MOTORINA'
+  | 'HIBRID_BENZINA'
+  | 'ELECTRIC'
+  | 'ALT';
 
 export type Car = {
   id: string;
@@ -16,13 +25,14 @@ export type Car = {
   expItp?: string | null;  // ISO string from backend
   expRca?: string | null;
   expRovi?: string | null;
+  rcaDecontareDirecta?: boolean | null;
   createdAt?: string;
   updatedAt?: string;
 };
 
 export type CarPayload = Omit<Car, 'id'|'createdAt'|'updatedAt'|'driver'>;
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = API_BASE_URL;
 
 const isJson = (ct: string | null) => !!ct && ct.toLowerCase().includes('application/json');
 

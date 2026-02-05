@@ -172,6 +172,12 @@ const computeUnitCost = (price?: number | null, packQuantity?: number | null): n
   return priceNumber / quantityNumber;
 };
 
+// Normalize unit strings: trim and convert empty to null
+const normalizeUnit = (u?: string | null): string | null => {
+  const t = (u ?? '').trim();
+  return t ? t : null;
+};
+
 const normalizeMaterialItem = (item: MaterialItem): MaterialItem => {
   const packQuantity = item.packQuantity ?? null;
   let packPrice = item.packPrice ?? null;
@@ -487,13 +493,17 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
     if (!projectId || !operationId) return;
 
     try {
-      const sheet = await operationSheetsApi.fetchProjectOperationSheet(projectId, operationId);
+      const [sheet, allMaterials] = await Promise.all([
+        operationSheetsApi.fetchProjectOperationSheet(projectId, operationId),
+        fetchUniqueMaterials().catch(() => [] as Material[]),
+      ]);
 
       if (sheet.items && sheet.items.length > 0) {
         const materials = sheet.items
           .filter(item => item.itemType === 'MATERIAL')
           .map(item => {
-            const packQty = item.packQuantity ?? null;
+            const matInfo = allMaterials.find(m => m.code === (item.code || '')) as (Material | undefined);
+            const packQty = (item.packQuantity ?? matInfo?.packQuantity) ?? null;
             const costUnitar = item.unitPrice;
             const packPrice = (packQty && packQty > 0) ? costUnitar * packQty : null;
             
@@ -503,7 +513,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
               denumire: item.description,
               um: item.unit,
               packQuantity: packQty,
-              packUnit: item.packUnit ?? null,
+              packUnit: (item.packUnit ?? matInfo?.packUnit) ?? null,
               packPrice: packPrice,
               consumNormat: item.quantity, // Initialize from loaded quantity
               marjaConsum: 0, // Default to 0, no way to reverse-engineer this
@@ -520,8 +530,8 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
             cod: item.code || '',
             denumire: item.description,
             um: item.unit,
-            packQuantity: item.packQuantity ?? null,
-            packUnit: item.packUnit ?? null,
+            packQuantity: (item.packQuantity ?? (allMaterials.find(m => m.code === (item.code || '')) as Material | undefined)?.packQuantity) ?? null,
+            packUnit: (item.packUnit ?? (allMaterials.find(m => m.code === (item.code || '')) as Material | undefined)?.packUnit) ?? null,
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
             valoare: item.quantity * item.unitPrice,
@@ -621,7 +631,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
               denumire: item.description,
               um: item.unit,
               packQuantity: packQty,
-              packUnit: item.packUnit ?? null,
+              packUnit: normalizeUnit(item.packUnit),
               packPrice: packPrice,
               consumNormat: item.quantity, // Initialize from loaded quantity
               marjaConsum: 0, // Default to 0
@@ -638,7 +648,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
             denumire: item.description,
             um: item.unit,
             packQuantity: item.packQuantity ?? null,
-            packUnit: item.packUnit ?? null,
+            packUnit: normalizeUnit(item.packUnit),
             cantitate: item.quantity,
             pretUnitar: item.unitPrice,
             valoare: item.quantity * item.unitPrice,
@@ -756,7 +766,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
             pretUnitar: newUnitPrice,
             valoare: newUnitPrice * item.cantitate,
             packQuantity: currentMaterial.packQuantity ?? null,
-            packUnit: currentMaterial.packUnit ?? null,
+            packUnit: normalizeUnit(currentMaterial.packUnit),
           };
         }
         return { ...item };
@@ -771,7 +781,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
             pretUnitar: newUnitPrice,
             valoare: newUnitPrice * item.cantitate,
             packQuantity: currentMaterial.packQuantity ?? null,
-            packUnit: currentMaterial.packUnit ?? null,
+            packUnit: normalizeUnit(currentMaterial.packUnit),
           };
         }
         return { ...item };
@@ -1158,12 +1168,13 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
                 style: { textAlign: 'right', fontSize: '0.875rem' }
               }}
               InputProps={{
-                endAdornment: row.original.um ? (
+                // Show pack unit (UM Pachet) if available; fallback to base UM
+                endAdornment: (row.original.packUnit || row.original.um) ? (
                   <InputAdornment
                     position="end"
                     sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
                   >
-                    {row.original.um}
+                    {row.original.packUnit || row.original.um}
                   </InputAdornment>
                 ) : undefined,
               }}
@@ -2627,4 +2638,7 @@ const buildRecipeFromCurrentState = (): RecipeData => ({
   );
 };
 /* eslint-enable react-hooks/exhaustive-deps */
+
+
+
 
