@@ -4,7 +4,7 @@ import { MaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { MRT_Localization_RO } from 'material-react-table/locales/ro';
 import {
   Box, Paper, Stack, Typography, Button, IconButton, Tooltip,
-  CircularProgress, Chip, Alert, Card, CardContent,
+  CircularProgress, Chip, Alert,
   LinearProgress, Divider, Grid, ButtonBase
 } from '@mui/material';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
@@ -16,7 +16,6 @@ import HistoryIcon from '@mui/icons-material/History';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import BeachAccessIcon from '@mui/icons-material/BeachAccess';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import AcUnitIcon from '@mui/icons-material/AcUnit';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import dayjs from 'dayjs';
@@ -115,7 +114,7 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
   {
     accessorKey: 'qualifications',
     header: 'Calificări',
-    size: 220,
+    size: 200,
     Cell: ({ cell }) => {
       const qualifications = (cell.getValue<string[]>() || []).filter(Boolean);
       return qualifications.length ? (
@@ -180,6 +179,51 @@ const createColumns = (): MRT_ColumnDef<EmployeeWithStats>[] => [
       const currentYear = dayjs().year();
       const isLegacy = isLegacyEmployee(employee.hiredAt);
       const annualEntitlement = employee.entitledDays ?? 21;
+      const isInactive = employee.isActive === false;
+      
+      // For inactive employees with a final balance, show that
+      if (isInactive && employee.finalLeaveBalance !== undefined && employee.finalLeaveBalance !== null) {
+        const finalBalance = employee.finalLeaveBalance;
+        return (
+          <Tooltip 
+            title={
+              <Box sx={{ p: 0.5 }}>
+                <Typography variant="caption" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                  💰 Sold Final la Plecare
+                </Typography>
+                <Divider sx={{ mb: 0.5, borderColor: 'rgba(255,255,255,0.2)' }} />
+                <Typography variant="caption" display="block" color="warning.light">
+                  Acest angajat a fost dezactivat la data de {employee.deactivatedAt ? dayjs(employee.deactivatedAt).format('DD/MM/YYYY') : '—'}.
+                </Typography>
+                <Typography variant="caption" display="block" color="info.light" sx={{ mt: 0.5 }}>
+                  Sold nefolosit la plecare: <strong>{finalBalance.toFixed(1)}</strong> zile
+                </Typography>
+                {finalBalance > 0 && (
+                  <Typography variant="caption" display="block" color="error.light" sx={{ mt: 0.5 }}>
+                    ⚠️ Conform legii, aceste zile trebuie plătite
+                  </Typography>
+                )}
+              </Box>
+            }
+            arrow
+            placement="left"
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Chip
+                label={`${finalBalance.toFixed(1)} zile`}
+                size="small"
+                color={finalBalance > 0 ? 'warning' : 'default'}
+                variant="outlined"
+                icon={finalBalance > 0 ? <WarningAmberIcon /> : undefined}
+                sx={{ fontWeight: 600 }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                (la plecare)
+              </Typography>
+            </Stack>
+          </Tooltip>
+        );
+      }
       
       // Use leaveBalance if available (more accurate), fallback to legacy fields
       const accrued = getAccruedForDisplay(employee, currentYear);
@@ -618,6 +662,7 @@ export default function TeamPage() {
   // Modal states
   const [openAdd, setOpenAdd] = useState(false);
   const [openEdit, setOpenEdit] = useState<EmployeeWithStats | null>(null);
+  const [focusEquipment, setFocusEquipment] = useState(false);
   const [openLeave, setOpenLeave] = useState<EmployeeWithStats | null>(null);
   const [openHistory, setOpenHistory] = useState<EmployeeWithStats | null>(null);
 
@@ -654,8 +699,32 @@ export default function TeamPage() {
   };
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        maxHeight: '100%',
+        p: 0,
+        m: 0,
+        bgcolor: 'background.default',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Paper
+        elevation={2}
+        sx={{
+          p: 2,
+          flex: 1,
+          minHeight: 0,
+          width: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         {/* Header */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
 
@@ -743,7 +812,8 @@ export default function TeamPage() {
         )}
 
         {/* Table */}
-        <MaterialReactTable
+        <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+          <MaterialReactTable
           columns={columns}
           data={visibleEmployees}
           state={{ isLoading }}
@@ -776,7 +846,10 @@ export default function TeamPage() {
               <Tooltip title="Editează">
                 <IconButton
                   size="small"
-                  onClick={() => setOpenEdit(row.original)}
+                  onClick={() => {
+                    setOpenEdit(row.original);
+                    setFocusEquipment(false);
+                  }}
                 >
                   <EditOutlinedIcon fontSize="small" />
                 </IconButton>
@@ -820,11 +893,41 @@ export default function TeamPage() {
           enableFilterMatchHighlighting
 
           // Styling
-          muiTableContainerProps={{
-            sx: { maxHeight: 'calc(100vh - 260px)' },
+          muiTablePaperProps={{
+            sx: {
+              height: '100%',
+              minHeight: 0,
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: 'none',
+            },
           }}
+          muiTableContainerProps={{
+            sx: {
+              flex: 1,
+              minHeight: 0,
+              maxHeight: '100%',
+              width: '100%',
+              overflow: 'auto',
+            },
+          }}
+          muiTableBodyRowProps={({ row }) => ({
+            sx: {
+              backgroundColor: row.original.isActive === false 
+                ? 'rgba(0, 0, 0, 0.04)' 
+                : 'inherit',
+              '&:hover': {
+                backgroundColor: row.original.isActive === false
+                  ? 'rgba(0, 0, 0, 0.08) !important'
+                  : undefined,
+              },
+              opacity: row.original.isActive === false ? 0.7 : 1,
+            },
+          })}
           enablePagination={false}
         />
+        </Box>
       </Paper>
 
       {/* Modals */}
@@ -840,11 +943,13 @@ export default function TeamPage() {
 
       <EditEmployeeModal
         open={openEdit !== null}
-        onClose={() => setOpenEdit(null)}
+        onClose={() => {
+          setOpenEdit(null);
+          setFocusEquipment(false);
+        }}
         employee={openEdit}
+        focusEquipment={focusEquipment}
         onEmployeeUpdated={() => {
-          // Modal calls this after successful update, then calls handleClose()
-          // We just need to trigger a refetch to update the list
           refetch();
         }}
       />

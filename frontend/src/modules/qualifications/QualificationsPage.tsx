@@ -135,11 +135,52 @@ export default function QualificationsPage() {
       </Stack>
     ),
     muiToolbarAlertBannerProps: error ? { color: 'error', children: error } : undefined,
+    enableStickyHeader: true,
+    muiTablePaperProps: {
+      sx: {
+        height: '100%',
+        minHeight: 0,
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: 'none',
+      },
+    },
+    muiTableContainerProps: {
+      sx: {
+        flex: 1,
+        minHeight: 0,
+        maxHeight: '100%',
+        overflow: 'auto',
+      },
+    },
   });
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        maxHeight: '100%',
+        bgcolor: 'background.default',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Paper
+        elevation={2}
+        sx={{
+          p: 2,
+          flex: 1,
+          minHeight: 0,
+          width: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
           <Stack direction="row" gap={1} alignItems="center">
             <WorkspacePremiumRoundedIcon color="primary" />
@@ -149,7 +190,7 @@ export default function QualificationsPage() {
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

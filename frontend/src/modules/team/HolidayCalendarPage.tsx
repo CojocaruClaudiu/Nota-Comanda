@@ -14,7 +14,8 @@ import {
   ListItemText, Paper, Popover, Badge, Zoom, Grow, LinearProgress, Tab, Tabs
 } from '@mui/material';
 import { DatePicker, StaticDatePicker } from '@mui/x-date-pickers';
-import { PickersDay, PickersDayProps } from '@mui/x-date-pickers/PickersDay';
+import { PickersDay } from '@mui/x-date-pickers/PickersDay';
+import type { PickersDayProps } from '@mui/x-date-pickers/PickersDay';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ro';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -183,7 +184,7 @@ interface EmployeeLeaveBalance {
 }
 
 /* ---------- Mini Calendar Day Component ---------- */
-function MiniCalendarDay(props: PickersDayProps<dayjs.Dayjs> & { 
+function MiniCalendarDay(props: PickersDayProps & { 
   leaveDays: Set<string>;
   holidayDays: Set<string>;
   shutdownDays: Set<string>;

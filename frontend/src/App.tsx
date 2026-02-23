@@ -1,6 +1,6 @@
 // App.tsx
 import { SnackbarProvider } from "notistack";
-import { RouterProvider, createBrowserRouter, Outlet, ScrollRestoration } from "react-router-dom";
+import { RouterProvider, createBrowserRouter, Outlet, ScrollRestoration, useLocation } from "react-router-dom";
 import { Box } from "@mui/material";
 import TopBar from "./modules/topBar/TopBar";
 
@@ -32,8 +32,12 @@ import RegistruReceptiiPage from "./modules/receptions/ReceptionsPage";
 import OrdersPage from "./modules/orders/OrdersPage";
 import CashLedgerPage from "./modules/cash/CashLedgerPage";
 import ExchangeRatesPage from "./modules/exchangeRates/ExchangeRatesPage";
+import TeamEquipmentOverviewPage from "./modules/team/TeamEquipmentOverviewPage";
 
 function AppLayout() {
+  const location = useLocation();
+  const lockMainScroll = location.pathname === "/calendar-auto";
+
   return (
     <Box
       sx={{
@@ -45,7 +49,15 @@ function AppLayout() {
       }}
     >
       <TopBar />
-      <Box sx={{ minHeight: 0, overflow: "hidden" }}>
+      <Box
+        component="main"
+        id="main"
+        sx={{
+          minHeight: 0,
+          overflow: lockMainScroll ? "hidden" : "auto",
+          overscrollBehavior: lockMainScroll ? "none" : "contain",
+        }}
+      >
         <ScrollRestoration />
         <Outlet />
       </Box>
@@ -191,6 +203,14 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <QualificationsTreePage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: "echipamente-angajati",
+        element: (
+          <RequireAuth>
+            <TeamEquipmentOverviewPage />
           </RequireAuth>
         ),
       },

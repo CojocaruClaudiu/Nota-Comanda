@@ -14,6 +14,7 @@ import operationSheetsRoutes from "./routes/operationSheets";
 import exchangeRateRoutes from "./routes/exchangeRates";
 import receptionsRoutes from "./routes/receptions";
 import offersRoutes from "./routes/offers";
+import equipmentRoutes from "./routes/equipment";
 import jwt from 'jsonwebtoken';
 import { calculateLeaveBalance } from './services/leaveCalculations.js';
 
@@ -47,6 +48,7 @@ app.use("/operation-sheets", operationSheetsRoutes);
 app.use("/exchange-rates", exchangeRateRoutes);
 app.use("/receptions", receptionsRoutes);
 app.use("/offers", offersRoutes);
+app.use("/equipment", equipmentRoutes);
 
 /** Helpers */
 const cleanRequired = (v: unknown): string => String(v ?? '').trim();
@@ -492,10 +494,26 @@ app.put('/employees/:id', async (req, res) => {
 
     // Handle deactivatedAt: can be set (string), cleared (null), or unchanged (undefined)
     let deactivatedAtValue: Date | null | undefined = undefined;
+    let finalLeaveBalanceValue: number | null | undefined = undefined;
+    
     if (deactivatedAt === null) {
       deactivatedAtValue = null; // Clear the date (reactivating)
+      finalLeaveBalanceValue = null; // Clear the final balance (reactivating)
     } else if (typeof deactivatedAt === 'string') {
       deactivatedAtValue = toDate(deactivatedAt); // Set the date (deactivating)
+      
+      // Calculate final leave balance at deactivation for payout tracking
+      try {
+        const manualCarryOverDays = existing.manualCarryOverDays;
+        const manualOverride = typeof manualCarryOverDays === 'number' && manualCarryOverDays > 0
+          ? manualCarryOverDays
+          : undefined;
+        const leaveBalance = await calculateLeaveBalance(id, existing.hiredAt, manualOverride, deactivatedAtValue);
+        finalLeaveBalanceValue = leaveBalance.available;
+      } catch (error) {
+        console.warn(`Failed to calculate final leave balance for employee ${id}:`, error);
+        // Don't fail the update, just don't set the balance
+      }
     }
 
     const updated = await (prisma as any).employee.update({
@@ -505,6 +523,7 @@ app.put('/employees/:id', async (req, res) => {
         hiredAt: toDate(hiredAt),
         isActive: typeof isActive === 'boolean' ? isActive : existing.isActive,
         ...(deactivatedAtValue !== undefined && { deactivatedAt: deactivatedAtValue }),
+        ...(finalLeaveBalanceValue !== undefined && { finalLeaveBalance: finalLeaveBalanceValue }),
         birthDate: req.body?.birthDate ? toDate(req.body.birthDate) : null,
         cnp: cleanOptional(req.body?.cnp),
         phone: cleanOptional(req.body?.phone),

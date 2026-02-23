@@ -31,6 +31,7 @@ import EngineeringRoundedIcon from "@mui/icons-material/EngineeringRounded";
 import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
 import WorkspacePremiumRoundedIcon from "@mui/icons-material/WorkspacePremiumRounded";
 import ListAltRoundedIcon from "@mui/icons-material/ListAltRounded";
+import HealthAndSafetyRoundedIcon from "@mui/icons-material/HealthAndSafetyRounded";
 import DirectionsCarFilledRoundedIcon from "@mui/icons-material/DirectionsCarFilledRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import RequestQuoteRoundedIcon from "@mui/icons-material/RequestQuoteRounded";
@@ -334,6 +335,14 @@ export const LandingPage: React.FC = () => {
           to: "/qualifications",
           minWidth: 160,
           keywords: ["calificari", "certificari"],
+        },
+        {
+          label: "Echipamente angajați",
+          icon: <HealthAndSafetyRoundedIcon />,
+          variant: "contained",
+          to: "/echipamente-angajati",
+          minWidth: 200,
+          keywords: ["echipamente", "protectie", "eip"],
         },
         {
           label: "Linii Manoperă",
@@ -706,21 +715,6 @@ export const LandingPage: React.FC = () => {
               ))}
             </Box>
           )}
-        </Box>
-
-        {/* Footer (always visible) */}
-        <Box
-          sx={{
-            textAlign: "center",
-            color: "text.secondary",
-            py: 1,
-            fontSize: 12,
-            borderTop: (t) => `1px solid ${t.palette.divider}`,
-            mt: 1,
-            backgroundColor: "background.default",
-          }}
-        >
-          © {new Date().getFullYear()} Topaz Admin. Toate drepturile rezervate.
         </Box>
       </Container>
     </Box>

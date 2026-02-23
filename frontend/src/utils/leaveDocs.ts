@@ -26,6 +26,7 @@ type LeaveDocOpts = {
   startISO: string;       // inclusive
   days: number;           // business days
   note?: string;
+  requestDateISO?: string; // Date the request was made (defaults to today)
 
   // Company (defaults for Topaz)
   companyName?: string;   // default: "S.C. TOPAZ CONSTRUCT S.R.L."
@@ -137,7 +138,7 @@ export async function generateLeaveDocx(opts: LeaveDocOpts) {
           new Paragraph({
             alignment: AlignmentType.LEFT,
             spacing: { after: 200 },
-            children: [new TextRun({ text: `Data: ${dayjs().format("DD.MM.YYYY")}` })],
+            children: [new TextRun({ text: `Data: ${opts.requestDateISO ? dayjs(opts.requestDateISO).format("DD.MM.YYYY") : dayjs().format("DD.MM.YYYY")}` })],
           }),
           new Paragraph({
             spacing: { before: 200 },
@@ -161,6 +162,12 @@ export async function generateLeaveDocx(opts: LeaveDocOpts) {
   saveAs(blob, fileName);
 }
 
+/* ---------------- PDF generation (via browser print) ---------------- */
+export function generateLeavePdf(opts: LeaveDocOpts) {
+  // Use the browser's print-to-PDF feature for identical output to Word
+  return openPrintPreview(opts);
+}
+
 /* ---------------- Print preview (same text) ---------------- */
 export function openPrintPreview(opts: LeaveDocOpts) {
   const { employeeName, note } = opts;
@@ -169,36 +176,74 @@ export function openPrintPreview(opts: LeaveDocOpts) {
   const html = `
 <!doctype html>
 <html lang="ro">
+<head>
 <meta charset="utf-8">
 <title>Cerere concediu – ${employeeName}</title>
 <style>
-  body{ font: 12pt "Times New Roman", serif; padding: 25mm; color:#111; }
-  h1{ font-size:12pt; margin:0 0 12pt; font-weight:700; }
-  p{ margin:0 0 8pt; text-align: justify; }
-  .indent{ text-indent: 1.25cm; }
-  .muted{ color:#444; }
-  .sig{ height: 35mm; }
-  @media print { button{ display:none } body{ padding: 15mm 20mm; } }
+  body { 
+    font: 12pt "Times New Roman", serif; 
+    margin: 2.54cm;
+    color: #000;
+    line-height: 1.15;
+  }
+  p { 
+    margin: 0 0 10pt 0;
+    text-align: justify;
+  }
+  .indent { 
+    text-indent: 1.27cm;
+  }
+  .header {
+    font-weight: bold;
+    margin-bottom: 10pt;
+  }
+  .thank-you {
+    margin-top: 15pt;
+    margin-bottom: 30pt;
+    text-align: left;
+  }
+  .date {
+    margin-bottom: 10pt;
+  }
+  .label {
+    font-weight: bold;
+    margin-top: 10pt;
+    margin-bottom: 0;
+  }
+  .name {
+    margin-bottom: 40pt;
+  }
+  .signature {
+    margin-top: 0;
+  }
+  @media print { 
+    body { margin: 2.54cm; }
+  }
 </style>
+</head>
 <body>
-  <h1>Domnule Director,</h1>
+  <p class="header">Domnule Director,</p>
   <p class="indent">${identity}</p>
   <p class="indent">${core}</p>
-  ${note ? `<p class="indent muted">Notă: ${note}</p>` : ""}
-
-  <p class="muted">Data: ${dayjs().format("DD.MM.YYYY")}</p>
-  <p><strong>Nume, prenume:</strong></p>
-  <p>${employeeName.toUpperCase()}</p>
-  <div class="sig">Semnătura:</div>
-
-  <button onclick="window.print()">Printează</button>
+  ${note ? `<p class="indent">Notă: ${note}</p>` : ""}
+  <p class="thank-you">Vă mulțumesc.</p>
+  <p class="date">Data: ${opts.requestDateISO ? dayjs(opts.requestDateISO).format("DD.MM.YYYY") : dayjs().format("DD.MM.YYYY")}</p>
+  <p class="label">Nume, prenume:</p>
+  <p class="name">${employeeName.toUpperCase()}</p>
+  <p class="signature">Semnătura:</p>
 </body>
-</html>`.trim();
+</html>`;
 
-  const w = window.open("", "_blank", "noopener,noreferrer");
-  if (!w) return;
+  const w = window.open("", "_blank");
+  if (!w) {
+    throw new Error("Pop-up blocat. Permite pop-up-urile pentru această pagină.");
+  }
   w.document.open();
   w.document.write(html);
   w.document.close();
-  setTimeout(() => w.print(), 300);
+  
+  // Automatically open print dialog (browser's PDF viewer)
+  w.onload = () => w.print();
+  
+  return Promise.resolve();
 }

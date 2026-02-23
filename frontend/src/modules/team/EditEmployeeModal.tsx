@@ -1,12 +1,12 @@
 // src/modules/team/EditEmployeeModal.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Dialog, DialogContent,
+  Dialog, DialogContent, DialogTitle, DialogActions,
   TextField, Button, Stack, IconButton, Typography,
-  Box, Divider, CircularProgress, Fade, Collapse, InputAdornment, useMediaQuery, ButtonBase, alpha, Switch, FormControlLabel
+  Box, Divider, CircularProgress, Fade, Collapse, InputAdornment, useMediaQuery, Switch, FormControlLabel, Alert
 } from '@mui/material';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import BlockIcon from '@mui/icons-material/Block';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import InfoIcon from '@mui/icons-material/Info';
 import { useTheme } from '@mui/material/styles';
 import { DatePicker } from '@mui/x-date-pickers';
 import { Formik, Form, Field } from 'formik';
@@ -23,12 +23,15 @@ import HistoryIcon from '@mui/icons-material/History';
 import dayjs from 'dayjs';
 import { updateEmployee, type EmployeeWithStats, type EmployeePayload, type Employee } from '../../api/employees';
 import useNotistack from '../orders/hooks/useNotistack';
+import { useConfirm } from '../common/confirm/ConfirmProvider';
+import { EquipmentManagement } from './EquipmentManagement';
 
 interface EditEmployeeModalProps {
   open: boolean;
   employee: EmployeeWithStats | null;
   onClose: () => void;
   onEmployeeUpdated: (employee: Employee) => void;
+  focusEquipment?: boolean;
 }
 
 // Validation schema
@@ -65,13 +68,26 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
   open,
   employee,
   onClose,
-  onEmployeeUpdated
+  onEmployeeUpdated,
+  focusEquipment = false
 }) => {
   const [updating, setUpdating] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{ isActive: boolean; setFieldValue: any } | null>(null);
   const { successNotistack, errorNotistack } = useNotistack();
+  const confirm = useConfirm();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const equipmentRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open || !focusEquipment) return;
+    const id = window.setTimeout(() => {
+      equipmentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [open, focusEquipment]);
 
   // Get initial values based on employee
   const getInitialValues = (): EmployeePayload & { qualificationsText: string; manualCarryOverOverride: boolean } => {
@@ -86,7 +102,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
         qualifications: employee.qualifications ?? [],
         qualificationsText: (employee.qualifications ?? []).join(', '),
         idSeries: employee.idSeries ?? '',
-        idNumber: employee.idNumber ?? '',
+        idNumber: (employee.idNumber ?? '').toString(),
         idIssuer: employee.idIssuer ?? '',
         idIssueDateISO: employee.idIssueDateISO ?? '',
         county: employee.county ?? '',
@@ -115,6 +131,109 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
       manualCarryOverDays: 0,
       manualCarryOverOverride: false,
     };
+  };
+
+  // Calculate remaining leave balance
+  const calculateRemainingLeave = (): number => {
+    if (!employee) return 0;
+    const lb = employee.leaveBalance;
+    if (!lb) return 0;
+    
+    const accrued = lb.accrued ?? 0;
+    const carriedOver = lb.carriedOver ?? 0;
+    const taken = (lb.companyShutdownDays ?? 0) + (lb.voluntaryDays ?? 0);
+    
+    return Math.max(0, accrued + carriedOver - taken);
+  };
+
+  // Handle status change with confirmation
+  const handleStatusToggle = async (currentValue: boolean, setFieldValue: any) => {
+    const willBeActive = !currentValue;
+    
+    // If deactivating an active employee
+    if (!willBeActive && (employee?.isActive !== false)) {
+      const remainingDays = calculateRemainingLeave();
+      
+      const confirmed = await confirm({
+        title: '🚪 Dezactivare Angajat',
+        description: (
+          <Box>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              Ești pe cale să dezactivezi angajatul <strong>{employee?.name}</strong>.
+            </Typography>
+            
+            {remainingDays > 0 && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                  ⚠️ Zile de concediu nefolosite: <strong>{remainingDays} zile</strong>
+                </Typography>
+                <Typography variant="caption" display="block">
+                  Conform legislației muncii, aceste zile trebuie plătite angajatului la încetarea contractului.
+                </Typography>
+              </Alert>
+            )}
+            
+            <Alert severity="info" icon={<InfoIcon />}>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                Ce se întâmplă:
+              </Typography>
+              <Typography variant="caption" component="div">
+                • Calculele de concediu se înghează la data de astăzi<br />
+                • Angajatul nu va mai apărea în listele active<br />
+                • Istoricul și datele rămân păstrate<br />
+                • Poți reactiva angajatul oricând
+              </Typography>
+            </Alert>
+          </Box>
+        ),
+        confirmText: 'Dezactivează',
+        cancelText: 'Anulează',
+      });
+      
+      if (confirmed) {
+        setFieldValue('isActive', willBeActive);
+      }
+    }
+    // If reactivating an inactive employee
+    else if (willBeActive && (employee?.isActive === false)) {
+      const confirmed = await confirm({
+        title: '↩️ Reactivare Angajat',
+        description: (
+          <Box>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              Ești pe cale să reactivezi angajatul <strong>{employee?.name}</strong>.
+            </Typography>
+            
+            <Alert severity="info" icon={<InfoIcon />}>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                Ce se întâmplă:
+              </Typography>
+              <Typography variant="caption" component="div">
+                • Calculele de concediu vor reîncepe de la data reactivării<br />
+                • Soldurile de concediu vor fi recalculate<br />
+                • Angajatul va apărea în listele active<br />
+                • <strong>Dacă dorești să actualizezi data angajării, fă-o după reactivare</strong>
+              </Typography>
+            </Alert>
+            
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="caption">
+                <strong>Notă:</strong> Pentru o reangajare nouă (contract nou), este recomandat să actualizezi și câmpul "Angajat din" cu noua dată de angajare.
+              </Typography>
+            </Alert>
+          </Box>
+        ),
+        confirmText: 'Reactivează',
+        cancelText: 'Anulează',
+      });
+      
+      if (confirmed) {
+        setFieldValue('isActive', willBeActive);
+      }
+    } else {
+      // No confirmation needed for other cases
+      setFieldValue('isActive', willBeActive);
+    }
   };
 
   const handleSubmit = async (values: any) => {
@@ -320,7 +439,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                                     control={
                                       <Switch 
                                         checked={values.isActive !== false}
-                                        onChange={(e) => setFieldValue('isActive', e.target.checked)}
+                                        onChange={() => handleStatusToggle(values.isActive !== false, setFieldValue)}
                                         size="small"
                                         color="success" 
                                       />
@@ -709,6 +828,14 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({
                       </Box>
                     </Collapse>
                   </Box>
+
+                  {/* Equipment Tracking Section */}
+                  {employee && (
+                    <Box ref={equipmentRef}>
+                      <Divider sx={{ my: 3 }} />
+                      <EquipmentManagement employeeId={employee.id} employeeName={employee.name} />
+                    </Box>
+                  )}
                 </Stack>
               </Box>
             </DialogContent>

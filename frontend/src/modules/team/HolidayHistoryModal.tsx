@@ -4,7 +4,7 @@ import {
   Dialog, DialogContent,
   Button, Stack, IconButton, Typography,
   Box, Divider, Fade, Chip, Alert, List, ListItem, ListItemText,
-  Card, CardContent, Tooltip
+  Card, CardContent, Tooltip, CircularProgress
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import HistoryIcon from '@mui/icons-material/History';
@@ -12,6 +12,8 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import DescriptionIcon from '@mui/icons-material/Description';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ro';
@@ -19,6 +21,7 @@ import 'dayjs/locale/ro';
 import { getLeaves, deleteLeave, type EmployeeWithStats, type Leave } from '../../api/employees';
 import { useConfirm } from '../common/confirm/ConfirmProvider';
 import { sumBusinessDaysForYear } from '../../utils/businessDays';
+import { generateLeaveDocx, generateLeavePdf } from '../../utils/leaveDocs';
 import useNotistack from '../orders/hooks/useNotistack';
 
 dayjs.locale('ro');
@@ -77,6 +80,7 @@ export const HolidayHistoryModal: React.FC<HolidayHistoryModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<Leave[]>([]);
   const [historyYear, setHistoryYear] = useState<number | 'all'>(dayjs().year());
+  const [generatingDocs, setGeneratingDocs] = useState<{ [key: number]: 'word' | 'pdf' | null }>({});
   const { successNotistack, errorNotistack } = useNotistack();
 
   // Load history when modal opens
@@ -132,6 +136,64 @@ export const HolidayHistoryModal: React.FC<HolidayHistoryModalProps> = ({
       errorNotistack(e?.message || 'Nu am putut șterge înregistrarea');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateWord = async (leave: Leave) => {
+    if (!employee) return;
+    
+    try {
+      setGeneratingDocs(prev => ({ ...prev, [leave.id]: 'word' }));
+      
+      await generateLeaveDocx({
+        employeeName: employee.name,
+        cnp: (employee as any).cnp,
+        county: (employee as any).county,
+        locality: (employee as any).locality,
+        address: (employee as any).address,
+        idSeries: (employee as any).idSeries,
+        idNumber: (employee as any).idNumber,
+        idIssuer: (employee as any).idIssuer,
+        startISO: leave.startDate,
+        days: leave.days,
+        note: leave.note || undefined,
+        requestDateISO: leave.createdAt,
+      });
+      
+      successNotistack('Document Word generat cu succes!');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Nu am putut genera documentul Word');
+    } finally {
+      setGeneratingDocs(prev => ({ ...prev, [leave.id]: null }));
+    }
+  };
+
+  const handleGeneratePdf = async (leave: Leave) => {
+    if (!employee) return;
+    
+    try {
+      setGeneratingDocs(prev => ({ ...prev, [leave.id]: 'pdf' }));
+      
+      await generateLeavePdf({
+        employeeName: employee.name,
+        cnp: (employee as any).cnp,
+        county: (employee as any).county,
+        locality: (employee as any).locality,
+        address: (employee as any).address,
+        idSeries: (employee as any).idSeries,
+        idNumber: (employee as any).idNumber,
+        idIssuer: (employee as any).idIssuer,
+        startISO: leave.startDate,
+        days: leave.days,
+        note: leave.note || undefined,
+        requestDateISO: leave.createdAt,
+      });
+      
+      successNotistack('Document PDF generat cu succes!');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Nu am putut genera documentul PDF');
+    } finally {
+      setGeneratingDocs(prev => ({ ...prev, [leave.id]: null }));
     }
   };
 
@@ -393,22 +455,67 @@ export const HolidayHistoryModal: React.FC<HolidayHistoryModalProps> = ({
                             }
                           }}
                           secondaryAction={
-                            <Tooltip title="Șterge înregistrarea">
-                              <IconButton
-                                edge="end"
-                                color="error"
-                                onClick={() => handleDeleteLeave(h.id)}
-                                disabled={loading}
-                                sx={{
-                                  '&:hover': {
-                                    bgcolor: 'error.light',
-                                    color: 'white'
-                                  }
-                                }}
-                              >
-                                <DeleteOutlineIcon />
-                              </IconButton>
-                            </Tooltip>
+                            <Stack direction="row" spacing={0.5}>
+                              <Tooltip title="Descarcă Word">
+                                <IconButton
+                                  edge="end"
+                                  color="primary"
+                                  onClick={() => handleGenerateWord(h)}
+                                  disabled={loading || generatingDocs[h.id] === 'word'}
+                                  size="small"
+                                  sx={{
+                                    '&:hover': {
+                                      bgcolor: 'primary.light',
+                                      color: 'white'
+                                    }
+                                  }}
+                                >
+                                  {generatingDocs[h.id] === 'word' ? (
+                                    <CircularProgress size={20} color="inherit" />
+                                  ) : (
+                                    <DescriptionIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Previzualizare PDF">
+                                <IconButton
+                                  edge="end"
+                                  color="error"
+                                  onClick={() => handleGeneratePdf(h)}
+                                  disabled={loading || generatingDocs[h.id] === 'pdf'}
+                                  size="small"
+                                  sx={{
+                                    '&:hover': {
+                                      bgcolor: 'error.light',
+                                      color: 'white'
+                                    }
+                                  }}
+                                >
+                                  {generatingDocs[h.id] === 'pdf' ? (
+                                    <CircularProgress size={20} color="inherit" />
+                                  ) : (
+                                    <PictureAsPdfIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Șterge înregistrarea">
+                                <IconButton
+                                  edge="end"
+                                  color="warning"
+                                  onClick={() => handleDeleteLeave(h.id)}
+                                  disabled={loading}
+                                  size="small"
+                                  sx={{
+                                    '&:hover': {
+                                      bgcolor: 'warning.light',
+                                      color: 'white'
+                                    }
+                                  }}
+                                >
+                                  <DeleteOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                           }
                         >
                           <ListItemText

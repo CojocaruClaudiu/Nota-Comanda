@@ -5,6 +5,8 @@ export type Employee = {
   id: string;
   name: string;
   isActive?: boolean;
+  deactivatedAt?: string | null; // Date when employee left/became inactive
+  finalLeaveBalance?: number | null; // Final leave balance at deactivation (for payout tracking)
   qualifications: string[];
   hiredAt: string;             // ISO
   birthDate?: string | null;   // NEW (ISO)

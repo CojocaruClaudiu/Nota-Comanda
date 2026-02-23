@@ -18,6 +18,11 @@ import EventIcon from '@mui/icons-material/Event';
 import UpdateIcon from '@mui/icons-material/Update';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import BuildIcon from '@mui/icons-material/Build';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import CategoryIcon from '@mui/icons-material/Category';
+import LabelIcon from '@mui/icons-material/Label';
 import { API_BASE_URL } from '../../api/baseUrl';
 
 import {
@@ -197,7 +202,7 @@ async function buildTree(): Promise<TreeRow[]> {
       };
 
       const productsByKey = new Map<string, TreeRow[]>();
-      variants.forEach((v, vi) => {
+      variants.forEach((v) => {
         const productKey = normalizeProduct(v.name || 'Variant');
         const arr = productsByKey.get(productKey) || [];
         arr.push({
@@ -215,7 +220,7 @@ async function buildTree(): Promise<TreeRow[]> {
           currency: 'RON',
           purchaseDate: (v as any).purchaseDate || undefined,
           technicalSheet: undefined,
-          number: `${fi + 1}.${vi + 1}`,
+          number: '', // Will be set after grouping
           createdAt: v.updatedAt,
           updatedAt: v.updatedAt,
           purchaseCount: v.purchasesCount,
@@ -226,16 +231,24 @@ async function buildTree(): Promise<TreeRow[]> {
       });
 
       // Build product-level nodes (intermediate level)
-      const productNodes: TreeRow[] = Array.from(productsByKey.entries()).map(([productKey, items], pi) => ({
-        type: 'variant' as const,
-        id: `${f.summary.id}::product::${productKey}`,
-        parentId: f.summary.id,
-        familyId: f.summary.id,
-        name: productKey,
-        number: `${fi + 1}.${pi + 1}`,
-        subRows: items.sort((a,b)=> (a.name||'').localeCompare(b.name||'')),
-        // aggregated stats could be attached here if needed
-      }));
+      const productNodes: TreeRow[] = Array.from(productsByKey.entries()).map(([productKey, items], pi) => {
+        // Sort variants and assign hierarchical numbers within this product
+        const sortedItems = items.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+        sortedItems.forEach((item, itemIdx) => {
+          item.number = `${fi + 1}.${pi + 1}.${itemIdx + 1}`;
+        });
+        
+        return {
+          type: 'variant' as const,
+          id: `${f.summary.id}::product::${productKey}`,
+          parentId: f.summary.id,
+          familyId: f.summary.id,
+          name: productKey,
+          number: `${fi + 1}.${pi + 1}`,
+          subRows: sortedItems,
+          // aggregated stats could be attached here if needed
+        };
+      });
 
       return {
         type: 'group' as const,
@@ -594,16 +607,43 @@ function MaterialsPageContent() {
       Cell: ({ row, renderedCellValue }) => {
         const t = row.original.type;
         const sub = row.original.subRows || [];
+        const indent = row.depth * 20;
+        
         if (t === 'material') {
           return (
-            <Typography variant="body1">{renderedCellValue as string}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: `${indent}px` }}>
+              <LabelIcon fontSize="small" sx={{ color: 'text.secondary', fontSize: '1rem' }} />
+              <Typography variant="body2">{renderedCellValue as string}</Typography>
+            </Box>
           );
         }
+        
         const itemsCount = sub.length;
+        const isFamily = t === 'group';
+        
         return (
-          <Stack direction="row" alignItems="center" gap={1} sx={{ py: 0.25 }}>
-            <Typography variant="body1" sx={{ fontWeight: 600 }}>{renderedCellValue as string}</Typography>
-            <Chip size="small" variant="outlined" label={`${itemsCount ?? 0} variante`} />
+          <Stack direction="row" alignItems="center" gap={1} sx={{ py: 0.25, pl: `${indent}px` }}>
+            {isFamily ? (
+              <FolderOpenIcon sx={{ color: 'primary.main', fontSize: '1.1rem' }} />
+            ) : (
+              <CategoryIcon sx={{ color: 'info.main', fontSize: '1rem' }} />
+            )}
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                fontWeight: isFamily ? 700 : 600,
+                fontSize: isFamily ? '0.95rem' : '0.875rem',
+              }}
+            >
+              {renderedCellValue as string}
+            </Typography>
+            <Chip 
+              size="small" 
+              variant="outlined" 
+              label={itemsCount ?? 0}
+              color={isFamily ? 'primary' : 'info'}
+              sx={{ height: 20, fontSize: '0.7rem', fontWeight: 600 }}
+            />
           </Stack>
         );
       },
@@ -708,39 +748,36 @@ function MaterialsPageContent() {
         if (value == null) return '-';
         const formatted = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 4 }).format(value);
         const packUnit = (row.original.packUnit || '').toLowerCase();
-        const name = row.original.name || '';
-        
-        // Use smart parser to check if the name contains a different quantity/unit
-        const parsed = parsePackFromName(name);
+        // Detect suspicious values - likely data entry errors
+        // E.g., value of 103 when name contains "(1.03KG)" - user probably meant 1.03
+        const name = (row.original.name || '').toUpperCase();
         let isSuspicious = false;
         let suspicionReason = '';
-        
-        if (parsed.quantity && parsed.unit) {
-          // Check if parsed values differ significantly from stored values
-          const quantityDiffers = Math.abs(parsed.quantity - value) > 0.01;
-          const unitDiffers = parsed.unit !== packUnit;
+        // Check if value is suspiciously high for weight/volume units
+        if (value >= 100 && ['kg', 'g', 'l', 'ml'].includes(packUnit)) {
+          // For ml: 300, 500, 750, 1000ml are normal bottle sizes
+          const normalMlSizes = [100, 150, 200, 250, 300, 330, 350, 400, 500, 600, 750, 1000, 1500, 2000, 3000, 5000];
+          const isNormalMlSize = packUnit === 'ml' && normalMlSizes.includes(value);
           
-          if (quantityDiffers || unitDiffers) {
-            isSuspicious = true;
-            suspicionReason = `Valoare suspectă - în nume găsim ${parsed.quantity} ${parsed.unit.toUpperCase()}, dar aici este ${formatted} ${packUnit.toUpperCase()}`;
-          }
-        } else {
-          // Fallback to old logic for cases without parseable patterns
-          // Check if value is suspiciously high (> 100) for weight/volume units
-          if (value >= 100 && ['kg', 'g', 'l', 'ml'].includes(packUnit)) {
+          if (!isNormalMlSize) {
+            // Check if there's a smaller number in the name that might be the intended value
             const possibleDecimal = value / 100;
-            const nameUpper = name.toUpperCase();
-            const nameHasSmaller = nameUpper.includes(possibleDecimal.toFixed(2).replace('.', ',')) || 
-                                    nameUpper.includes(possibleDecimal.toFixed(2)) ||
-                                    nameUpper.includes(`(${possibleDecimal}`) ||
-                                    nameUpper.includes(`/${possibleDecimal}`);
-            if (nameHasSmaller || (value % 100 === 0 && value >= 100)) {
+            const nameHasSmaller = name.includes(possibleDecimal.toFixed(2).replace('.', ',')) || 
+                                    name.includes(possibleDecimal.toFixed(2)) ||
+                                    name.includes(`(${possibleDecimal}`) ||
+                                    name.includes(`/${possibleDecimal}`);
+            if (nameHasSmaller) {
               isSuspicious = true;
               suspicionReason = `Valoare suspectă - poate ați vrut ${possibleDecimal.toFixed(2)} ${packUnit.toUpperCase()}?`;
             }
           }
         }
-        
+        // Check if value looks like it was extracted from a non-quantity part of name (e.g., "100LM" lumens)
+        const numericPatterns = name.match(/\d+(?:LM|W|V|A|MM|CM)\b/gi);
+        if (numericPatterns && numericPatterns.some(p => parseInt(p) === value)) {
+          isSuspicious = true;
+          suspicionReason = 'Valoare suspectă - pare extrasă din specificații tehnice, nu din cantitatea reală';
+        }
         return (
           <Tooltip title={isSuspicious ? suspicionReason : ''} arrow>
             <Typography 
@@ -790,7 +827,7 @@ function MaterialsPageContent() {
     // PRICE column with trend indicator (editable only for materials)
     {
       accessorKey: 'price',
-  header: 'Pre?',
+  header: 'Preț',
       size: 180,
       enableColumnFilter: false,
       muiEditTextFieldProps: ({ row }: any) => ({
@@ -1500,9 +1537,35 @@ function MaterialsPageContent() {
         >
           Adauga Material
         </Button>
-        <Button variant="outlined" onClick={() => load()} disabled={loading}>
-          Reîncarca
-        </Button>
+        <Tooltip title="Detectează și corectează automat cantitățile/unitățile de ambalare extrase din numele materialelor">
+          <Button 
+            variant="outlined" 
+            color="warning"
+            startIcon={<BuildIcon />}
+            onClick={handleBulkFixPackInfo}
+            disabled={loading || saving}
+            sx={{ fontWeight: 600 }}
+          >
+            Corectează valori
+          </Button>
+        </Tooltip>
+        <Tooltip title="Grupează automat materialele în familii bazat pe prefixele din nume (ex: CHIT, VOPSEA, etc.)">
+          <Button 
+            variant="contained" 
+            color="success"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={handleIntelligentAutoGroup}
+            disabled={loading || saving}
+            sx={{ fontWeight: 600 }}
+          >
+            Auto-grupare
+          </Button>
+        </Tooltip>
+        <Tooltip title="Reîncarcă datele">
+          <IconButton onClick={() => load()} disabled={loading} color="primary">
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
       </Stack>
     ),
 
@@ -1517,12 +1580,51 @@ function MaterialsPageContent() {
     displayColumnDefOptions: {
       'mrt-row-actions': { header: 'Acțiuni', size: 180 },
     },
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 280px)' } },
+    muiTablePaperProps: {
+      sx: {
+        height: '100%',
+        minHeight: 0,
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      },
+    },
+    muiTableContainerProps: {
+      sx: {
+        flex: 1,
+        minHeight: 0,
+        width: '100%',
+        maxHeight: '100%',
+        overflow: 'auto',
+      },
+    },
     rowVirtualizerOptions: { overscan: 10 },
-    muiTableBodyRowProps: ({ row, table }) => {
-      const visibleRows = table.getRowModel().rows;
-      const displayIndex = visibleRows.findIndex((r) => r.id === row.id);
-      return { sx: { backgroundColor: displayIndex % 2 === 0 ? 'action.hover' : 'inherit' } };
+    muiTableBodyRowProps: ({ row }) => {
+      const rowType = row.original?.type;
+      let bgColor = 'inherit';
+      let borderLeft = 'none';
+      
+      // Distinct color coding by hierarchy level
+      if (rowType === 'group') {
+        bgColor = 'rgba(25, 118, 210, 0.08)'; // Blue for families
+        borderLeft = '4px solid rgba(25, 118, 210, 0.5)';
+      } else if (rowType === 'variant') {
+        bgColor = 'rgba(33, 150, 243, 0.04)'; // Light blue for products
+        borderLeft = '3px solid rgba(33, 150, 243, 0.3)';
+      }
+      
+      return { 
+        sx: { 
+          backgroundColor: bgColor,
+          borderLeft,
+          '&:hover': {
+            backgroundColor: rowType === 'group' ? 'rgba(25, 118, 210, 0.15)' : 
+                            rowType === 'variant' ? 'rgba(33, 150, 243, 0.08)' : 
+                            'rgba(0, 0, 0, 0.04)',
+          },
+          transition: 'all 0.15s ease',
+        } 
+      };
     },
 
     // state persistence
@@ -1637,9 +1739,315 @@ function MaterialsPageContent() {
     }
   };
 
+  // Bulk fix materials with incorrect pack quantity/unit
+  const handleBulkFixPackInfo = async () => {
+    const allMaterials = tree.flatMap(item => {
+      const materials: TreeRow[] = [];
+      const walk = (node: TreeRow) => {
+        if (node.type === 'material') materials.push(node);
+        if (node.subRows) node.subRows.forEach(walk);
+      };
+      walk(item);
+      return materials;
+    });
+
+    // Find materials that need fixing
+    const toFix: Array<{ id: string; name: string; code: string; currentQty: number | null; currentUnit: string | null; newQty: number; newUnit: string }> = [];
+    
+    for (const material of allMaterials) {
+      const parsed = parsePackFromName(material.name);
+      if (parsed.quantity && parsed.unit) {
+        const needsUpdate = 
+          material.packQuantity !== parsed.quantity ||
+          material.packUnit !== parsed.unit;
+        
+        if (needsUpdate) {
+          toFix.push({
+            id: material.id,
+            name: material.name,
+            code: material.code || '',
+            currentQty: material.packQuantity,
+            currentUnit: material.packUnit,
+            newQty: parsed.quantity,
+            newUnit: parsed.unit,
+          });
+        }
+      }
+    }
+
+    if (toFix.length === 0) {
+      successNotistack('Nu sunt materiale care necesită corecții!');
+      return;
+    }
+
+    const ok = await confirm({
+      title: 'Corectare automată',
+      description: (
+        <div>
+          <div style={{ marginBottom: '8px' }}>Găsite {toFix.length} materiale cu informații de ambalare incorecte.</div>
+          <div style={{ fontSize: '0.75rem', marginTop: '8px', marginBottom: '4px', opacity: 0.7 }}>
+            Exemple:
+          </div>
+          <ul style={{ marginTop: '4px', paddingLeft: '16px', maxHeight: '200px', overflow: 'auto' }}>
+            {toFix.slice(0, 5).map((item, idx) => (
+              <li key={idx} style={{ fontSize: '0.75rem', marginBottom: '4px' }}>
+                <strong>{item.name.substring(0, 50)}...</strong>
+                <br />
+                {item.currentQty || '—'} {item.currentUnit || '—'} → {item.newQty} {item.newUnit}
+              </li>
+            ))}
+            {toFix.length > 5 && <li style={{ fontSize: '0.75rem' }}>...și încă {toFix.length - 5}</li>}
+          </ul>
+        </div>
+      ),
+      confirmText: 'Corectează',
+      cancelText: 'Anulează',
+    });
+
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      let fixed = 0;
+      for (const item of toFix) {
+        await updateMaterial(item.id, {
+          code: item.code,
+          description: item.name,
+          packQuantity: item.newQty,
+          packUnit: item.newUnit,
+        });
+        fixed++;
+      }
+      successNotistack(`${fixed} materiale corectate cu succes!`);
+      await load();
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Eroare la corectare');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Intelligent auto-grouping: analyzes all materials and groups by detected prefixes
+  const handleIntelligentAutoGroup = async () => {
+    const allMaterials = tree.flatMap(item => {
+      const materials: TreeRow[] = [];
+      const walk = (node: TreeRow) => {
+        if (node.type === 'material') materials.push(node);
+        if (node.subRows) node.subRows.forEach(walk);
+      };
+      walk(item);
+      return materials;
+    });
+
+    // Filter unassigned materials only
+    const unassigned = allMaterials.filter(m => !m.familyId);
+
+    if (unassigned.length === 0) {
+      successNotistack('Toate materialele sunt deja asignate în familii!');
+      return;
+    }
+
+    // Normalize prefix to handle plurals and variations (ANCORA/ANCORE -> ANCOR)
+    const normalizePrefix = (prefix: string): string => {
+      const upper = prefix.toUpperCase();
+      // Remove common Romanian plural/variation suffixes
+      return upper
+        .replace(/URI$/, '')      // VOPSELE -> VOPSEL, MATERIALE -> MATERIAL
+        .replace(/LE$/, '')       // ANCORE -> ANCOR
+        .replace(/[EI]$/, '')     // ANCORA -> ANCOR, VOPSI -> VOPS
+        .replace(/([^AEIOU])\1+$/, '$1'); // Remove duplicate consonants at end
+    };
+
+    // Extract meaningful prefix from material name (skip product codes like C265-)
+    const extractPrefix = (name: string): string | null => {
+      // Find all words (letter sequences)
+      const words = name.match(/[A-ZĂÂÎȘȚa-zăâîșț]+/g);
+      if (!words || words.length === 0) return null;
+
+      // Try to find the first "meaningful" word (at least 4 characters)
+      // Skip short codes like "C", "ICA", etc. if followed by longer words
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        // If word is 4+ chars, use it
+        if (word.length >= 4) {
+          return word.toUpperCase();
+        }
+        // If it's the last word and 3+ chars, use it
+        if (i === words.length - 1 && word.length >= 3) {
+          return word.toUpperCase();
+        }
+        // If word is very short (1-2 chars) followed by numbers, skip it (likely a code)
+        if (word.length <= 2) {
+          const afterWord = name.substring(name.indexOf(word) + word.length);
+          if (/^\d/.test(afterWord)) {
+            continue; // Skip codes like "C265", "A123", etc.
+          }
+        }
+        // If word is 3 chars and there are longer words after it, skip
+        if (word.length === 3 && words.slice(i + 1).some(w => w.length >= 4)) {
+          continue;
+        }
+      }
+      // Fallback to first word if nothing better found
+      return words[0].toUpperCase();
+    };
+
+    // Extract first word/prefix from each material name
+    const rawPrefixGroups = new Map<string, { normalized: string; materials: TreeRow[] }>();
+    
+    for (const material of unassigned) {
+      const rawPrefix = extractPrefix(material.name);
+      if (rawPrefix) {
+        const normalized = normalizePrefix(rawPrefix);
+        
+        if (!rawPrefixGroups.has(rawPrefix)) {
+          rawPrefixGroups.set(rawPrefix, { normalized, materials: [] });
+        }
+        rawPrefixGroups.get(rawPrefix)!.materials.push(material);
+      }
+    }
+
+    // Merge groups with same normalized prefix
+    const prefixGroups = new Map<string, TreeRow[]>();
+    const normalizedToDisplay = new Map<string, string>(); // Track which display name to use
+    
+    for (const [rawPrefix, { normalized, materials }] of rawPrefixGroups.entries()) {
+      if (!prefixGroups.has(normalized)) {
+        prefixGroups.set(normalized, []);
+        // Use the longest raw prefix as display name (ANCORA preferred over ANCOR)
+        normalizedToDisplay.set(normalized, rawPrefix);
+      } else {
+        // Update display name if this variant is longer
+        const currentDisplay = normalizedToDisplay.get(normalized)!;
+        if (rawPrefix.length > currentDisplay.length) {
+          normalizedToDisplay.set(normalized, rawPrefix);
+        }
+      }
+      prefixGroups.get(normalized)!.push(...materials);
+    }
+
+    // Filter groups with at least 2 materials (min group size)
+    const validGroups = Array.from(prefixGroups.entries())
+      .filter(([_, materials]) => materials.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length); // Sort by size descending
+
+    if (validGroups.length === 0) {
+      successNotistack('Nu s-au detectat grupuri cu prefixe comune (minim 2 materiale per grup)');
+      return;
+    }
+
+    const totalMaterials = validGroups.reduce((sum, [_, mats]) => sum + mats.length, 0);
+
+    const ok = await confirm({
+      title: 'Grupare automată inteligentă',
+      description: `Detectate ${validGroups.length} grupuri (${totalMaterials} materiale):\n\n` +
+        validGroups.slice(0, 10).map(([normalized, materials]) => {
+          const displayName = normalizedToDisplay.get(normalized)!;
+          return `• ${displayName}: ${materials.length} materiale (Ex: ${materials[0].name.substring(0, 40)}...)`;
+        }).join('\n') +
+        (validGroups.length > 10 ? `\n...și încă ${validGroups.length - 10} grupuri` : ''),
+      confirmText: 'Grupează automat',
+      cancelText: 'Anulează',
+    });
+
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      const families = await fetchMaterialFamilies();
+      
+      // First, merge duplicate families (e.g., ANCORA and ANCORE)
+      const normalizedMap = new Map<string, MaterialFamilyRecord[]>();
+      for (const family of families) {
+        const normalized = normalizePrefix(family.name);
+        if (!normalizedMap.has(normalized)) {
+          normalizedMap.set(normalized, []);
+        }
+        normalizedMap.get(normalized)!.push(family);
+      }
+
+      // Handle duplicates: keep the longest name, merge others into it
+      let merged = 0;
+      for (const [normalized, duplicates] of normalizedMap.entries()) {
+        if (duplicates.length > 1) {
+          // Sort by name length (longest first) and by material count
+          duplicates.sort((a, b) => b.name.length - a.name.length);
+          const primary = duplicates[0];
+          const toMerge = duplicates.slice(1);
+
+          for (const duplicate of toMerge) {
+            // Get all materials from duplicate family and reassign to primary
+            const materialsInDuplicate = allMaterials.filter(m => m.familyId === duplicate.id);
+            if (materialsInDuplicate.length > 0) {
+              await assignMaterialsToFamily(primary.id, materialsInDuplicate.map(m => m.id));
+              merged += materialsInDuplicate.length;
+            }
+            // Reload materials to reflect updates, then delete duplicate family
+            await load();
+            const refreshedMaterials = tree.flatMap(item => {
+              const mats: TreeRow[] = [];
+              const walk = (node: TreeRow) => {
+                if (node.type === 'material') mats.push(node);
+                if (node.subRows) node.subRows.forEach(walk);
+              };
+              walk(item);
+              return mats;
+            });
+            // Only delete if family is now empty
+            const stillHasMaterials = refreshedMaterials.some(m => m.familyId === duplicate.id);
+            if (!stillHasMaterials) {
+              await deleteMaterialFamily(duplicate.id);
+            }
+          }
+        }
+      }
+
+      // Refresh families list after cleanup
+      const updatedFamilies = await fetchMaterialFamilies();
+      let created = 0;
+      let assigned = 0;
+
+      for (const [normalized, materials] of validGroups) {
+        const displayName = normalizedToDisplay.get(normalized)!;
+        // Check if family exists (match by normalized name)
+        let family = updatedFamilies.find(f => normalizePrefix(f.name) === normalized);
+        
+        // Create family if it doesn't exist
+        if (!family) {
+          family = await createMaterialFamily(displayName);
+          created++;
+        }
+
+        // Assign materials to family
+        await assignMaterialsToFamily(family.id, materials.map(m => m.id));
+        assigned += materials.length;
+      }
+
+      const msg = merged > 0 
+        ? `${merged} materiale mutate din familii duplicate, ${created} familii create, ${assigned} materiale grupate!`
+        : `${created} familii create, ${assigned} materiale grupate!`;
+      successNotistack(msg);
+      await load();
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Eroare la grupare');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ width: '100%', height: '100%', bgcolor: 'background.default', overflow: 'hidden' }}>
+      <Paper
+        elevation={2}
+        sx={{
+          p: 2,
+          height: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Stack direction="row" gap={1} alignItems="center">
             <Inventory2RoundedIcon color="primary" />
@@ -1658,7 +2066,7 @@ function MaterialsPageContent() {
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

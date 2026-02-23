@@ -41,8 +41,13 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
 
   // shrink on scroll
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 6);
+    const main = document.getElementById('main');
+    const onScroll = () => setScrolled((main?.scrollTop ?? window.scrollY) > 6);
     onScroll();
+    if (main) {
+      main.addEventListener('scroll', onScroll, { passive: true });
+      return () => main.removeEventListener('scroll', onScroll);
+    }
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);

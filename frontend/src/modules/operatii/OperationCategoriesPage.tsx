@@ -8,6 +8,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 
 import {
   MaterialReactTable,
@@ -42,6 +43,36 @@ import {
 } from '../../api/operationCategories';
 
 const trim = (v?: string | null) => (v == null ? '' : String(v).trim());
+const escapeRegExp = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const normalizeHighlightTerms = (queries: Array<string | null | undefined>) => {
+  const terms = queries
+    .flatMap((q) => String(q || '').trim().split(/\s+/))
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
+};
+const highlightText = (text: string, queries: Array<string | null | undefined>) => {
+  const terms = normalizeHighlightTerms(queries);
+  if (!terms.length) return text;
+  const regex = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
+  return text.split(regex).map((part, i) => {
+    if (!terms.some((t) => t.toLowerCase() === part.toLowerCase())) return part;
+    return (
+      <Box
+        key={`${part}-${i}`}
+        component="mark"
+        sx={{
+          bgcolor: 'warning.100',
+          color: 'inherit',
+          px: 0.25,
+          borderRadius: 0.5,
+        }}
+      >
+        {part}
+      </Box>
+    );
+  });
+};
 
 /* ---------------- Types for the unified tree rows ---------------- */
 type NodeType = 'category' | 'operation' | 'item';
@@ -259,6 +290,11 @@ export default function OperationCategoriesPage() {
             ? sub.length
             : undefined;
         const unit = trim(row.original.unit);
+        const nameColumnFilter = (() => {
+          const filters = table.getState().columnFilters as Array<{ id: string; value: unknown }>;
+          const found = filters.find((f) => f.id === 'name');
+          return typeof found?.value === 'string' ? found.value : '';
+        })();
         return (
           <Stack direction="row" alignItems="center" gap={1} sx={{ py: 0.25 }}>
             {t !== 'category' && <SubdirectoryArrowRightIcon fontSize="small" />}
@@ -266,7 +302,7 @@ export default function OperationCategoriesPage() {
               variant="body1"
               sx={{ fontWeight: t === 'category' ? 600 : 400 }}
             >
-              {renderedCellValue as string}
+              {highlightText(String(row.original.name || renderedCellValue || ''), [globalFilter, nameColumnFilter])}
             </Typography>
             <Chip
               size="small"
@@ -307,12 +343,17 @@ export default function OperationCategoriesPage() {
         placeholder: 'Alege unitatea',
         disabled: row?.original?.type !== 'item',
       }),
-      Cell: ({ row, renderedCellValue }) => {
+      Cell: ({ row, renderedCellValue, table }) => {
         const val = trim(renderedCellValue as string);
-        return row.original.type === 'item' ? (val || '—') : '—';
+        const unitColumnFilter = (() => {
+          const filters = table.getState().columnFilters as Array<{ id: string; value: unknown }>;
+          const found = filters.find((f) => f.id === 'unit');
+          return typeof found?.value === 'string' ? found.value : '';
+        })();
+        return row.original.type === 'item' ? highlightText(val || '—', [globalFilter, unitColumnFilter]) : '—';
       },
     },
-  ], []);
+  ], [globalFilter]);
 
   /* -------- CRUD handlers -------- */
   const handleCreateRow: MRT_TableOptions<TreeRow>['onCreatingRowSave'] = async ({ values, row, table }) => {
@@ -536,7 +577,24 @@ export default function OperationCategoriesPage() {
     },
 
     // container sizing
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 220px)' } },
+    muiTablePaperProps: {
+      sx: {
+        height: '100%',
+        minHeight: 0,
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: 'none',
+      },
+    },
+    muiTableContainerProps: {
+      sx: {
+        flex: 1,
+        minHeight: 0,
+        maxHeight: '100%',
+        overflow: 'auto',
+      },
+    },
 
     // zebra stripes like Suppliers table
     muiTableBodyRowProps: ({ row, table }) => {
@@ -673,15 +731,18 @@ export default function OperationCategoriesPage() {
   }, [table, hasActiveFilter, currentGlobalFilter]);
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ width: '100%', height: '100%', bgcolor: 'background.default', overflow: 'hidden' }}>
+      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="h5">Categorii / Operații / Elemente</Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <AccountTreeOutlinedIcon color="primary" />
+            <Typography variant="h5">Categorii / Operații / Elemente</Typography>
+          </Stack>
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

@@ -183,6 +183,8 @@ export default function QualificationsTreePage() {
     localization: tableLocalization,
     state: { isLoading: loading, showProgressBars: saving, showAlertBanner: !!error },
     initialState: { showGlobalFilter: true, density: 'compact', expanded: true },
+    enablePagination: false,
+    enableBottomToolbar: false,
     getRowId: (r) => `${r.type}:${r.id}`,
     getSubRows: (r) => r.subRows,
     getRowCanExpand: (r) => r.original.type === 'qualification',
@@ -222,7 +224,24 @@ export default function QualificationsTreePage() {
       'mrt-row-expand': { size: 56 },
       'mrt-row-actions': { header: 'Acțiuni', size: 160 },
     },
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 220px)' } },
+    muiTablePaperProps: {
+      sx: {
+        height: '100%',
+        minHeight: 0,
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: 'none',
+      },
+    },
+    muiTableContainerProps: {
+      sx: {
+        flex: 1,
+        minHeight: 0,
+        maxHeight: '100%',
+        overflow: 'auto',
+      },
+    },
     muiTableBodyRowProps: ({ row, table }) => {
       const visibleRows = table.getRowModel().rows;
       const displayIndex = visibleRows.findIndex((r) => r.id === row.id);
@@ -287,13 +306,35 @@ export default function QualificationsTreePage() {
   });
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        maxHeight: '100%',
+        bgcolor: 'background.default',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Paper
+        elevation={2}
+        sx={{
+          p: 2,
+          flex: 1,
+          minHeight: 0,
+          width: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Stack direction="row" gap={1} alignItems="center"><WorkspacePremiumRoundedIcon color="primary" /><Typography variant="h5">Calificări & Linii manoperă</Typography></Stack>
         </Stack>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

@@ -1,12 +1,13 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box, Button, TextField, MenuItem,
-  Typography, Chip, Stack, Divider, IconButton, Tooltip,
+  Typography, Chip, Stack, Divider, IconButton, Tooltip, Paper,
   type ChipProps,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import {
   MaterialReactTable,
   useMaterialReactTable,
@@ -352,7 +353,9 @@ export default function OrdersPage() {
     enableColumnOrdering: true,
     enableSorting: true,
     enableRowVirtualization: true,
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 220px)' } },
+    muiTablePaperProps: { sx: { height: '100%', minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' } },
+    muiTableContainerProps: { sx: { flex: 1, minHeight: 0, width: '100%', maxHeight: '100%' } },
+    muiTableProps: { sx: { width: '100%', minWidth: '100%' } },
     muiToolbarAlertBannerProps: rows.length
       ? undefined
       : { color: 'info', children: 'Nu există comenzi.' },
@@ -374,18 +377,21 @@ export default function OrdersPage() {
   });
 
   return (
-    <Box p={2} display="flex" flexDirection="column" gap={2} height="100%" sx={{ overflow: 'hidden' }}>
-      <Stack direction="row" alignItems="center" gap={2}>
-        <Typography variant="h5" fontWeight={600}>
-          Comenzi
-        </Typography>
-      </Stack>
+    <Box sx={{ width: '100%', height: '100%', p: 0, m: 0, bgcolor: 'background.default', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Paper elevation={2} sx={{ p: 2, flex: 1, minHeight: 0, width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Stack direction="row" alignItems="center" gap={1}>
+          <ShoppingCartRoundedIcon color="primary" />
+          <Typography variant="h5" fontWeight={600}>
+            Comenzi
+          </Typography>
+        </Stack>
 
-      <Divider />
+        <Divider />
 
-      <Box sx={{ flex: 1, minHeight: 0 }}>
-        <MaterialReactTable table={table} />
-      </Box>
+        <Box sx={{ flex: 1, minHeight: 0, width: '100%' }}>
+          <MaterialReactTable table={table} />
+        </Box>
+      </Paper>
 
       <AddOrderDialog
         open={open}

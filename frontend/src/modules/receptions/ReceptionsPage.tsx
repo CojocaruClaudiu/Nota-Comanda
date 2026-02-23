@@ -287,7 +287,9 @@ const ReceptionsPage: React.FC = () => {
     enableColumnResizing: true,
     columnResizeMode: 'onEnd',
     enableColumnOrdering: true,
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 420px)' } },
+    muiTablePaperProps: { sx: { height: '100%', minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' } },
+    muiTableContainerProps: { sx: { flex: 1, minHeight: 0, width: '100%', maxHeight: '100%' } },
+    muiTableProps: { sx: { width: '100%', minWidth: '100%' } },
     muiTableBodyRowProps: ({ row, table }) => {
       const visibleRows = table.getRowModel().rows;
       const displayIndex = visibleRows.findIndex((r) => r.id === row.id);
@@ -308,8 +310,8 @@ const ReceptionsPage: React.FC = () => {
   });
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ width: '100%', height: '100%', p: 0, m: 0, bgcolor: 'background.default', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Paper elevation={2} sx={{ p: 2, flex: 1, minHeight: 0, width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Stack direction="row" gap={1} alignItems="center">
             <ReceiptLongRoundedIcon color="primary" />
@@ -364,7 +366,7 @@ const ReceptionsPage: React.FC = () => {
           </Stack>
         </Stack>
 
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, width: '100%' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

@@ -103,6 +103,7 @@ model Employee {
   name           String
   isActive       Boolean   @default(true)
   deactivatedAt  DateTime? // Date when employee left/became inactive (freezes leave calculations)
+  finalLeaveBalance Float?  // Final leave balance in days at deactivation (for payout tracking)
   cnp            String?  @unique // Cod Numeric Personal
   idSeries       String? // "PX"
   idNumber       String? // "821461"
@@ -122,6 +123,7 @@ model Employee {
   cashEntries    CashEntry[] @relation("EmployeeCashEntries")
   policyOverride EmployeePolicyOverride?
   manualCarryOverDays Int?  @default(0) // Manual override for carry-over days (e.g. from previous system)
+  equipment      EquipmentIssue[] @relation("EmployeeEquipment")
 }
 
 model Leave {
@@ -1155,5 +1157,44 @@ enum OfferStatus {
   ACCEPTED
   REJECTED
   EXPIRED
+}
+
+// ================== EQUIPMENT TRACKING MODULE ==================
+
+enum EquipmentType {
+  BOOTS      // Bocanci
+  PANTS      // Pantaloni
+  JACKET     // Jachetă
+  GLOVES     // Mănuși
+  HELMET     // Cască (optional)
+  VEST       // Vestă (optional)
+  OTHER      // Altele
+}
+
+enum EquipmentCondition {
+  NEW        // Nou
+  GOOD       // Bună
+  WORN       // Uzată
+  DAMAGED    // Deteriorată
+  DESTROYED  // Distrus
+}
+
+model EquipmentIssue {
+  id              String              @id @default(uuid())
+  employeeId      String
+  equipmentType   EquipmentType
+  issuedDate      DateTime            @default(now())
+  returnedDate    DateTime?
+  destroyedDate   DateTime?
+  size            String?             // ex: "42", "L", "XL"
+  condition       EquipmentCondition  @default(NEW)
+  notes           String?             // Additional notes
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  employee        Employee            @relation("EmployeeEquipment", fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  @@index([employeeId, equipmentType])
+  @@index([issuedDate])
 }
 

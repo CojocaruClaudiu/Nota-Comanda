@@ -1,6 +1,7 @@
 ﻿// src/pages/auto/CarPage.tsx
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Paper, Stack, Typography, Button, Chip, Tooltip, CircularProgress, Alert, IconButton } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   MaterialReactTable,
   useMaterialReactTable,
@@ -152,6 +153,7 @@ const roLoc = {
   sortByColumnAsc: 'Sortează ascendent',
   sortByColumnDesc: 'Sortează descendent',
 };
+const DEFAULT_PAGE_SIZE = 10;
 
 export default function CarPage() {
   const { errorNotistack, successNotistack } = useNotistack();
@@ -171,7 +173,7 @@ export default function CarPage() {
   // form state handled within modals for add/edit
   const [pagination, setPagination] = useState<MRT_PaginationState>({
     pageIndex: 0,
-    pageSize: 100,
+    pageSize: DEFAULT_PAGE_SIZE,
   });
 
   const load = useCallback(async () => {
@@ -210,6 +212,19 @@ export default function CarPage() {
     });
     return map;
   }, [rows]);
+
+  const fleetSummary = useMemo(() => {
+    let expired = 0;
+    let dueSoon = 0;
+    let healthy = 0;
+    rows.forEach((r) => {
+      const n = expiryMeta.get(r.id)?.urgency ?? Number.POSITIVE_INFINITY;
+      if (n <= 0) expired += 1;
+      else if (n <= 30) dueSoon += 1;
+      else healthy += 1;
+    });
+    return { total: rows.length, expired, dueSoon, healthy };
+  }, [rows, expiryMeta]);
 
   const columns = useMemo<MRT_ColumnDef<Car>[]>(() => [
     { accessorKey: 'placute', header: 'Plăcuțe', size: 140 },
@@ -359,7 +374,7 @@ export default function CarPage() {
     initialState: {
       sorting: [{ id: 'urgent', desc: false }],
       density: 'compact',
-      pagination: { pageIndex: 0, pageSize: 10 },
+      pagination: { pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE },
       columnVisibility: { urgent: false },
     },
     autoResetPageIndex: false,
@@ -373,7 +388,7 @@ export default function CarPage() {
     enableColumnResizing: true,
     enableColumnPinning: true,
     enableStickyHeader: true,
-    enableRowVirtualization: true,
+    enableRowVirtualization: false,
   enableRowActions: true,
     positionActionsColumn: 'last',
     renderRowActions,
@@ -393,25 +408,37 @@ export default function CarPage() {
       sx: (theme) => {
         const n = expiryMeta.get(row.original.id)?.urgency ?? Number.POSITIVE_INFINITY;
         const isEvenRow = row.index % 2 === 0;
-        
-        // Priority 1: Urgency-based coloring
-        if (n <= 0) return { bgcolor: `${theme.palette.error.light}33` };
-        if (n <= 30) return { bgcolor: `${theme.palette.error.light}1a` };
-        if (n <= 90) return { bgcolor: `${theme.palette.warning.light}14` };
-        
-        // Priority 2: Zebra stripes for normal rows
-        if (isEvenRow) {
-          return { bgcolor: theme.palette.action.hover };
+        const baseBg = isEvenRow ? theme.palette.action.hover : theme.palette.background.paper;
+
+        // Keep urgency visible but less aggressive than full-red rows
+        if (n <= 0) {
+          return {
+            bgcolor: isEvenRow ? alpha(theme.palette.error.main, 0.14) : alpha(theme.palette.error.main, 0.08),
+            borderLeft: `4px solid ${theme.palette.error.main}`,
+          };
         }
-        
-        return {};
+        if (n <= 30) {
+          return {
+            bgcolor: isEvenRow ? alpha(theme.palette.warning.main, 0.16) : alpha(theme.palette.warning.main, 0.1),
+            borderLeft: `4px solid ${theme.palette.warning.main}`,
+          };
+        }
+        if (n <= 90) {
+          return {
+            bgcolor: isEvenRow ? alpha(theme.palette.info.main, 0.12) : alpha(theme.palette.info.main, 0.08),
+            borderLeft: `4px solid ${theme.palette.info.main}`,
+          };
+        }
+
+        return { bgcolor: baseBg };
       },
     }),
 
     // MUI props
-    muiPaginationProps: { rowsPerPageOptions: [10, 25, 50, 100] },
-    muiTablePaperProps: { sx: { display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' } },
-    muiTableContainerProps: { sx: { flex: 1, minHeight: 0 } },
+    muiPaginationProps: { rowsPerPageOptions: [5, 10, 25, 50, 100] },
+    muiTablePaperProps: { sx: { width: '100%' } },
+    muiTableContainerProps: { sx: { width: '100%' } },
+    muiTableProps: { sx: { width: '100%', minWidth: '100%' } },
   muiTableHeadCellProps: { sx: { py: 0.75 } },
   muiTableBodyCellProps: { sx: { py: 0.5 } },
 
@@ -419,12 +446,18 @@ export default function CarPage() {
   });
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ width: '100%', height: '100%', p: 0, m: 0, bgcolor: 'background.default', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Paper elevation={2} sx={{ p: 2, flex: 1, minHeight: 0, width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, gap: 1 }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <DirectionsCarFilledRoundedIcon color="primary" />
             <Typography variant="h5">Parc auto</Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Chip size="small" label={`Total: ${fleetSummary.total}`} />
+            <Chip size="small" color="error" variant="outlined" label={`Expirate: ${fleetSummary.expired}`} />
+            <Chip size="small" color="warning" variant="outlined" label={`≤30 zile: ${fleetSummary.dueSoon}`} />
+            <Chip size="small" color="success" variant="outlined" label={`OK: ${fleetSummary.healthy}`} />
           </Stack>
         </Stack>
 
@@ -434,7 +467,7 @@ export default function CarPage() {
           </Alert>
         )}
 
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ width: '100%' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

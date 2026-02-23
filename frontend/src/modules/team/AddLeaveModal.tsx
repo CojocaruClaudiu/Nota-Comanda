@@ -3,7 +3,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   Dialog, DialogContent,
   TextField, Button, Stack, IconButton, Typography,
-  Box, Divider, CircularProgress, Fade, Chip, Alert
+  Box, Divider, CircularProgress, Fade, Chip, Alert, AlertTitle
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { Formik, Form, Field } from 'formik';
@@ -14,12 +14,14 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import NotesIcon from '@mui/icons-material/Notes';
 import InfoIcon from '@mui/icons-material/Info';
+import DescriptionIcon from '@mui/icons-material/Description';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import dayjs, { Dayjs } from 'dayjs';
 import 'dayjs/locale/ro';
 
-import { addLeave, type LeavePayload, type EmployeeWithStats } from '../../api/employees';
+import { addLeave, getLeaves, type LeavePayload, type EmployeeWithStats, type Leave } from '../../api/employees';
 import { businessEndDate, businessDatesForLeave } from '../../utils/businessDays';
-import { generateLeaveDocx } from '../../utils/leaveDocs';
+import { generateLeaveDocx, generateLeavePdf } from '../../utils/leaveDocs';
 import useNotistack from '../orders/hooks/useNotistack';
 
 dayjs.locale('ro');
@@ -105,6 +107,11 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
 }) => {
   const [saving, setSaving] = useState(false);
   const [startMsg, setStartMsg] = useState<string>('');
+  const [addedLeaveData, setAddedLeaveData] = useState<LeavePayload | null>(null);
+  const [generatingWord, setGeneratingWord] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [shouldNotifyParent, setShouldNotifyParent] = useState(false);
+  const [existingLeaves, setExistingLeaves] = useState<Leave[]>([]);
 
   // Snapshot employee to keep content stable during the close animation
   const [renderEmployee, setRenderEmployee] = useState<EmployeeWithStats | null>(null);
@@ -116,40 +123,62 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
 
   // Capture employee when opening to avoid content disappearing mid-fade
   useEffect(() => {
-    if (open && employee) setRenderEmployee(employee);
+    if (open && employee) {
+      setRenderEmployee(employee);
+      // Fetch existing leaves to check for overlaps
+      getLeaves(employee.id)
+        .then(leaves => setExistingLeaves(leaves))
+        .catch(() => setExistingLeaves([]));
+    }
   }, [open, employee]);
 
   const handleSubmit = async (values: LeavePayload) => {
     if (!renderEmployee) return;
+    
+    // Check for overlapping leaves
+    const newDates = businessDatesForLeave(values.startDate, values.days);
+    
+    for (const existingLeave of existingLeaves) {
+      const existingDates = businessDatesForLeave(existingLeave.startDate, existingLeave.days);
+      
+      // Check if any dates overlap
+      const hasOverlap = newDates.some(newDate => 
+        existingDates.some(existingDate => 
+          dayjs(newDate).format('YYYY-MM-DD') === dayjs(existingDate).format('YYYY-MM-DD')
+        )
+      );
+      
+      if (hasOverlap) {
+        // Format the existing leave period message
+        let periodMsg;
+        if (existingLeave.days === 1) {
+          periodMsg = `data de ${dayjs(existingLeave.startDate).format('DD.MM.YYYY')}`;
+        } else {
+          const lastDay = existingDates[existingDates.length - 1];
+          periodMsg = `perioada ${dayjs(existingLeave.startDate).format('DD.MM.YYYY')} - ${dayjs(lastDay).format('DD.MM.YYYY')}`;
+        }
+        
+        errorNotistack(
+          `Există deja un concediu în ${periodMsg}. Nu poți avea concedii suprapuse.`
+        );
+        return;
+      }
+    }
+    
     try {
       setSaving(true);
 
       await addLeave(renderEmployee.id, values);
 
-      // Generate and download .docx
-      await generateLeaveDocx({
-        employeeName: renderEmployee.name,
-        cnp: (renderEmployee as any).cnp,
-        county: (renderEmployee as any).county,
-        locality: (renderEmployee as any).locality,
-        address: (renderEmployee as any).address,
-        idSeries: (renderEmployee as any).idSeries,
-        idNumber: (renderEmployee as any).idNumber,
-        idIssuer: (renderEmployee as any).idIssuer,
-        idIssueDateISO: (renderEmployee as any).idIssueDateISO,
-        startISO: values.startDate,
-        days: values.days,
-        note: values.note,
-        companyName: 'S.C. TOPAZ CONSTRUCT S.R.L.',
-        companyCity: 'Băicoi',
-      });
+      // Store the leave data for document generation
+      setAddedLeaveData(values);
 
-      onLeaveAdded();
+      // Mark that we should notify parent when modal closes
+      setShouldNotifyParent(true);
 
-      // Trigger close; cleanup will run in TransitionProps.onExited
-      onClose();
-
-      successNotistack('Concediu înregistrat. Am generat și descărcat cererea Word.');
+      successNotistack('Concediu înregistrat cu succes! Poți descărca documentele.');
+      
+      // Don't close modal automatically - let user download documents first
     } catch (e: any) {
       const msg = e?.message || 'Nu am putut înregistra concediul';
       errorNotistack(msg);
@@ -161,8 +190,14 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
   // Do not reset local state here; wait for onExited to avoid flicker
   const handleClose = useCallback(() => {
     if (saving) return;
+    
+    // Notify parent if a leave was added
+    if (shouldNotifyParent) {
+      onLeaveAdded();
+    }
+    
     onClose();
-  }, [saving, onClose]);
+  }, [saving, shouldNotifyParent, onLeaveAdded, onClose]);
 
   // Date change with weekend awareness
   const handleDateChange = useCallback((onChange: (value: string) => void) => (d: Dayjs | null) => {
@@ -178,7 +213,59 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
       setStartMsg('');
     }
   }, []);
+  const handleGenerateWord = async () => {
+    if (!renderEmployee || !addedLeaveData) return;
+    try {
+      setGeneratingWord(true);
+      await generateLeaveDocx({
+        employeeName: renderEmployee.name,
+        cnp: (renderEmployee as any).cnp,
+        county: (renderEmployee as any).county,
+        locality: (renderEmployee as any).locality,
+        address: (renderEmployee as any).address,
+        idSeries: (renderEmployee as any).idSeries,
+        idNumber: (renderEmployee as any).idNumber,
+        idIssuer: (renderEmployee as any).idIssuer,
+        idIssueDateISO: (renderEmployee as any).idIssueDateISO,
+        startISO: addedLeaveData.startDate,
+        days: addedLeaveData.days,
+        note: addedLeaveData.note,        requestDateISO: addedLeaveData.createdAt,        companyName: 'S.C. TOPAZ CONSTRUCT S.R.L.',
+        companyCity: 'B\u0103icoi',
+      });
+      successNotistack('Document Word desc\u0103rcat cu succes!');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Eroare la generarea documentului Word');
+    } finally {
+      setGeneratingWord(false);
+    }
+  };
 
+  const handleGeneratePdf = async () => {
+    if (!renderEmployee || !addedLeaveData) return;
+    try {
+      setGeneratingPdf(true);
+      await generateLeavePdf({
+        employeeName: renderEmployee.name,
+        cnp: (renderEmployee as any).cnp,
+        county: (renderEmployee as any).county,
+        locality: (renderEmployee as any).locality,
+        address: (renderEmployee as any).address,
+        idSeries: (renderEmployee as any).idSeries,
+        idNumber: (renderEmployee as any).idNumber,
+        idIssuer: (renderEmployee as any).idIssuer,
+        idIssueDateISO: (renderEmployee as any).idIssueDateISO,
+        startISO: addedLeaveData.startDate,
+        days: addedLeaveData.days,
+        note: addedLeaveData.note,        requestDateISO: addedLeaveData.createdAt,        companyName: 'S.C. TOPAZ CONSTRUCT S.R.L.',
+        companyCity: 'B\u0103icoi',
+      });
+      successNotistack('Document PDF generat cu succes!');
+    } catch (e: any) {
+      errorNotistack(e?.message || 'Eroare la generarea PDF-ului');
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
   return (
     <Formik
       initialValues={initialValues}
@@ -235,6 +322,8 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
                 setStartMsg('');
                 resetFormRef.current?.();
                 setRenderEmployee(null);
+                setAddedLeaveData(null);
+                setShouldNotifyParent(false);
               }
             }}
           >
@@ -290,9 +379,18 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
               </Box>
 
               {/* Content */}
-              <DialogContent sx={{ p: 0 }}>
-                <Box sx={{ p: 3 }}>
-                  <Stack spacing={3}>
+              <DialogContent 
+                sx={{ 
+                  p: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: 'calc(90vh - 180px)', // Leave room for header and footer
+                  overflow: 'hidden'
+                }}
+              >
+                <Box sx={{ p: 2, overflowY: 'auto', flex: 1 }}>
+                  {!addedLeaveData && (
+                    <Stack spacing={2}>
                     {/* Employee Info Section */}
                     {renderEmployee && (
                       <>
@@ -323,17 +421,16 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
                             })()}
                           </Typography>
                         </Alert>
-                        <Divider />
                       </>
                     )}
 
                     {/* Leave Details Section */}
                     <Box>
-                      <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
                         <CalendarTodayIcon color="primary" />
                         Detalii Concediu
                       </Typography>
-                      <Stack spacing={2.5}>
+                      <Stack spacing={2}>
                         <Field name="startDate">
                           {({ field }: any) => (
                             <DatePicker
@@ -413,16 +510,14 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
                       </Stack>
                     </Box>
 
-                    <Divider sx={{ my: 2 }} />
-
                     {/* Preview Section */}
                     <Box>
-                      <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
                         <InfoIcon color="secondary" />
                         Previzualizare Concediu
                       </Typography>
                       
-                      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
+                      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1.5 }}>
                         <Chip
                           label={`Se încheie pe: ${previewEnd ? dayjs(previewEnd).format('DD/MM/YYYY') : '—'}`}
                           variant="outlined"
@@ -440,58 +535,125 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({
                       <Typography variant="body2" color="text.secondary">
                         * Zilele din weekend nu se contorizează. Se acumulează zilnic, pro-rata.
                         <br />
-                        * Se va genera automat un document Word cu cererea de concediu.
+                        * După adăugare, vei putea descărca cererea în format Word sau PDF.
                       </Typography>
                     </Box>
                   </Stack>
+                  )}
+                </Box>
+
+                {/* Actions - Inside DialogContent for better scrolling */}
+                <Box
+                  sx={{
+                    bgcolor: 'grey.50',
+                    borderTop: '1px solid',
+                    borderColor: 'divider',
+                    p: 2,
+                    position: 'sticky',
+                    bottom: 0,
+                    zIndex: 1
+                  }}
+                >
+                  {addedLeaveData ? (
+                    // After adding leave - show document generation buttons
+                    <Stack spacing={1}>
+                      <Alert severity="success" sx={{ borderRadius: 2, py: 0.5 }}>
+                        <strong>Concediu adăugat!</strong> Descarcă cererea de concediu.
+                      </Alert>
+                      <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+                        <Button
+                          onClick={handleClose}
+                          variant="outlined"
+                          size="medium"
+                          sx={{
+                            borderRadius: 2,
+                            px: 2,
+                            textTransform: 'none',
+                            fontWeight: 500
+                          }}
+                        >
+                          Închide
+                        </Button>
+                        <Button
+                          onClick={handleGenerateWord}
+                          disabled={generatingWord}
+                          variant="contained"
+                          size="medium"
+                          sx={{
+                            borderRadius: 2,
+                            px: 2.5,
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #1E88E5 0%, #1565C0 100%)',
+                            }
+                          }}
+                          startIcon={generatingWord ? <CircularProgress size={18} color="inherit" /> : <DescriptionIcon />}
+                        >
+                          {generatingWord ? 'Generare...' : 'Word'}
+                        </Button>
+                        <Button
+                          onClick={handleGeneratePdf}
+                          disabled={generatingPdf}
+                          variant="contained"
+                          size="medium"
+                          sx={{
+                            borderRadius: 2,
+                            px: 2.5,
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #e53935 0%, #c62828 100%)',
+                            }
+                          }}
+                          startIcon={generatingPdf ? <CircularProgress size={18} color="inherit" /> : <PictureAsPdfIcon />}
+                        >
+                          {generatingPdf ? 'Generare...' : 'PDF'}
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  ) : (
+                    // Before adding leave - show submit button
+                    <Stack direction="row" spacing={2} justifyContent="flex-end">
+                      <Button
+                        onClick={handleClose}
+                        disabled={saving}
+                        variant="outlined"
+                        size="large"
+                        sx={{
+                          borderRadius: 2,
+                          px: 3,
+                          textTransform: 'none',
+                          fontWeight: 500
+                        }}
+                      >
+                        Anulează
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={!isValid || !dirty || saving || !renderEmployee}
+                        variant="contained"
+                        size="large"
+                        sx={{
+                          borderRadius: 2,
+                          px: 4,
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          background: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, #43a047 0%, #1b5e20 100%)',
+                          }
+                        }}
+                        startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <EventAvailableIcon />}
+                      >
+                        {saving ? 'Se salvează...' : 'Adaugă Concediu'}
+                      </Button>
+                    </Stack>
+                  )}
                 </Box>
               </DialogContent>
-
-              {/* Actions */}
-              <Box
-                sx={{
-                  bgcolor: 'grey.50',
-                  borderTop: '1px solid',
-                  borderColor: 'divider',
-                  p: 3
-                }}
-              >
-                <Stack direction="row" spacing={2} justifyContent="flex-end">
-                  <Button
-                    onClick={handleClose}
-                    disabled={saving}
-                    variant="outlined"
-                    size="large"
-                    sx={{
-                      borderRadius: 2,
-                      px: 3,
-                      textTransform: 'none',
-                      fontWeight: 500
-                    }}
-                  >
-                    Anulează
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={!isValid || !dirty || saving || !renderEmployee}
-                    variant="contained"
-                    size="large"
-                    sx={{
-                      borderRadius: 2,
-                      px: 4,
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      background: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
-                      '&:hover': {
-                        background: 'linear-gradient(135deg, #43a047 0%, #1b5e20 100%)',
-                      }
-                    }}
-                    startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <EventAvailableIcon />}
-                  >
-                    {saving ? 'Se salvează...' : 'Adaugă Concediu'}
-                  </Button>
-                </Stack>
-              </Box>
             </Form>
           </Dialog>
         );

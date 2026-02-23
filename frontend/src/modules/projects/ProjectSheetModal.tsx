@@ -13,6 +13,7 @@ import {
   Stack,
   CircularProgress,
   Tooltip,
+  Divider,
 } from '@mui/material';
 import { Close as CloseIcon, Add as AddIcon } from '@mui/icons-material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -292,6 +293,74 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
           return found;
         };
 
+        const colLettersToNumber = (letters: string) => {
+          let n = 0;
+          for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+          return n;
+        };
+
+        const parseAddress = (addr: string) => {
+          const m = /^([A-Z]+)(\d+)$/.exec(addr.toUpperCase());
+          if (!m) return null;
+          return { col: colLettersToNumber(m[1]), row: Number(m[2]) };
+        };
+
+        const parseRange = (range: string) => {
+          const parts = range.split(':');
+          const a = parseAddress(parts[0]);
+          const b = parseAddress(parts[1] ?? parts[0]);
+          if (!a || !b) return null;
+          return {
+            r1: Math.min(a.row, b.row),
+            r2: Math.max(a.row, b.row),
+            c1: Math.min(a.col, b.col),
+            c2: Math.max(a.col, b.col),
+          };
+        };
+
+        const listMergeRanges = (): string[] => {
+          const anyWs: any = worksheet as any;
+          if (Array.isArray(anyWs?.model?.merges)) return anyWs.model.merges.slice();
+          if (anyWs?._merges instanceof Map) return Array.from(anyWs._merges.keys());
+          if (anyWs?._merges && typeof anyWs._merges === 'object') return Object.keys(anyWs._merges);
+          return [];
+        };
+
+        const findMergeRangeContaining = (row: number, col: number) => {
+          const merges = listMergeRanges();
+          for (const rng of merges) {
+            const b = parseRange(rng);
+            if (!b) continue;
+            if (row >= b.r1 && row <= b.r2 && col >= b.c1 && col <= b.c2) return rng;
+          }
+          return null;
+        };
+
+        const safeUnmergeAt = (row: number, col: number) => {
+          const cell = worksheet.getCell(row, col);
+          if (!cell.isMerged) return;
+          const rng = findMergeRangeContaining(row, col);
+          if (rng) {
+            try {
+              worksheet.unMergeCells(rng);
+            } catch {
+              // ignore
+            }
+          }
+        };
+
+        const safeMerge = (r1: number, c1: number, r2: number, c2: number) => {
+          if (r1 === r2 && c1 === c2) return;
+          for (let r = r1; r <= r2; r++) {
+            for (let c = c1; c <= c2; c++) safeUnmergeAt(r, c);
+          }
+          try {
+            worksheet.mergeCells(r1, c1, r2, c2);
+          } catch {
+            // ignore
+          }
+        };
+
         const setValueRightOfLabel = (label: string, value: string, minCol = 1) => {
           const cellPosition = findCellByText(label, minCol);
           if (!cellPosition) return;
@@ -345,136 +414,6 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
         if (!headerRow) headerRow = 15;
         if (!totalRow) totalRow = headerRow + 10;
 
-        // Client info - populate from project/client data
-        const clientLabelPos = findCellByText('client', 1);
-        
-        // Use client label column as reference, or default to 4 (D)
-        const clientRefCol = clientLabelPos ? clientLabelPos.col : 4; 
-        const infoValCol = clientRefCol + 1; // Value is next to label
-
-        // Search for Adresa globally first, checking proximity
-        let adresaLabelPos = findCellByText('adresa', 1);
-        
-        // If found but presumably the header address (too far up or wrong column), try searching constrained
-        // Logic: specific "Adresa" for client is usually below Client label
-        if (clientLabelPos && adresaLabelPos && adresaLabelPos.row <= clientLabelPos.row) {
-             // If the found address is ABOVE or ON SAME ROW as client, it's likely the company header. 
-             // Try to find another one below.
-             adresaLabelPos = null;
-             // Manual search starting from client row
-             worksheet.eachRow((row, rowNumber) => {
-               if (rowNumber <= clientLabelPos.row) return;
-                row.eachCell((cell, colNumber) => {
-                   // Optimization: only check columns close to clientRefCol
-                   if (colNumber < clientRefCol - 2) return; 
-                   const cellText = normalizeCellValue(cell.value).trim().toLowerCase();
-                   if (!adresaLabelPos && cellText.includes('adresa')) {
-                      adresaLabelPos = { row: rowNumber, col: colNumber };
-                   }
-                });
-             });
-        }
-
-        // 1. Client Name
-        if (clientLabelPos) {
-             const cell = worksheet.getCell(clientLabelPos.row, infoValCol);
-             (cell.isMerged ? cell.master : cell).value = projectClient?.name || '';
-        }
-
-        // 2. Adresa
-        const clientAddress = projectClient?.location || projectLocation || '';
-        
-        // Define columns based on where we found the Adresa label, to keep everything aligned vertically
-        const labelColIndex = adresaLabelPos ? adresaLabelPos.col : (clientRefCol - 1 || 1);
-        const valueColIndex = labelColIndex + 1;
-
-        if (adresaLabelPos) {
-             const cell = worksheet.getCell(adresaLabelPos.row, valueColIndex);
-             
-             // ROBUST UNMERGE: Scan both Down AND Right to find the full block
-             try {
-                if (cell.isMerged && cell.master) {
-                    const master = cell.master;
-                    let endRow = master.row;
-                    let endCol = master.col;
-                    
-                    // Scan Down
-                    while (true) {
-                        const nextRow = worksheet.getCell(endRow + 1, master.col);
-                         // Check if next row's cell is part of the SAME merge (same master address)
-                        if (nextRow.isMerged && nextRow.master.address === master.address) {
-                            endRow++;
-                        } else {
-                            break;
-                        }
-                        if (endRow > master.row + 20) break; // Safety break
-                    }
-
-                    // Scan Right
-                    while (true) {
-                         const nextCol = worksheet.getCell(master.row, endCol + 1);
-                         if (nextCol.isMerged && nextCol.master.address === master.address) {
-                             endCol++;
-                         } else {
-                             break;
-                         }
-                         if (endCol > master.col + 20) break; // Safety break
-                    }
-
-                    // Perform the unmerge on the specific block
-                    if (endRow > master.row || endCol > master.col) {
-                        worksheet.unMergeCells(master.row, master.col, endRow, endCol);
-                    }
-                }
-             } catch (e) { console.warn('Unmerge attempt failed', e); }
-
-             const finalCell = worksheet.getCell(adresaLabelPos.row, valueColIndex);
-             finalCell.value = clientAddress;
-             finalCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'right' };
-        }
-
-        // 3. Reg Com - Stick strictly to the rows below Adresa
-        if (adresaLabelPos) {
-             const row = adresaLabelPos.row + 1;
-             
-             // Label
-             const labelCell = worksheet.getCell(row, labelColIndex);
-             
-             // Direct Write
-             const safeLabel = labelCell.isMerged ? labelCell.master : labelCell;
-             safeLabel.value = 'Reg. com.:';
-             safeLabel.font = { bold: true };
-             safeLabel.alignment = { horizontal: 'right' };
-
-             // Value
-             const valCell = worksheet.getCell(row, valueColIndex);
-             const safeVal = valCell.isMerged ? valCell.master : valCell;
-             safeVal.value = projectClient?.registrulComertului || '';
-             safeVal.alignment = { horizontal: 'right', wrapText: true };
-        }
-
-        // 4. CUI - Stick strictly to the row below Reg Com
-        if (adresaLabelPos) {
-             const row = adresaLabelPos.row + 2;
-
-             // Label
-             const labelCell = worksheet.getCell(row, labelColIndex);
-             const safeLabel = labelCell.isMerged ? labelCell.master : labelCell;
-             safeLabel.value = 'CUI:';
-             safeLabel.font = { bold: true };
-             safeLabel.alignment = { horizontal: 'right' };
-
-             // Value
-             const valCell = worksheet.getCell(row, valueColIndex);
-             const safeVal = valCell.isMerged ? valCell.master : valCell;
-             safeVal.value = projectClient?.cui || '';
-             safeVal.alignment = { horizontal: 'right' };
-        }
-
-        // Compatibility cleanup: If we forced these rows, clear potential duplicates found elsewhere? 
-        // (Optional, but might help clean up if previous "Reg Com" search found something in header)
-        // ... skipping optimization to avoid side effects.
-
         const getHeaderColumn = (match: (text: string) => boolean) => {
           const header = worksheet.getRow(headerRow);
           let colFound: number | null = null;
@@ -524,6 +463,143 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
             headerCell.style = { ...sourceHeaderCell.style };
           }
         }
+
+        // --- Repair header/footer layout after inserting Discount column ---
+        const applyHeaderFooterFixes = () => {
+          // 1) Reposition client info block to align with table columns
+          const clientLabelPos = findCellByText('client', 1);
+          let adresaPos = findCellByText('adresa clientului', 1) ?? findCellByText('adresa', 1);
+          
+          // Find the correct "Adresa" below client label if needed
+          if (clientLabelPos && adresaPos && adresaPos.row <= clientLabelPos.row) {
+            adresaPos = null;
+            worksheet.eachRow((row, rowNumber) => {
+              if (!clientLabelPos || rowNumber <= clientLabelPos.row) return;
+              row.eachCell((cell, colNumber) => {
+                if (!clientLabelPos || colNumber < clientLabelPos.col - 4 || colNumber > clientLabelPos.col + 6) return;
+                const t = normalizeCellValue(cell.value).trim().toLowerCase();
+                if (!adresaPos && t.includes('adresa')) adresaPos = { row: rowNumber, col: colNumber };
+              });
+            });
+          }
+
+          const clientAddress = projectClient?.location || projectLocation || '';
+
+          // Clear old client info positions
+          if (clientLabelPos) {
+            for (let c = clientLabelPos.col; c <= clientLabelPos.col + 3; c++) {
+              safeUnmergeAt(clientLabelPos.row, c);
+              const cell = worksheet.getCell(clientLabelPos.row, c);
+              if (cell.value && String(cell.value).toLowerCase().includes('client')) {
+                cell.value = null;
+              }
+            }
+          }
+          if (adresaPos) {
+            for (let r = adresaPos.row; r <= adresaPos.row + 2; r++) {
+              for (let c = adresaPos.col; c <= adresaPos.col + 3; c++) {
+                safeUnmergeAt(r, c);
+                const cell = worksheet.getCell(r, c);
+                const val = String(cell.value || '').toLowerCase();
+                if (val.includes('adresa') || val.includes('reg') || val.includes('cui') || val.includes('com')) {
+                  cell.value = null;
+                }
+              }
+            }
+          }
+
+          // Reposition client info to align with table columns
+          // Use second-to-last and last columns of the table
+          const targetLabelCol = colTotal - 1; // Second to last column
+          const targetValueCol = colTotal;      // Last column (Total/Price column)
+
+          // Get the row positions from template or use defaults
+          const clientRow = clientLabelPos ? clientLabelPos.row : (headerRow > 5 ? headerRow - 5 : 5);
+          const adresaRow = adresaPos ? adresaPos.row : (headerRow > 4 ? headerRow - 4 : 6);
+
+          // Set client name - merge label across columns for better fit
+          const clientLabelStartCol = Math.max(1, targetLabelCol - 1);
+          safeMerge(clientRow, clientLabelStartCol, clientRow, targetLabelCol);
+          const clientLabelCell = worksheet.getCell(clientRow, clientLabelStartCol);
+          clientLabelCell.value = 'CLIENT:';
+          clientLabelCell.font = { bold: true };
+          clientLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+          const clientNameCell = worksheet.getCell(clientRow, targetValueCol);
+          clientNameCell.value = projectClient?.name || '';
+          clientNameCell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+
+          // Set client details (Adresa, Reg. com., CUI)
+          const rows = [
+            { r: adresaRow, label: 'Adresa clientului:', value: clientAddress, wrap: true },
+            { r: adresaRow + 1, label: 'Reg. com.:', value: projectClient?.registrulComertului || '', wrap: false },
+            { r: adresaRow + 2, label: 'CUI:', value: projectClient?.cui || '', wrap: false },
+          ];
+
+          for (const item of rows) {
+            safeUnmergeAt(item.r, targetLabelCol);
+            safeUnmergeAt(item.r, targetValueCol);
+
+            const labelCell = worksheet.getCell(item.r, targetLabelCol);
+            labelCell.value = item.label;
+            labelCell.font = { bold: true, size: 10 };
+            labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+            const valCell = worksheet.getCell(item.r, targetValueCol);
+            valCell.value = item.value;
+            valCell.alignment = {
+              horizontal: 'right',
+              vertical: 'top',
+              wrapText: item.wrap,
+            };
+          }
+
+          // Ensure columns have adequate width
+          worksheet.getColumn(targetLabelCol).width = Math.max(worksheet.getColumn(targetLabelCol).width || 15, 15);
+          worksheet.getColumn(targetValueCol).width = Math.max(worksheet.getColumn(targetValueCol).width || 25, 25);
+
+          // 2) Fix footer confidentiality text so it never clips when columns are added
+          const footerPos = findCellByText('ofertă confidențială', 1);
+          if (footerPos) {
+            const rowIdx = footerPos.row;
+            const originalCell = worksheet.getCell(rowIdx, footerPos.col);
+            const originalVal = originalCell.value;
+
+            const tableFirstCol = Math.min(
+              colDescription,
+              colQuantity,
+              colUnit,
+              colObs,
+              colUnitPrice,
+              colTotal,
+              hasStandardDiscount && colDiscount ? colDiscount : colTotal
+            );
+            const tableLastCol = Math.max(
+              colDescription,
+              colQuantity,
+              colUnit,
+              colObs,
+              colUnitPrice,
+              colTotal,
+              hasStandardDiscount && colDiscount ? colDiscount : colTotal
+            );
+
+            const mergeTo = Math.max(tableLastCol, footerPos.col);
+
+            // Unmerge/merge row-wide so text has width
+            safeMerge(rowIdx, tableFirstCol, rowIdx, mergeTo);
+
+            const master = worksheet.getCell(rowIdx, tableFirstCol);
+            master.value = originalVal;
+            master.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+            // give the row a bit of height so wrap is visible
+            const r = worksheet.getRow(rowIdx);
+            if (!r.height || r.height < 15) r.height = 15;
+          }
+        };
+
+        applyHeaderFooterFixes();
         
         // Fix "Total" column width (Column H usually) when Discount is added
         if (hasStandardDiscount && colDiscount) {
@@ -703,48 +779,6 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
 
         setDateRow('data emiterii', issueDate, 'Data emiterii:');
         setDateRow('valabil', validUntil, 'Valabilă până la:');
-
-        // 3. Footer confidentiality message should span full table width
-        const footerPos = findCellByText('ofertă confidențială', 1);
-        if (footerPos) {
-          const rowIdx = footerPos.row;
-          const cell = worksheet.getCell(rowIdx, footerPos.col);
-          const val = cell.value;
-
-          // Extend merge to include column H (8) since the template has text there
-          // lastDataCol is typically G (7), but we need to go to at least H (8)
-          const mergeEndCol = Math.max(lastDataCol + 1, footerPos.col, 8);
-
-          // Clear ALL cells in the footer row from first to end column
-          for (let c = firstDataCol; c <= mergeEndCol; c++) {
-            const cellToClear = worksheet.getCell(rowIdx, c);
-            if (!cellToClear.isMerged || cellToClear.address === cellToClear.master?.address) {
-              cellToClear.value = null;
-            }
-          }
-
-          // Unmerge any existing merges in that row first
-          try {
-            worksheet.unMergeCells(rowIdx, firstDataCol, rowIdx, mergeEndCol);
-          } catch (e) {
-            // Ignore unmerge errors
-          }
-
-          try {
-            worksheet.mergeCells(rowIdx, firstDataCol, rowIdx, mergeEndCol);
-          } catch (e) {
-            // If merge fails, try a smaller range
-            try {
-              worksheet.mergeCells(rowIdx, firstDataCol, rowIdx, lastDataCol);
-            } catch (e2) {
-              // Ignore merge errors
-            }
-          }
-
-          const master = worksheet.getCell(rowIdx, firstDataCol);
-          master.value = val;
-          master.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        }
         
         const thinBorder: ExcelJS.Border = {
           top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
@@ -1513,31 +1547,194 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
       </Dialog>
 
       {/* Offer Export Modal */}
-      <Dialog open={showOfferExport} onClose={() => setShowOfferExport(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
+      <Dialog 
+        open={showOfferExport} 
+        onClose={() => setShowOfferExport(false)} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ pb: 2 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <Typography variant="h6">Export Ofertă</Typography>
-            <IconButton onClick={() => setShowOfferExport(false)} size="small">
+            <Box>
+              <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                📄 Export Ofertă
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Generează ofertă de preț în format Excel
+              </Typography>
+            </Box>
+            <IconButton onClick={() => setShowOfferExport(false)} size="small" sx={{ mt: -1 }}>
               <CloseIcon />
             </IconButton>
           </Stack>
         </DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={1.5}>
-            <Typography variant="body2" color="text.secondary">
-              Exportă oferta în format Excel pe baza operațiilor curente.
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Discount standard: {standardDiscount}%
-            </Typography>
+
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2.5}>
+            {/* Summary Cards */}
+            <Stack direction="row" spacing={2}>
+              <Paper 
+                elevation={0} 
+                sx={{ 
+                  flex: 1, 
+                  p: 2.5, 
+                  bgcolor: 'primary.50',
+                  border: '2px solid',
+                  borderColor: 'primary.main',
+                  borderRadius: 2,
+                  textAlign: 'center',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)' }
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Operații
+                </Typography>
+                <Typography variant="h3" color="primary.main" fontWeight={800} sx={{ mt: 0.5 }}>
+                  {operations.length}
+                </Typography>
+              </Paper>
+              
+              <Paper 
+                elevation={0} 
+                sx={{ 
+                  flex: 1, 
+                  p: 2.5, 
+                  bgcolor: 'success.50',
+                  border: '2px solid',
+                  borderColor: 'success.main',
+                  borderRadius: 2,
+                  textAlign: 'center',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-2px)' }
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Valoare Totală
+                </Typography>
+                <Typography variant="h3" color="success.main" fontWeight={800} sx={{ mt: 0.5, fontSize: '1.75rem' }}>
+                  {operationsTotal.toLocaleString('ro-RO', { minimumFractionDigits: 2 })} €
+                </Typography>
+              </Paper>
+            </Stack>
+
+            {/* Discount Info */}
+            {standardDiscount !== 0 && (
+              <Box 
+                sx={{ 
+                  p: 2, 
+                  bgcolor: 'warning.50', 
+                  border: '1px solid', 
+                  borderColor: 'warning.main',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Typography variant="body2" fontWeight={600}>
+                    💰 Discount aplicat
+                  </Typography>
+                </Stack>
+                <Typography variant="h6" color="warning.dark" fontWeight={700}>
+                  {standardDiscount}%
+                </Typography>
+              </Box>
+            )}
+
+            <Divider />
+
+            {/* File Preview */}
+            <Box>
+              <Typography variant="caption" color="text.secondary" fontWeight={600} gutterBottom display="block" sx={{ mb: 1 }}>
+                📁 FIȘIER GENERAT
+              </Typography>
+              <Paper 
+                elevation={0} 
+                sx={{ 
+                  p: 2, 
+                  bgcolor: 'grey.100', 
+                  border: '1px dashed',
+                  borderColor: 'grey.400',
+                  borderRadius: 1.5,
+                  fontFamily: 'monospace'
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} sx={{ wordBreak: 'break-all' }}>
+                  Oferta_{devizLine.code}_{new Date().toISOString().split('T')[0]}.xlsx
+                </Typography>
+              </Paper>
+            </Box>
+
+            {/* Warnings */}
+            {operations.length === 0 && (
+              <Paper 
+                elevation={0} 
+                sx={{ 
+                  p: 2, 
+                  bgcolor: 'error.50', 
+                  border: '1px solid', 
+                  borderColor: 'error.main',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1
+                }}
+              >
+                <Typography variant="body2" color="error.main" fontWeight={600}>
+                  ⚠️ Nu există operații pentru export!
+                </Typography>
+              </Paper>
+            )}
+            
+            {!projectClient && operations.length > 0 && (
+              <Paper 
+                elevation={0} 
+                sx={{ 
+                  p: 1.5, 
+                  bgcolor: 'warning.50', 
+                  border: '1px solid', 
+                  borderColor: 'warning.300',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1
+                }}
+              >
+                <Typography variant="caption" color="warning.dark">
+                  💡 Clientul nu este setat. Oferta va fi generată fără informații despre client.
+                </Typography>
+              </Paper>
+            )}
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowOfferExport(false)} variant="outlined">
-            Închide
+
+        <DialogActions sx={{ p: 3, pt: 2, gap: 1.5 }}>
+          <Button 
+            onClick={() => setShowOfferExport(false)} 
+            variant="outlined" 
+            size="large"
+            fullWidth
+          >
+            Anulează
           </Button>
-          <Button onClick={handleExportOfferExcel} variant="contained" disabled={isExportingOffer}>
-            {isExportingOffer ? 'Se exportă...' : 'Export Excel'}
+          <Button 
+            onClick={() => {
+              handleExportOfferExcel();
+              setShowOfferExport(false);
+            }} 
+            variant="contained" 
+            size="large"
+            fullWidth
+            disabled={isExportingOffer || operations.length === 0}
+            startIcon={isExportingOffer ? <CircularProgress size={20} color="inherit" /> : null}
+            sx={{ fontWeight: 600 }}
+          >
+            {isExportingOffer ? 'Se exportă...' : '📥 Exportă Excel'}
           </Button>
         </DialogActions>
       </Dialog>
