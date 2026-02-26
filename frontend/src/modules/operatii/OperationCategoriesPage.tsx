@@ -44,19 +44,12 @@ import {
 
 const trim = (v?: string | null) => (v == null ? '' : String(v).trim());
 const escapeRegExp = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const normalizeHighlightTerms = (queries: Array<string | null | undefined>) => {
-  const terms = queries
-    .flatMap((q) => String(q || '').trim().split(/\s+/))
-    .map((t) => t.trim())
-    .filter(Boolean);
-  return Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
-};
-const highlightText = (text: string, queries: Array<string | null | undefined>) => {
-  const terms = normalizeHighlightTerms(queries);
-  if (!terms.length) return text;
-  const regex = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
+const highlightText = (text: string, query?: string | null) => {
+  const q = String(query || '').trim();
+  if (!q) return text;
+  const regex = new RegExp(`(${escapeRegExp(q)})`, 'gi');
   return text.split(regex).map((part, i) => {
-    if (!terms.some((t) => t.toLowerCase() === part.toLowerCase())) return part;
+    if (part.toLowerCase() !== q.toLowerCase()) return part;
     return (
       <Box
         key={`${part}-${i}`}
@@ -86,10 +79,10 @@ interface TreeRow {
   subRows?: TreeRow[];
   createdAt?: string;
   updatedAt?: string;
-  path?: string;               // Category > Operation > Item (for fuzzy/global filter)
+  path?: string;               
 }
 
-/* ---------------- Numbering helpers ---------------- */
+/* ---------------- Numbering helpers ---------------- */ 
 function numberize(tree: TreeRow[]): TreeRow[] {
   return tree.map((cat, i) => {
     const catNum = `${i + 1}`;
@@ -246,7 +239,7 @@ export default function OperationCategoriesPage() {
       enableHiding: false,
       Cell: () => null,
     },
-    // NUMBER column (left, monospace, aligns like "1", "1.1", "1.1.1")
+    // NUMBER column (left, monospace, aligns like "1", "1.1", "1.1.1") 
     {
       accessorKey: 'number',
       header: '#',
@@ -295,6 +288,8 @@ export default function OperationCategoriesPage() {
           const found = filters.find((f) => f.id === 'name');
           return typeof found?.value === 'string' ? found.value : '';
         })();
+        const hasNameColumnFilter = Boolean(nameColumnFilter.trim());
+        const displayName = String(row.original.name || renderedCellValue || '');
         return (
           <Stack direction="row" alignItems="center" gap={1} sx={{ py: 0.25 }}>
             {t !== 'category' && <SubdirectoryArrowRightIcon fontSize="small" />}
@@ -302,7 +297,9 @@ export default function OperationCategoriesPage() {
               variant="body1"
               sx={{ fontWeight: t === 'category' ? 600 : 400 }}
             >
-              {highlightText(String(row.original.name || renderedCellValue || ''), [globalFilter, nameColumnFilter])}
+              {hasNameColumnFilter
+                ? (renderedCellValue as React.ReactNode)
+                : highlightText(displayName, globalFilter)}
             </Typography>
             <Chip
               size="small"
@@ -350,7 +347,10 @@ export default function OperationCategoriesPage() {
           const found = filters.find((f) => f.id === 'unit');
           return typeof found?.value === 'string' ? found.value : '';
         })();
-        return row.original.type === 'item' ? highlightText(val || '—', [globalFilter, unitColumnFilter]) : '—';
+        const hasUnitColumnFilter = Boolean(unitColumnFilter.trim());
+        return row.original.type === 'item'
+          ? (hasUnitColumnFilter ? (renderedCellValue as React.ReactNode) : highlightText(val || '—', globalFilter))
+          : '—';
       },
     },
   ], [globalFilter]);
