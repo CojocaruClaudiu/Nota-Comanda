@@ -41,7 +41,7 @@ const LoginPage: React.FC = () => {
         px: 2,
       }}
     >
-      <Container maxWidth="sm" disableGutters sx={{ width: "100%", maxWidth: 560 }}>
+      <Container maxWidth="xs" disableGutters sx={{ width: "100%", maxWidth: 460 }}>
         <Box
           component="form"
           onSubmit={onSubmit}

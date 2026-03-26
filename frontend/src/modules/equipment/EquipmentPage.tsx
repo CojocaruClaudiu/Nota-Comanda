@@ -385,7 +385,12 @@ export default function EquipmentPage() {
     },
 
     // container sizing
-    muiTableContainerProps: { sx: { maxHeight: 'calc(100vh - 220px)' } },
+    muiTableContainerProps: {
+      sx: {
+        maxHeight: 'calc(100vh - 200px)',
+        overflow: 'auto',
+      },
+    },
 
     // zebra stripes
     muiTableBodyRowProps: ({ row, table }) => {
@@ -400,9 +405,9 @@ export default function EquipmentPage() {
   });
 
   return (
-    <Box sx={{ width: '100vw', height: '100vh', bgcolor: 'background.default' }}>
-      <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+    <Box sx={{ width: '100vw', height: '100vh', p: 0, m: 0, bgcolor: 'background.default', overflow: 'hidden' }}>
+      <Paper elevation={2} sx={{ p: 2, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, gap: 1, flexShrink: 0 }}>
           <Typography variant="h5">Scule & Echipamente</Typography>
           <Stack direction="row" gap={1}>
             <Button variant="outlined" onClick={() => load()} disabled={loading}>
@@ -411,9 +416,9 @@ export default function EquipmentPage() {
           </Stack>
         </Stack>
 
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
 
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <MaterialReactTable table={table} />
         </Box>
       </Paper>

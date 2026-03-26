@@ -23,7 +23,8 @@ router.get('/', async (req, res) => {
     res.json(projects);
   } catch (error) {
     console.error('Error fetching projects:', error);
-    res.status(500).json({ error: 'Failed to fetch projects' });
+    const msg = error instanceof Error ? error.message : 'Failed to fetch projects';
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -100,17 +101,17 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
   const { name, description, status, startDate, endDate, budget, clientId, location, currency } = req.body;
 
-    const updateData: any = {
-      name,
-      description,
-      status,
-      startDate: startDate ? new Date(startDate) : null,
-      endDate: endDate ? new Date(endDate) : null,
-      budget: budget ? parseFloat(budget) : null,
-      clientId,
-      location,
-    };
-    if (currency === 'EUR' || currency === 'RON') updateData.currency = currency;
+    // Build update data, excluding undefined values
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (status !== undefined) updateData.status = status;
+    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
+    if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
+    if (budget !== undefined) updateData.budget = budget ? parseFloat(budget) : null;
+    if (clientId !== undefined) updateData.clientId = clientId;
+    if (location !== undefined) updateData.location = location;
+    if (currency !== undefined && (currency === 'EUR' || currency === 'RON')) updateData.currency = currency;
 
     const project = await prisma.project.update({
       where: { id },
@@ -128,7 +129,14 @@ router.put('/:id', async (req, res) => {
     res.json(project);
   } catch (error) {
     console.error('Error updating project:', error);
-    res.status(500).json({ error: 'Failed to update project' });
+    
+    // Check for "record not found" error (Prisma code P2025)
+    if (error instanceof Error && error.message.includes('No record was found')) {
+      return res.status(404).json({ error: 'Proiectul nu a fost găsit. Poate a fost șters.' });
+    }
+    
+    const msg = error instanceof Error ? error.message : 'Failed to update project';
+    res.status(500).json({ error: msg });
   }
 });
 

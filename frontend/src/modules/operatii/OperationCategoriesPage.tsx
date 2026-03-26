@@ -40,7 +40,7 @@ import {
   type OperationCategory,
   type Operation,
   type OperationItem,
-} from '../../api/operationCategories';
+} from '../../api/operationCategories'; 
 
 const trim = (v?: string | null) => (v == null ? '' : String(v).trim());
 const escapeRegExp = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -223,7 +223,7 @@ export default function OperationCategoriesPage() {
       setLoading(false);
     }
   }, []);
-
+      
   useEffect(() => { void load(); }, [load]);
 
   const columns = useMemo<MRT_ColumnDef<TreeRow>[]>(() => [
@@ -404,7 +404,7 @@ export default function OperationCategoriesPage() {
   /* -------- Table -------- */
   const table = useMaterialReactTable<TreeRow>({
     columns,
-    data: tree,
+    data: tree, 
 
     // tree data
     getRowId: (row) => `${row.type}:${row.id}`,

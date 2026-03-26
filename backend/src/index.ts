@@ -3,8 +3,10 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client'; // ensure `npx prisma generate` run after adding Producator model
+import multer from 'multer';
 import authRoutes from "./auth/authRoutes";
 import projectRoutes from "./routes/projects";
 import clientLocationRoutes from "./routes/clientLocations";
@@ -64,6 +66,161 @@ const getErrorMessage = (error: unknown): string => {
   if (typeof error === 'string') return error;
   return 'Unknown error occurred';
 };
+
+type AssistantDocIntent = {
+  key: 'expItp' | 'expRca' | 'expRovi' | 'expCasco';
+  code: 'ITP' | 'RCA' | 'ROVINIETA' | 'CASCO';
+};
+
+type AssistantContextPayload = {
+  intent?: AssistantDocIntent['key'] | null;
+  matchedPlate?: string | null;
+};
+
+const normalizePlate = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+const getPlateTokens = (value: string) =>
+  value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+const ASSISTANT_INTENTS: AssistantDocIntent[] = [
+  { key: 'expItp', code: 'ITP' },
+  { key: 'expRca', code: 'RCA' },
+  { key: 'expRovi', code: 'ROVINIETA' },
+  { key: 'expCasco', code: 'CASCO' },
+];
+
+const ASSISTANT_INTENT_BY_KEY = ASSISTANT_INTENTS.reduce<Record<string, AssistantDocIntent>>((acc, intent) => {
+  acc[intent.key] = intent;
+  return acc;
+}, {});
+
+const detectAssistantDocIntent = (question: string): AssistantDocIntent | null => {
+  const q = question.toLowerCase();
+  if (/\bitp\b/.test(q)) return ASSISTANT_INTENT_BY_KEY.expItp;
+  if (/\brca\b/.test(q)) return ASSISTANT_INTENT_BY_KEY.expRca;
+  if (/casco/.test(q)) return ASSISTANT_INTENT_BY_KEY.expCasco;
+  if (/rovi|roviniet|vignet|viniet/.test(q)) return ASSISTANT_INTENT_BY_KEY.expRovi;
+  return null;
+};
+
+const normalizeAssistantText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const hasExpiryVerb = (question: string) => /expir|exprima/.test(question);
+
+const isFleetEarliestExpiryQuestion = (question: string) =>
+  hasExpiryVerb(question) &&
+  /(prima|primul|cel mai repede|mai repede|prima data)/.test(question) &&
+  /(masina|masini|vehicul|flota|care)/.test(question);
+
+const isFleetUpcomingExpiryQuestion = (question: string) =>
+  hasExpiryVerb(question) &&
+  /(urmatoar|perioad|in curand|urmeaza|care sunt|ce masini|lista)/.test(question);
+
+const startOfDay = (value: Date) => {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const addDays = (value: Date, days: number) => {
+  const d = new Date(value);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const toValidDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) return null;
+  return startOfDay(d);
+};
+
+const extractPlateFromQuestion = (question: string): string | null => {
+  const forMatch = question.match(/pentru\s+([A-Za-z0-9\-\s]+)/i);
+  const rawCandidate = forMatch
+    ? forMatch[1].replace(/[?.!,;:]+$/g, '').trim()
+    : (question.match(/\b[A-Za-z]{1,3}[\s-]?\d{1,3}[\s-]?[A-Za-z]{1,3}\b/i)?.[0] || '').trim();
+
+  if (!rawCandidate) return null;
+  return normalizePlate(rawCandidate).length > 0 ? rawCandidate : null;
+};
+
+const derivePlateCandidateFromContext = (candidate: string, contextPlate: string | null): string | null => {
+  if (!contextPlate) return null;
+
+  const candidateTokens = getPlateTokens(candidate);
+  const contextTokens = getPlateTokens(contextPlate);
+  if (candidateTokens.length === 0 || contextTokens.length < 3) return null;
+
+  const contextCounty = contextTokens[0];
+  const contextSuffix = contextTokens[contextTokens.length - 1];
+
+  if (candidateTokens.length === 1) {
+    const only = candidateTokens[0];
+    if (/^\d{1,3}$/.test(only)) {
+      return `${contextCounty} ${only} ${contextSuffix}`;
+    }
+    return null;
+  }
+
+  if (candidateTokens.length === 2) {
+    const [first, second] = candidateTokens;
+    if (/^\d{1,3}$/.test(first) && /^[A-Z]{1,3}$/.test(second)) {
+      return `${contextCounty} ${first} ${second}`;
+    }
+    if (/^[A-Z]{1,3}$/.test(first) && /^\d{1,3}$/.test(second)) {
+      return `${first} ${second} ${contextSuffix}`;
+    }
+  }
+
+  return null;
+};
+
+const findCarsByLoosePlateCandidate = (cars: Array<any>, candidate: string) => {
+  const candidateNormalized = normalizePlate(candidate);
+  const candidateTokens = getPlateTokens(candidate);
+  const digitsOnly = /^\d+$/.test(candidateNormalized);
+
+  if (!candidateNormalized) return [];
+
+  return cars.filter((entry) => {
+    const rawPlate = String(entry.placute || '');
+    const normalizedPlate = normalizePlate(rawPlate);
+    if (!normalizedPlate) return false;
+
+    if (normalizedPlate === candidateNormalized) return true;
+    if (normalizedPlate.includes(candidateNormalized)) return true;
+
+    const plateTokens = getPlateTokens(rawPlate);
+    if (candidateTokens.length > 0) {
+      const allCandidateTokensMatch = candidateTokens.every((token) =>
+        plateTokens.some((plateToken) => plateToken === token || plateToken.includes(token)),
+      );
+      if (allCandidateTokensMatch) return true;
+    }
+
+    if (digitsOnly && plateTokens.some((token) => /^\d+$/.test(token) && token === candidateNormalized)) {
+      return true;
+    }
+
+    return false;
+  });
+};
+
+const formatRoDate = (date: Date) =>
+  new Intl.DateTimeFormat('ro-RO', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
 
 // Prisma error checking utility
 const isPrismaError = (error: unknown): error is { code: string; message: string } => {
@@ -134,6 +291,233 @@ app.get('/debug/order-status', async (_req, res) => {
 
 /** Ping */
 app.get('/ping', (_req, res) => res.json({ pong: true }));
+
+/** Public assistant endpoint used from login page */
+app.post('/assistant/public-ask', async (req, res) => {
+  try {
+    const rawQuestion = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+    if (!rawQuestion) {
+      return res.status(400).json({ error: 'Întrebarea este obligatorie.' });
+    }
+
+    const rawContext = (req.body?.context || {}) as AssistantContextPayload;
+    const contextIntent =
+      typeof rawContext.intent === 'string'
+        ? ASSISTANT_INTENT_BY_KEY[rawContext.intent] || null
+        : null;
+    const contextPlate = typeof rawContext.matchedPlate === 'string' ? rawContext.matchedPlate.trim() : '';
+
+    const normalizedQuestion = normalizeAssistantText(rawQuestion);
+    const explicitIntent = detectAssistantDocIntent(rawQuestion);
+    const intent = explicitIntent || contextIntent;
+    const asksFleetEarliest = isFleetEarliestExpiryQuestion(normalizedQuestion);
+    const asksFleetUpcoming = isFleetUpcomingExpiryQuestion(normalizedQuestion);
+    const isFleetExpiryQuery = asksFleetEarliest || asksFleetUpcoming;
+
+    if (!intent && !isFleetExpiryQuery) {
+      return res.json({
+        intent: null,
+        matchedPlate: null,
+        answer:
+          'Momentan pot răspunde la întrebări despre expirarea ITP, RCA, CASCO sau rovinietă. Exemplu: "Când expiră ITP-ul pentru PH-16-TOP?"',
+      });
+    }
+
+    const plateInQuestion = extractPlateFromQuestion(rawQuestion);
+    if (!isFleetExpiryQuery && !plateInQuestion && !contextPlate) {
+      return res.json({
+        intent: intent?.key ?? null,
+        matchedPlate: null,
+        answer: `Scrie întrebarea în formatul: "Când expiră ${intent?.code || 'ITP'}-ul pentru PH-16-TOP?"`,
+      });
+    }
+
+    const cars = await (prisma as any).car.findMany({
+      select: {
+        placute: true,
+        status: true,
+        expItp: true,
+        expRca: true,
+        expRovi: true,
+        expCasco: true,
+      },
+    });
+
+    const activeCars = cars.filter((entry: any) => !['RETRAS', 'VANDUT'].includes(String(entry.status || '')));
+    const today = startOfDay(new Date());
+
+    if (isFleetExpiryQuery) {
+      type FleetEntry = { placute: string; expiresAt: Date; intent: AssistantDocIntent };
+
+      const intentsForFleet = explicitIntent ? [explicitIntent] : ASSISTANT_INTENTS;
+      const fleetEntries: FleetEntry[] = activeCars.flatMap((entry: any) =>
+        intentsForFleet
+          .map((item) => {
+            const expiresAt = toValidDate((entry as any)[item.key]);
+            if (!expiresAt) return null;
+            return { placute: String(entry.placute), expiresAt, intent: item } as FleetEntry;
+          })
+          .filter((item): item is FleetEntry => Boolean(item)),
+      );
+
+      if (!fleetEntries.length) {
+        const docsLabel = explicitIntent ? explicitIntent.code : 'documente';
+        return res.json({
+          intent: explicitIntent?.key ?? null,
+          matchedPlate: null,
+          expiresAt: null,
+          answer: `Nu există date de expirare ${docsLabel} înregistrate pentru mașinile active.`,
+        });
+      }
+
+      const sortedEntries = [...fleetEntries].sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime());
+      const futureEntries = sortedEntries.filter((entry) => entry.expiresAt.getTime() >= today.getTime());
+
+      if (asksFleetEarliest) {
+        const firstFuture = futureEntries[0] || null;
+        if (firstFuture) {
+          const answer = explicitIntent
+            ? `${explicitIntent.code}-ul care expiră primul este pentru ${firstFuture.placute}, la ${formatRoDate(firstFuture.expiresAt)}.`
+            : `Primul document care expiră este ${firstFuture.intent.code} pentru ${firstFuture.placute}, la ${formatRoDate(firstFuture.expiresAt)}.`;
+
+          return res.json({
+            intent: explicitIntent?.key ?? null,
+            matchedPlate: firstFuture.placute,
+            expiresAt: firstFuture.expiresAt,
+            answer,
+          });
+        }
+
+        const latestExpired = sortedEntries[sortedEntries.length - 1];
+        const answer = explicitIntent
+          ? `Toate ${explicitIntent.code}-urile din flotă sunt deja expirate. Cel mai recent a expirat pentru ${latestExpired.placute}, la ${formatRoDate(latestExpired.expiresAt)}.`
+          : `Toate documentele urmărite sunt deja expirate. Cel mai recent a expirat ${latestExpired.intent.code} pentru ${latestExpired.placute}, la ${formatRoDate(latestExpired.expiresAt)}.`;
+
+        return res.json({
+          intent: explicitIntent?.key ?? null,
+          matchedPlate: latestExpired.placute,
+          expiresAt: latestExpired.expiresAt,
+          answer,
+        });
+      }
+
+      const horizon = addDays(today, 90);
+      let periodEntries = futureEntries.filter((entry) => entry.expiresAt.getTime() <= horizon.getTime());
+      if (!periodEntries.length) {
+        periodEntries = futureEntries.slice(0, 5);
+      }
+      const topEntries = periodEntries.slice(0, 5);
+
+      if (!topEntries.length) {
+        const docsLabel = explicitIntent ? explicitIntent.code : 'documentele';
+        return res.json({
+          intent: explicitIntent?.key ?? null,
+          matchedPlate: null,
+          expiresAt: null,
+          answer: `Nu există ${docsLabel} care să mai expire în viitor pentru mașinile active.`,
+        });
+      }
+
+      const intro = periodEntries.length
+        ? 'În următoarea perioadă expiră:'
+        : 'Următoarele expirări din flotă sunt:';
+      const lines = topEntries.map((entry, idx) =>
+        `${idx + 1}. ${entry.placute} — ${entry.intent.code}: ${formatRoDate(entry.expiresAt)}`,
+      );
+
+      return res.json({
+        intent: explicitIntent?.key ?? null,
+        matchedPlate: null,
+        expiresAt: topEntries[0].expiresAt,
+        answer: `${intro}\n${lines.join('\n')}`,
+      });
+    }
+
+    if (!intent) {
+      return res.json({
+        intent: null,
+        matchedPlate: null,
+        answer:
+          'Momentan pot răspunde la întrebări despre expirarea ITP, RCA, CASCO sau rovinietă. Exemplu: "Când expiră ITP-ul pentru PH-16-TOP?"',
+      });
+    }
+
+    const resolvedIntent = intent;
+
+    let resolvedCandidate = plateInQuestion || contextPlate || '';
+    let car: any | undefined;
+
+    if (plateInQuestion) {
+      const normalizedAskedPlate = normalizePlate(plateInQuestion);
+      car = cars.find((entry: any) => normalizePlate(String(entry.placute || '')) === normalizedAskedPlate);
+
+      if (!car) {
+        const derivedCandidate = derivePlateCandidateFromContext(plateInQuestion, contextPlate || null);
+        if (derivedCandidate) {
+          resolvedCandidate = derivedCandidate;
+          const normalizedDerivedCandidate = normalizePlate(derivedCandidate);
+          car = cars.find((entry: any) => normalizePlate(String(entry.placute || '')) === normalizedDerivedCandidate);
+        }
+      }
+
+      if (!car) {
+        const fuzzyMatches = findCarsByLoosePlateCandidate(cars, plateInQuestion);
+        if (fuzzyMatches.length === 1) {
+          car = fuzzyMatches[0];
+        } else if (fuzzyMatches.length > 1) {
+          const samplePlates = fuzzyMatches.slice(0, 4).map((entry: any) => String(entry.placute)).join(', ');
+          return res.json({
+            intent: resolvedIntent.key,
+            matchedPlate: plateInQuestion.toUpperCase(),
+            answer: `Am găsit mai multe mașini pentru "${plateInQuestion.toUpperCase()}": ${samplePlates}. Te rog specifică numărul complet (ex: PH-16-TOP).`,
+          });
+        }
+      }
+    } else if (contextPlate) {
+      const normalizedContextPlate = normalizePlate(contextPlate);
+      car = cars.find((entry: any) => normalizePlate(String(entry.placute || '')) === normalizedContextPlate);
+    }
+
+    const prettyAskedPlate = resolvedCandidate.toUpperCase();
+
+    if (!car) {
+      return res.json({
+        intent: resolvedIntent.key,
+        matchedPlate: prettyAskedPlate || null,
+        answer: prettyAskedPlate
+          ? `Nu am găsit mașina ${prettyAskedPlate}. Verifică numărul de înmatriculare.`
+          : 'Nu am putut identifica mașina. Te rog specifică numărul complet (ex: PH-16-TOP).',
+      });
+    }
+
+    const expiresAt = (car as any)[resolvedIntent.key] as Date | null;
+    if (!expiresAt) {
+      return res.json({
+        intent: resolvedIntent.key,
+        matchedPlate: car.placute,
+        expiresAt: null,
+        answer: `Nu există data de expirare ${resolvedIntent.code} setată pentru ${car.placute}.`,
+      });
+    }
+
+    const expiry = startOfDay(new Date(expiresAt));
+    const isExpired = expiry.getTime() < today.getTime();
+
+    const answer = isExpired
+      ? `${resolvedIntent.code}-ul pentru ${car.placute} a expirat la ${formatRoDate(expiresAt)}.`
+      : `${resolvedIntent.code}-ul pentru ${car.placute} expiră la ${formatRoDate(expiresAt)}.`;
+
+    return res.json({
+      intent: resolvedIntent.key,
+      matchedPlate: car.placute,
+      expiresAt,
+      answer,
+    });
+  } catch (error: unknown) {
+    console.error('POST /assistant/public-ask error:', error);
+    return res.status(500).json({ error: 'Nu am putut procesa întrebarea.' });
+  }
+});
 
 /* ===================== CLIENTS ===================== */
 
@@ -794,11 +1178,62 @@ type CarPayload = {
   driverId?: string | null;
   driverNote?: string | null;
   combustibil?: import('@prisma/client').FuelType | null;
+  normaEuro?: 'EURO_3' | 'EURO_4' | 'EURO_5' | 'EURO_6' | null;
+  status?: 'ACTIV' | 'IN_REPARATIE' | 'RETRAS' | 'VANDUT' | null;
   expItp?: string | null;  // 'YYYY-MM-DD' or ISO
   expRca?: string | null;
   expRovi?: string | null;
+  expCasco?: string | null;
+  // legacy tire fields kept for backwards compatibility
+  tiresChangedAt?: string | null;
+  tiresGood?: boolean | null;
+  // seasonal tire fields
+  winterTiresChangedAt?: string | null;
+  winterTiresGood?: boolean | null;
+  winterTireName?: string | null;
+  winterTireDimensions?: string | null;
+  summerTiresChangedAt?: string | null;
+  summerTiresGood?: boolean | null;
+  summerTireName?: string | null;
+  summerTireDimensions?: string | null;
+  itpDocument?: string | null;
+  rcaDocument?: string | null;
+  vinietaDocument?: string | null;
+  cascoDocument?: string | null;
   rcaDecontareDirecta?: boolean | null;
 };
+
+type CarTireHistoryPayload = {
+  season?: 'WINTER' | 'SUMMER';
+  changedAt?: string | null;
+  isGood?: boolean | null;
+  tireName?: string | null;
+  tireDimensions?: string | null;
+  note?: string | null;
+};
+
+type CarDocumentType = 'RCA' | 'CASCO' | 'VINIETA' | 'ITP';
+type CarDocumentField = 'rcaDocument' | 'cascoDocument' | 'vinietaDocument' | 'itpDocument';
+
+const CAR_DOCUMENT_FIELD_BY_TYPE: Record<CarDocumentType, CarDocumentField> = {
+  RCA: 'rcaDocument',
+  CASCO: 'cascoDocument',
+  VINIETA: 'vinietaDocument',
+  ITP: 'itpDocument',
+};
+
+const CAR_DOCUMENT_UPLOAD_DIR = path.join(__dirname, '../uploads/car-documents');
+const CAR_DOCUMENT_ALLOWED_EXT = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+]);
 
 // helpers
 const s = (v: unknown) => String(v ?? '').trim();
@@ -816,6 +1251,71 @@ const optDate = (v: unknown): Date | null => {
   const d = new Date(str);
   return Number.isNaN(d.getTime()) ? null : d;
 };
+
+const sameNullableDate = (a: Date | null | undefined, b: Date | null | undefined) =>
+  (a ? a.getTime() : null) === (b ? b.getTime() : null);
+
+const normalizeCarDocumentType = (value: string | undefined): CarDocumentType | null => {
+  const upper = String(value || '').trim().toUpperCase();
+  if (upper === 'RCA' || upper === 'CASCO' || upper === 'VINIETA' || upper === 'ITP') return upper;
+  return null;
+};
+
+const carDocumentFieldForType = (type: CarDocumentType): CarDocumentField => CAR_DOCUMENT_FIELD_BY_TYPE[type];
+
+const ensureCarUploadDir = () => {
+  if (!fs.existsSync(CAR_DOCUMENT_UPLOAD_DIR)) {
+    fs.mkdirSync(CAR_DOCUMENT_UPLOAD_DIR, { recursive: true });
+  }
+};
+
+const sanitizeUploadBasename = (filename: string) =>
+  path
+    .basename(filename, path.extname(filename))
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 80) || 'document';
+
+const removeCarUploadedFile = (storedPath?: string | null) => {
+  if (!storedPath) return;
+  const relativePath = String(storedPath).replace(/^\/+/, '');
+  const fullPath = path.join(__dirname, '..', relativePath);
+  try {
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+  } catch (error: unknown) {
+    console.warn('Could not remove uploaded car document:', fullPath, error);
+  }
+};
+
+const carDocumentStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureCarUploadDir();
+    cb(null, CAR_DOCUMENT_UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const docType = normalizeCarDocumentType(req.params.type)?.toUpperCase() || 'DOC';
+    const ext = path.extname(file.originalname).toLowerCase();
+    // Use license plate passed as query param, fall back to car id
+    const rawPlate = String((req.query as Record<string, string>).placute || req.params.id || 'auto');
+    const plate = rawPlate.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const shortId = Date.now().toString(36).toUpperCase();
+    cb(null, `${plate}_${docType}_${dateStr}_${shortId}${ext}`);
+  },
+});
+
+const carDocumentUpload = multer({
+  storage: carDocumentStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+    if (CAR_DOCUMENT_ALLOWED_EXT.has(ext)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Tip de fișier invalid. Permise: PDF, DOC, DOCX, XLS, XLSX, JPG, JPEG, PNG, WEBP'));
+  },
+});
 
 // GET /cars
 app.get('/cars', async (_req, res) => {
@@ -840,7 +1340,18 @@ app.post('/cars', async (req, res) => {
       return res.status(400).json({ error: 'VIN, Marcă, Model, Plăcuțe și An sunt obligatorii' });
     }
 
-    const created = await prisma.car.create({
+    const legacyTiresChangedAt = optDate(p.tiresChangedAt);
+    const legacyTiresGood = p.tiresGood != null ? toBool(p.tiresGood) : true;
+    const winterTiresChangedAt = p.winterTiresChangedAt !== undefined ? optDate(p.winterTiresChangedAt) : legacyTiresChangedAt;
+    const summerTiresChangedAt = p.summerTiresChangedAt !== undefined ? optDate(p.summerTiresChangedAt) : legacyTiresChangedAt;
+    const winterTiresGood = p.winterTiresGood != null ? toBool(p.winterTiresGood) : legacyTiresGood;
+    const summerTiresGood = p.summerTiresGood != null ? toBool(p.summerTiresGood) : legacyTiresGood;
+    const winterTireName = opt(p.winterTireName);
+    const winterTireDimensions = opt(p.winterTireDimensions);
+    const summerTireName = opt(p.summerTireName);
+    const summerTireDimensions = opt(p.summerTireDimensions);
+
+    const created = await (prisma as any).car.create({
       data: {
         vin: s(p.vin),
         marca: s(p.marca),
@@ -851,9 +1362,22 @@ app.post('/cars', async (req, res) => {
         driverId: opt(p.driverId),
         driverNote: opt(p.driverNote),
         combustibil: p.combustibil ?? null,
+        normaEuro: p.normaEuro ?? null,
+        status: p.status ?? 'ACTIV',
         expItp: optDate(p.expItp),
         expRca: optDate(p.expRca),
         expRovi: optDate(p.expRovi),
+        expCasco: optDate(p.expCasco),
+        tiresChangedAt: winterTiresChangedAt ?? summerTiresChangedAt ?? legacyTiresChangedAt,
+        tiresGood: winterTiresGood ?? summerTiresGood ?? legacyTiresGood,
+        winterTiresChangedAt,
+        winterTiresGood,
+        winterTireName,
+        winterTireDimensions,
+        summerTiresChangedAt,
+        summerTiresGood,
+        summerTireName,
+        summerTireDimensions,
         rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
       },
       include: { driver: { select: { id: true, name: true } } },
@@ -883,24 +1407,136 @@ app.put('/cars/:id', async (req, res) => {
     const exists = await prisma.car.findUnique({ where: { id } });
     if (!exists) return res.status(404).json({ error: 'Mașina nu a fost găsită' });
 
-    const updated = await prisma.car.update({
-      where: { id },
-      data: {
-        vin: s(p.vin),
-        marca: s(p.marca),
-        model: s(p.model),
-        an: Number(p.an),
-        culoare: opt(p.culoare),
-        placute: s(p.placute).toUpperCase(),
-        driverId: opt(p.driverId),
-        driverNote: opt(p.driverNote),
-        combustibil: p.combustibil ?? null,
-        expItp: optDate(p.expItp),
-        expRca: optDate(p.expRca),
-        expRovi: optDate(p.expRovi),
-        rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
-      },
-      include: { driver: { select: { id: true, name: true } } },
+    const legacyPayloadDate = p.tiresChangedAt !== undefined ? optDate(p.tiresChangedAt) : undefined;
+    const legacyPayloadGood = p.tiresGood !== undefined
+      ? (p.tiresGood == null ? null : toBool(p.tiresGood))
+      : undefined;
+
+    const existingLegacyDate = (exists as any).tiresChangedAt as Date | null;
+    const existingLegacyGood = (exists as any).tiresGood as boolean | null;
+
+    const existingWinterDate = ((exists as any).winterTiresChangedAt as Date | null) ?? existingLegacyDate;
+    const existingWinterGood = ((exists as any).winterTiresGood as boolean | null) ?? existingLegacyGood;
+    const existingWinterName = ((exists as any).winterTireName as string | null) ?? null;
+    const existingWinterDimensions = ((exists as any).winterTireDimensions as string | null) ?? null;
+    const existingSummerDate = ((exists as any).summerTiresChangedAt as Date | null) ?? existingLegacyDate;
+    const existingSummerGood = ((exists as any).summerTiresGood as boolean | null) ?? existingLegacyGood;
+    const existingSummerName = ((exists as any).summerTireName as string | null) ?? null;
+    const existingSummerDimensions = ((exists as any).summerTireDimensions as string | null) ?? null;
+
+    const winterTiresChangedAt = p.winterTiresChangedAt !== undefined
+      ? optDate(p.winterTiresChangedAt)
+      : (legacyPayloadDate !== undefined ? legacyPayloadDate : existingWinterDate);
+    const winterTiresGood = p.winterTiresGood !== undefined
+      ? (p.winterTiresGood == null ? null : toBool(p.winterTiresGood))
+      : (legacyPayloadGood !== undefined ? legacyPayloadGood : existingWinterGood);
+
+    const summerTiresChangedAt = p.summerTiresChangedAt !== undefined
+      ? optDate(p.summerTiresChangedAt)
+      : (legacyPayloadDate !== undefined ? legacyPayloadDate : existingSummerDate);
+    const summerTiresGood = p.summerTiresGood !== undefined
+      ? (p.summerTiresGood == null ? null : toBool(p.summerTiresGood))
+      : (legacyPayloadGood !== undefined ? legacyPayloadGood : existingSummerGood);
+
+    const winterTireName = p.winterTireName !== undefined ? opt(p.winterTireName) : existingWinterName;
+    const winterTireDimensions = p.winterTireDimensions !== undefined ? opt(p.winterTireDimensions) : existingWinterDimensions;
+    const summerTireName = p.summerTireName !== undefined ? opt(p.summerTireName) : existingSummerName;
+    const summerTireDimensions = p.summerTireDimensions !== undefined ? opt(p.summerTireDimensions) : existingSummerDimensions;
+
+    const tireHistoryEntries: Array<{
+      season: 'WINTER' | 'SUMMER';
+      changedAt: Date | null;
+      isGood: boolean | null;
+      tireName: string | null;
+      tireDimensions: string | null;
+    }> = [];
+
+    const winterChanged = !sameNullableDate(existingWinterDate, winterTiresChangedAt)
+      || (existingWinterGood ?? null) !== (winterTiresGood ?? null)
+      || (existingWinterName ?? null) !== (winterTireName ?? null)
+      || (existingWinterDimensions ?? null) !== (winterTireDimensions ?? null);
+    const winterOldSetExists =
+      existingWinterDate != null
+      || existingWinterGood != null
+      || Boolean(existingWinterName)
+      || Boolean(existingWinterDimensions);
+    if (winterChanged && winterOldSetExists) {
+      tireHistoryEntries.push({
+        season: 'WINTER',
+        changedAt: existingWinterDate,
+        isGood: existingWinterGood ?? null,
+        tireName: existingWinterName ?? null,
+        tireDimensions: existingWinterDimensions ?? null,
+      });
+    }
+
+    const summerChanged = !sameNullableDate(existingSummerDate, summerTiresChangedAt)
+      || (existingSummerGood ?? null) !== (summerTiresGood ?? null)
+      || (existingSummerName ?? null) !== (summerTireName ?? null)
+      || (existingSummerDimensions ?? null) !== (summerTireDimensions ?? null);
+    const summerOldSetExists =
+      existingSummerDate != null
+      || existingSummerGood != null
+      || Boolean(existingSummerName)
+      || Boolean(existingSummerDimensions);
+    if (summerChanged && summerOldSetExists) {
+      tireHistoryEntries.push({
+        season: 'SUMMER',
+        changedAt: existingSummerDate,
+        isGood: existingSummerGood ?? null,
+        tireName: existingSummerName ?? null,
+        tireDimensions: existingSummerDimensions ?? null,
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await (tx as any).car.update({
+        where: { id },
+        data: {
+          vin: s(p.vin),
+          marca: s(p.marca),
+          model: s(p.model),
+          an: Number(p.an),
+          culoare: opt(p.culoare),
+          placute: s(p.placute).toUpperCase(),
+          driverId: opt(p.driverId),
+          driverNote: opt(p.driverNote),
+          combustibil: p.combustibil ?? null,
+          normaEuro: p.normaEuro ?? null,
+          status: p.status ?? 'ACTIV',
+          expItp: optDate(p.expItp),
+          expRca: optDate(p.expRca),
+          expRovi: optDate(p.expRovi),
+          expCasco: optDate(p.expCasco),
+          tiresChangedAt: winterTiresChangedAt ?? summerTiresChangedAt ?? null,
+          tiresGood: winterTiresGood ?? summerTiresGood ?? null,
+          winterTiresChangedAt,
+          winterTiresGood,
+          winterTireName,
+          winterTireDimensions,
+          summerTiresChangedAt,
+          summerTiresGood,
+          summerTireName,
+          summerTireDimensions,
+          rcaDecontareDirecta: p.rcaDecontareDirecta != null ? toBool(p.rcaDecontareDirecta) : false,
+        },
+        include: { driver: { select: { id: true, name: true } } },
+      });
+
+      for (const entry of tireHistoryEntries) {
+        await (tx as any).carTireHistory.create({
+          data: {
+            carId: id,
+            season: entry.season,
+            changedAt: entry.changedAt,
+            isGood: entry.isGood,
+            tireName: entry.tireName,
+            tireDimensions: entry.tireDimensions,
+          },
+        });
+      }
+
+      return result;
     });
 
     res.json(updated);
@@ -913,14 +1549,211 @@ app.put('/cars/:id', async (req, res) => {
   }
 });
 
+// POST /cars/:id/upload-document/:type
+app.post('/cars/:id/upload-document/:type', (req, res) => {
+  carDocumentUpload.single('file')(req, res, async (uploadError: any) => {
+    if (uploadError) {
+      if (uploadError instanceof multer.MulterError && uploadError.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Fișierul este prea mare. Limita este 50MB.' });
+      }
+      return res.status(400).json({ error: uploadError?.message || 'Nu am putut procesa fișierul' });
+    }
+
+    const { id } = req.params;
+    const docType = normalizeCarDocumentType(req.params.type);
+
+    if (!docType) {
+      if (req.file) removeCarUploadedFile(`/uploads/car-documents/${req.file.filename}`);
+      return res.status(400).json({ error: 'Tip document invalid. Folosește: RCA, CASCO, VINIETA, ITP' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Fișierul este obligatoriu' });
+    }
+
+    try {
+      const exists = await (prisma as any).car.findUnique({ where: { id } });
+      if (!exists) {
+        removeCarUploadedFile(`/uploads/car-documents/${req.file.filename}`);
+        return res.status(404).json({ error: 'Mașina nu a fost găsită' });
+      }
+
+      const documentField = carDocumentFieldForType(docType);
+      const oldPath = (exists as any)[documentField] as string | null;
+      const newPath = `/uploads/car-documents/${req.file.filename}`;
+
+      const updated = await (prisma as any).car.update({
+        where: { id },
+        data: { [documentField]: newPath },
+        include: { driver: { select: { id: true, name: true } } },
+      });
+
+      // Save to history instead of deleting old file
+      await (prisma as any).carDocumentHistory.create({
+        data: {
+          carId: id,
+          docType,
+          path: newPath,
+          filename: req.file.filename,
+        },
+      });
+
+      res.json(updated);
+    } catch (error: unknown) {
+      removeCarUploadedFile(`/uploads/car-documents/${req.file.filename}`);
+      console.error('POST /cars/:id/upload-document/:type error:', error);
+      res.status(500).json({ error: 'Nu am putut încărca documentul' });
+    }
+  });
+});
+
+// DELETE /cars/:id/document/:type
+app.delete('/cars/:id/document/:type', async (req, res) => {
+  const { id } = req.params;
+  const docType = normalizeCarDocumentType(req.params.type);
+
+  if (!docType) {
+    return res.status(400).json({ error: 'Tip document invalid. Folosește: RCA, CASCO, VINIETA, ITP' });
+  }
+
+  try {
+    const exists = await (prisma as any).car.findUnique({ where: { id } });
+    if (!exists) return res.status(404).json({ error: 'Mașina nu a fost găsită' });
+
+    const documentField = carDocumentFieldForType(docType);
+    const oldPath = (exists as any)[documentField] as string | null;
+
+    const updated = await (prisma as any).car.update({
+      where: { id },
+      data: { [documentField]: null },
+      include: { driver: { select: { id: true, name: true } } },
+    });
+
+    if (oldPath) removeCarUploadedFile(oldPath);
+    res.json(updated);
+  } catch (error: unknown) {
+    console.error('DELETE /cars/:id/document/:type error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge documentul' });
+  }
+});
+
+// GET /cars/:id/document-history
+app.get('/cars/:id/document-history', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const history = await (prisma as any).carDocumentHistory.findMany({
+      where: { carId: id },
+      orderBy: { uploadedAt: 'desc' },
+    });
+    res.json(history);
+  } catch (error: unknown) {
+    console.error('GET /cars/:id/document-history error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca istoricul documentelor' });
+  }
+});
+
+// GET /cars/:id/tire-history
+app.get('/cars/:id/tire-history', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const history = await (prisma as any).carTireHistory.findMany({
+      where: { carId: id },
+      orderBy: { replacedAt: 'desc' },
+    });
+    res.json(history);
+  } catch (error: unknown) {
+    console.error('GET /cars/:id/tire-history error:', error);
+    res.status(500).json({ error: 'Nu am putut încărca istoricul anvelopelor' });
+  }
+});
+
+// PUT /cars/:id/tire-history/:historyId
+app.put('/cars/:id/tire-history/:historyId', async (req, res) => {
+  const { id, historyId } = req.params;
+  const payload: CarTireHistoryPayload = req.body || {};
+
+  if (payload.season !== undefined && payload.season !== 'WINTER' && payload.season !== 'SUMMER') {
+    return res.status(400).json({ error: 'Sezon invalid. Folosește WINTER sau SUMMER.' });
+  }
+
+  try {
+    const entry = await (prisma as any).carTireHistory.findUnique({ where: { id: historyId } });
+    if (!entry || entry.carId !== id) {
+      return res.status(404).json({ error: 'Intrarea din istoric nu a fost găsită' });
+    }
+
+    const updated = await (prisma as any).carTireHistory.update({
+      where: { id: historyId },
+      data: {
+        season: payload.season ?? entry.season,
+        changedAt: payload.changedAt !== undefined ? optDate(payload.changedAt) : entry.changedAt,
+        isGood: payload.isGood !== undefined ? (payload.isGood == null ? null : toBool(payload.isGood)) : entry.isGood,
+        tireName: payload.tireName !== undefined ? opt(payload.tireName) : entry.tireName,
+        tireDimensions: payload.tireDimensions !== undefined ? opt(payload.tireDimensions) : entry.tireDimensions,
+        note: payload.note !== undefined ? opt(payload.note) : entry.note,
+      },
+    });
+
+    res.json(updated);
+  } catch (error: unknown) {
+    console.error('PUT /cars/:id/tire-history/:historyId error:', error);
+    res.status(500).json({ error: 'Nu am putut actualiza intrarea de anvelope' });
+  }
+});
+
+// DELETE /cars/:id/tire-history/:historyId
+app.delete('/cars/:id/tire-history/:historyId', async (req, res) => {
+  const { id, historyId } = req.params;
+
+  try {
+    const entry = await (prisma as any).carTireHistory.findUnique({ where: { id: historyId } });
+    if (!entry || entry.carId !== id) {
+      return res.status(404).json({ error: 'Intrarea din istoric nu a fost găsită' });
+    }
+
+    await (prisma as any).carTireHistory.delete({ where: { id: historyId } });
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    console.error('DELETE /cars/:id/tire-history/:historyId error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge intrarea de anvelope' });
+  }
+});
+
+// DELETE /cars/:id/document-history/:historyId
+app.delete('/cars/:id/document-history/:historyId', async (req, res) => {
+  const { historyId } = req.params;
+  try {
+    const entry = await (prisma as any).carDocumentHistory.findUnique({ where: { id: historyId } });
+    if (!entry) return res.status(404).json({ error: 'Înregistrare inexistentă' });
+    await (prisma as any).carDocumentHistory.delete({ where: { id: historyId } });
+    removeCarUploadedFile(entry.path);
+    res.json({ ok: true });
+  } catch (error: unknown) {
+    console.error('DELETE /cars/:id/document-history/:historyId error:', error);
+    res.status(500).json({ error: 'Nu am putut șterge înregistrarea' });
+  }
+});
+
 // DELETE /cars/:id
 app.delete('/cars/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const exists = await prisma.car.findUnique({ where: { id } });
+    const exists = await (prisma as any).car.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        itpDocument: true,
+        rcaDocument: true,
+        vinietaDocument: true,
+        cascoDocument: true,
+      },
+    });
     if (!exists) return res.status(404).json({ error: 'Mașina nu a fost găsită' });
 
     await prisma.car.delete({ where: { id } });
+    removeCarUploadedFile(exists.itpDocument);
+    removeCarUploadedFile(exists.rcaDocument);
+    removeCarUploadedFile(exists.vinietaDocument);
+    removeCarUploadedFile(exists.cascoDocument);
     res.status(204).send();
   } catch (error: unknown) {
     console.error('DELETE /cars/:id error:', error);

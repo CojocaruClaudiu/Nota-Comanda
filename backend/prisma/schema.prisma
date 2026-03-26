@@ -283,27 +283,78 @@ enum LeaveStatus {
 
 
 model Car {
-  id          String    @id @default(uuid())
-  vin         String    @unique
+  id          String     @id @default(uuid())
+  vin         String     @unique
   marca       String
   model       String
   an          Int
   culoare     String?
-  placute     String    @unique
+  placute     String     @unique
   driverId    String?
   driverNote  String?
   combustibil FuelType?
+  normaEuro   NormaEuro?
+  status      CarStatus  @default(ACTIV)
   expItp      DateTime?
   expRca      DateTime?
   expRovi     DateTime?
+  expCasco    DateTime?
+  tiresChangedAt DateTime?
+  tiresGood      Boolean? @default(true)
+  winterTiresChangedAt DateTime?
+  winterTiresGood      Boolean? @default(true)
+  winterTireName       String?
+  winterTireDimensions String?
+  summerTiresChangedAt DateTime?
+  summerTiresGood      Boolean? @default(true)
+  summerTireName       String?
+  summerTireDimensions String?
+  itpDocument     String?
+  rcaDocument     String?
+  vinietaDocument String?
+  cascoDocument   String?
   rcaDecontareDirecta Boolean? @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  driver      Employee? @relation(fields: [driverId], references: [id])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  driver      Employee?  @relation(fields: [driverId], references: [id])
+  documentHistory CarDocumentHistory[]
+  tireHistory CarTireHistory[]
 
   @@index([expItp])
   @@index([expRca])
   @@index([expRovi])
+  @@index([expCasco])
+  @@index([status])
+}
+
+model CarDocumentHistory {
+  id         String   @id @default(cuid())
+  carId      String
+  car        Car      @relation(fields: [carId], references: [id], onDelete: Cascade)
+  docType    String
+  path       String
+  filename   String
+  uploadedAt DateTime @default(now())
+
+  @@index([carId])
+  @@index([carId, docType])
+}
+
+model CarTireHistory {
+  id         String     @id @default(cuid())
+  carId      String
+  car        Car        @relation(fields: [carId], references: [id], onDelete: Cascade)
+  season     TireSeason
+  changedAt  DateTime?
+  isGood     Boolean?
+  tireName   String?
+  tireDimensions String?
+  note       String?
+  replacedAt DateTime   @default(now())
+
+  @@index([carId])
+  @@index([carId, season])
+  @@index([carId, replacedAt])
 }
 
 model User {
@@ -339,6 +390,25 @@ enum FuelType {
   HIBRID_BENZINA
   ELECTRIC
   ALT
+}
+
+enum NormaEuro {
+  EURO_3
+  EURO_4
+  EURO_5
+  EURO_6
+}
+
+enum CarStatus {
+  ACTIV
+  IN_REPARATIE
+  RETRAS
+  VANDUT
+}
+
+enum TireSeason {
+  WINTER
+  SUMMER
 }
 
 enum RoleName {

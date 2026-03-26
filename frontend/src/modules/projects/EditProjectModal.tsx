@@ -119,6 +119,14 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
       handleClose();
       successNotistack('Proiectul a fost actualizat cu succes!');
     } catch (e: any) {
+      // Check for 404 "not found" error - project was likely deleted
+      const status = e?.response?.status;
+      if (status === 404) {
+        handleClose();
+        errorNotistack('Proiectul nu a fost găsit. Reîncarcă lista de proiecte.');
+        return;
+      }
+      
       const msg = e?.message || 'Nu am putut actualiza proiectul';
       errorNotistack(msg);
     } finally {

@@ -31,6 +31,7 @@ import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
+import SecurityOutlinedIcon from '@mui/icons-material/SecurityOutlined';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DateCalendar, LocalizationProvider, PickersDay } from '@mui/x-date-pickers';
 import type { PickersDayProps } from '@mui/x-date-pickers/PickersDay';
@@ -47,8 +48,8 @@ dayjs.extend(isSameOrAfter);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(utc);
 
-type CarDocKey = 'expItp' | 'expRca' | 'expRovi';
-type DocColor = 'primary' | 'success' | 'warning';
+type CarDocKey = 'expItp' | 'expRca' | 'expRovi' | 'expCasco';
+type DocColor = 'primary' | 'success' | 'warning' | 'info';
 type Severity = 'all' | 'overdue' | 'next7' | 'next30';
 
 type EventItem = {
@@ -63,6 +64,7 @@ const DOCS: Record<CarDocKey, { label: string; color: DocColor; Icon: React.Elem
   expItp: { label: 'ITP', color: 'primary', Icon: FactCheckOutlinedIcon },
   expRca: { label: 'RCA', color: 'success', Icon: ShieldOutlinedIcon },
   expRovi: { label: 'Rovinieta', color: 'warning', Icon: MapOutlinedIcon },
+  expCasco: { label: 'CASCO', color: 'info', Icon: SecurityOutlinedIcon },
 };
 
 const SEVERITY_CHIPS: Array<{ key: Severity; label: string }> = [
@@ -171,7 +173,7 @@ export default function CarCalendarPage() {
   const [severity, setSeverity] = useLocalStorage<Severity>('carcal:severity', 'all');
   const [activeDocs, setActiveDocs] = useLocalStorage<Record<CarDocKey, boolean>>(
     'carcal:docs',
-    { expItp: true, expRca: true, expRovi: true },
+    { expItp: true, expRca: true, expRovi: true, expCasco: true },
   );
 
   useEffect(() => {
@@ -292,7 +294,7 @@ export default function CarCalendarPage() {
   const resetFilters = () => {
     setSearch('');
     setSeverity('all');
-    setActiveDocs({ expItp: true, expRca: true, expRovi: true });
+    setActiveDocs({ expItp: true, expRca: true, expRovi: true, expCasco: true });
     setSelectedDate(dayjs());
   };
 

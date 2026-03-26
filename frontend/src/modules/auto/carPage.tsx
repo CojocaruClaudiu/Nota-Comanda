@@ -21,7 +21,7 @@ import 'dayjs/locale/ro';
 import useNotistack from '../orders/hooks/useNotistack';
 import AddCarModal from './AddCarModal';
 import EditCarModal from './EditCarModal';
-import { getCars, deleteCar, type Car } from '../../api/cars';
+import { getCars, deleteCar, type Car, type NormaEuro, type CarStatus } from '../../api/cars';
 import { getEmployees, type EmployeeWithStats } from '../../api/employees';
 import { useConfirm } from '../common/confirm/ConfirmProvider';
 
@@ -45,6 +45,20 @@ const FUEL_OPTIONS: { value: FuelType; label: string }[] = [
   { value: 'HIBRID_BENZINA', label: 'Hibrid (Benzină)' },
   { value: 'ELECTRIC', label: 'Electric' },
   { value: 'ALT', label: 'Alt combustibil' },
+];
+
+const NORMA_EURO_OPTIONS: { value: NormaEuro; label: string }[] = [
+  { value: 'EURO_3', label: 'Euro 3' },
+  { value: 'EURO_4', label: 'Euro 4' },
+  { value: 'EURO_5', label: 'Euro 5' },
+  { value: 'EURO_6', label: 'Euro 6' },
+];
+
+const CAR_STATUS_OPTIONS: { value: CarStatus; label: string; color: 'success' | 'warning' | 'default' | 'error' }[] = [
+  { value: 'ACTIV', label: 'Activ', color: 'success' },
+  { value: 'IN_REPARATIE', label: 'În reparație', color: 'warning' },
+  { value: 'RETRAS', label: 'Retras', color: 'default' },
+  { value: 'VANDUT', label: 'Vândut', color: 'error' },
 ];
 
 // helpers date
@@ -132,7 +146,7 @@ const chipForRca = (iso?: string | null, days?: number | null, direct?: boolean 
   );
 };
 const urgency = (c: Car) => {
-  const arr = [daysLeft(c.expItp), daysLeft(c.expRca), daysLeft(c.expRovi)].filter(
+  const arr = [daysLeft(c.expItp), daysLeft(c.expRca), daysLeft(c.expRovi), daysLeft(c.expCasco)].filter(
     (x): x is number => typeof x === 'number',
   );
   return arr.length ? Math.min(...arr) : Number.POSITIVE_INFINITY;
@@ -153,7 +167,7 @@ const roLoc = {
   sortByColumnAsc: 'Sortează ascendent',
   sortByColumnDesc: 'Sortează descendent',
 };
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 100;
 
 export default function CarPage() {
   const { errorNotistack, successNotistack } = useNotistack();
@@ -197,16 +211,18 @@ export default function CarPage() {
   }, [load]);
 
   const expiryMeta = useMemo(() => {
-    const map = new Map<string, { itp?: number | null; rca?: number | null; rovi?: number | null; urgency: number }>();
+    const map = new Map<string, { itp?: number | null; rca?: number | null; rovi?: number | null; casco?: number | null; urgency: number }>();
     rows.forEach((r) => {
       const itp = daysLeft(r.expItp);
       const rca = daysLeft(r.expRca);
       const rovi = daysLeft(r.expRovi);
-      const list = [itp, rca, rovi].filter((x): x is number => typeof x === 'number');
+      const casco = daysLeft(r.expCasco);
+      const list = [itp, rca, rovi, casco].filter((x): x is number => typeof x === 'number');
       map.set(r.id, {
         itp,
         rca,
         rovi,
+        casco,
         urgency: list.length ? Math.min(...list) : Number.POSITIVE_INFINITY,
       });
     });
@@ -217,13 +233,15 @@ export default function CarPage() {
     let expired = 0;
     let dueSoon = 0;
     let healthy = 0;
+    let inactive = 0;
     rows.forEach((r) => {
+      if (r.status === 'RETRAS' || r.status === 'VANDUT') { inactive += 1; return; }
       const n = expiryMeta.get(r.id)?.urgency ?? Number.POSITIVE_INFINITY;
       if (n <= 0) expired += 1;
       else if (n <= 30) dueSoon += 1;
       else healthy += 1;
     });
-    return { total: rows.length, expired, dueSoon, healthy };
+    return { total: rows.length, expired, dueSoon, healthy, inactive };
   }, [rows, expiryMeta]);
 
   const columns = useMemo<MRT_ColumnDef<Car>[]>(() => [
@@ -301,8 +319,43 @@ export default function CarPage() {
         const db = expiryMeta.get(b.original.id)?.rovi ?? Number.POSITIVE_INFINITY;
         return da - db;
       },
+    },    {
+      id: 'casco',
+      header: 'CASCO',
+      size: 160,
+      enableSorting: true,
+      accessorFn: (row) => expiryLabel(expiryMeta.get(row.id)?.casco ?? null),
+      Cell: ({ row }) => chipFor('CASCO', row.original.expCasco, expiryMeta.get(row.original.id)?.casco ?? null),
+      sortingFn: (a, b) => {
+        const da = expiryMeta.get(a.original.id)?.casco ?? Number.POSITIVE_INFINITY;
+        const db = expiryMeta.get(b.original.id)?.casco ?? Number.POSITIVE_INFINITY;
+        return da - db;
+      },
     },
-    // hidden for default sort
+    {
+      accessorKey: 'normaEuro',
+      header: 'Normă Euro',
+      size: 130,
+      Cell: ({ cell }) => {
+        const v = cell.getValue<NormaEuro | null>();
+        return NORMA_EURO_OPTIONS.find((o) => o.value === v)?.label ?? '—';
+      },
+      filterVariant: 'select',
+      filterSelectOptions: NORMA_EURO_OPTIONS.map((o) => ({ label: o.label, value: o.value })),
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      size: 140,
+      Cell: ({ cell }) => {
+        const v = cell.getValue<CarStatus | null>();
+        const opt = CAR_STATUS_OPTIONS.find((o) => o.value === v);
+        if (!opt) return <Chip size="small" label="—" />;
+        return <Chip size="small" label={opt.label} color={opt.color} />;
+      },
+      filterVariant: 'select',
+      filterSelectOptions: CAR_STATUS_OPTIONS.map((o) => ({ label: o.label, value: o.value })),
+    },    // hidden for default sort
     { id: 'urgent', header: 'Urgent', accessorFn: (r) => expiryMeta.get(r.id)?.urgency ?? Number.POSITIVE_INFINITY, enableHiding: true, enableColumnFilter: false, size: 1 },
   ], [expiryMeta]);
 
@@ -369,9 +422,10 @@ export default function CarPage() {
     columns,
     data,
     getRowId: (r) => r.id,
-    state: { isLoading: loading, pagination, showGlobalFilter: true },
+    state: { isLoading: loading, pagination },
     onPaginationChange: setPagination,
     initialState: {
+      showGlobalFilter: true,
       sorting: [{ id: 'urgent', desc: false }],
       density: 'compact',
       pagination: { pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE },
@@ -458,6 +512,9 @@ export default function CarPage() {
             <Chip size="small" color="error" variant="outlined" label={`Expirate: ${fleetSummary.expired}`} />
             <Chip size="small" color="warning" variant="outlined" label={`≤30 zile: ${fleetSummary.dueSoon}`} />
             <Chip size="small" color="success" variant="outlined" label={`OK: ${fleetSummary.healthy}`} />
+            {fleetSummary.inactive > 0 && (
+              <Chip size="small" variant="outlined" label={`Inactive: ${fleetSummary.inactive}`} />
+            )}
           </Stack>
         </Stack>
 

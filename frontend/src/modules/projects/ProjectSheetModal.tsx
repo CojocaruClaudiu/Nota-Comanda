@@ -101,60 +101,78 @@ const ProjectSheetModal: React.FC<ProjectSheetModalProps> = ({
   const [showFisaOperatie, setShowFisaOperatie] = useState(false);
   const [selectedOperationForFisa, setSelectedOperationForFisa] = useState<ProjectSheetOperation | null>(null);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const projectId = devizLine?.projectId;
+  const devizLineId = devizLine?.id;
+
+  const resetSheetState = useCallback(() => {
+    setInitiationDate(null);
+    setEstimatedStartDate(null);
+    setEstimatedEndDate(null);
+    setStandardMarkup(0);
+    setStandardDiscount(0);
+    setIndirectCosts(0);
+    setOperations([]);
+  }, []);
 
   // Load existing project sheet data when modal opens
   useEffect(() => {
-    if (open && devizLine) {
-      // reset visible state immediately to avoid flicker when switching lines or opening
-      setInitiationDate(null);
-      setEstimatedStartDate(null);
-      setEstimatedEndDate(null);
-      setStandardMarkup(0);
-      setStandardDiscount(0);
-      setIndirectCosts(0);
-      setOperations([]);
-      const loadData = async () => {
-        try {
-          setLoading(true);
-          const sheet = await fetchProjectSheet(devizLine.projectId, devizLine.id);
-          
-          // Populate form with existing data
-          setInitiationDate(sheet.initiationDate ? dayjs(sheet.initiationDate) : null);
-          setEstimatedStartDate(sheet.estimatedStartDate ? dayjs(sheet.estimatedStartDate) : null);
-          setEstimatedEndDate(sheet.estimatedEndDate ? dayjs(sheet.estimatedEndDate) : null);
-          setStandardMarkup(sheet.standardMarkupPercent ?? 0);
-          setStandardDiscount(sheet.standardDiscountPercent ?? 0);
-          setIndirectCosts(sheet.indirectCostsPercent ?? 0);
-          setOperations(sheet.operations?.map(op => ({
-            ...op,
-            id: op.id || `temp_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-          })) || []);
-        } catch (error: unknown) {
-          // If 404, it means no sheet exists yet - that's OK, start fresh
-          if (error && typeof error === 'object' && 'response' in error) {
-            const axiosError = error as { response?: { status?: number } };
-            if (axiosError.response?.status !== 404) {
-              console.error('Error loading project sheet:', error);
-            }
-          } else {
-            console.error('Unexpected error loading project sheet:', error);
+    if (!open || !projectId || !devizLineId) {
+      // Keep modal in a stable pre-load state while closed.
+      resetSheetState();
+      setLoading(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Ensure we never show stale values from a previous open.
+    resetSheetState();
+    setLoading(true);
+
+    const loadData = async () => {
+      try {
+        const sheet = await fetchProjectSheet(projectId, devizLineId);
+        if (cancelled) return;
+
+        // Populate form with existing data
+        setInitiationDate(sheet.initiationDate ? dayjs(sheet.initiationDate) : null);
+        setEstimatedStartDate(sheet.estimatedStartDate ? dayjs(sheet.estimatedStartDate) : null);
+        setEstimatedEndDate(sheet.estimatedEndDate ? dayjs(sheet.estimatedEndDate) : null);
+        setStandardMarkup(sheet.standardMarkupPercent ?? 0);
+        setStandardDiscount(sheet.standardDiscountPercent ?? 0);
+        setIndirectCosts(sheet.indirectCostsPercent ?? 0);
+        setOperations(sheet.operations?.map(op => ({
+          ...op,
+          id: op.id || `temp_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        })) || []);
+      } catch (error: unknown) {
+        if (cancelled) return;
+
+        // If 404, it means no sheet exists yet - that's OK, start fresh
+        if (error && typeof error === 'object' && 'response' in error) {
+          const axiosError = error as { response?: { status?: number } };
+          if (axiosError.response?.status !== 404) {
+            console.error('Error loading project sheet:', error);
           }
-          // Reset to empty state
-          setInitiationDate(null);
-          setEstimatedStartDate(null);
-          setEstimatedEndDate(null);
-          setStandardMarkup(0);
-          setStandardDiscount(0);
-          setIndirectCosts(0);
-          setOperations([]);
-        } finally {
+        } else {
+          console.error('Unexpected error loading project sheet:', error);
+        }
+
+        resetSheetState();
+      } finally {
+        if (!cancelled) {
           setLoading(false);
         }
-      };
-      loadData();
-    }
-  }, [open, devizLine]);
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, projectId, devizLineId, resetSheetState]);
 
   useEffect(() => {
     if (!open || !devizLine?.projectId) {

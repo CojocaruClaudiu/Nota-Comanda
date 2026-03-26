@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import useNotistack from "../orders/hooks/useNotistack";
+import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
+import FloatingAssistantChat from '../assistant/FloatingAssistantChat';
 
 import './TopBar.css';
 
@@ -25,6 +27,7 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
   const { successNotistack } = useNotistack();
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const firstMenuItemRef = useRef<HTMLButtonElement | null>(null);
@@ -110,6 +113,15 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
           {/* Right cluster */}
           <div className="topbar__right">
 
+            <button
+              className="topbar__iconBtn"
+              onClick={() => setAssistantOpen(true)}
+              aria-label="Deschide asistentul AI"
+              title="Asistent AI"
+            >
+              <SmartToyOutlinedIcon fontSize="small" />
+            </button>
+
 
             {user ? (
               <div className="topbar__user" ref={menuRef}>
@@ -188,6 +200,7 @@ const TopBar: React.FC<TopBarProps> = ({ title = 'Nota Comandă', onLogoClick })
           </div>
         </div>
       </header>
+      <FloatingAssistantChat open={assistantOpen} onClose={() => setAssistantOpen(false)} />
     </>
   );
 };
